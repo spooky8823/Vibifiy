@@ -196,7 +196,7 @@ Vibifiy uses GitHub Actions to automate building, testing, releasing, and deploy
 
 The repository uses a central workflow to determine which projects have changed and run only the workflows that are relevant to those changes.
 
-[```text
+```text
                      Push / Pull Request
                              |
                              v
@@ -209,7 +209,7 @@ The repository uses a central workflow to determine which projects have changed 
              |               |               |
              v               v               v
         Build & Release   Build App      Deploy Pages
-```](https://github.com/spooky8823/Vibifiy/blob/main/readmeimage.png?raw=true)
+```
 
 This keeps the monorepo efficient while allowing each project to maintain its own build process.
 
