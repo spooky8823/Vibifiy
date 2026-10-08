@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>VibiPass - Welcome</title>
+    <style>
+        :root { --accent: #1DB954; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: url('../assets/theme/Green/password_manager_theme_background_green.jpg') no-repeat center center fixed;
+            background-size: cover;
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex; justify-content: center; align-items: center;
+            height: 100vh; overflow: hidden;
+        }
+        body::before {
+            content: ''; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.55); backdrop-filter: blur(3px); z-index: 0;
+        }
+        .landing-box {
+            position: relative; z-index: 1; text-align: center;
+            animation: fadeUp 0.8s ease;
+        }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+        .logo-ring {
+            width: 80px; height: 80px; border-radius: 50%;
+            background: var(--accent); margin: 0 auto 28px;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 40px rgba(29,185,84,0.5);
+            animation: pulse 2.5s ease-in-out infinite;
+        }
+        @keyframes pulse { 0%,100%{ box-shadow: 0 0 30px rgba(29,185,84,0.4); } 50%{ box-shadow: 0 0 60px rgba(29,185,84,0.8); } }
+        .logo-ring svg { width: 40px; height: 40px; fill: #000; }
+        h1 {
+            font-size: 3.5rem; font-weight: 800; letter-spacing: -1px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #fff 40%, var(--accent));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .tagline {
+            font-size: 1rem; color: rgba(255,255,255,0.5);
+            letter-spacing: 2px; text-transform: uppercase;
+            margin-bottom: 50px;
+        }
+        .cta-btn {
+            display: inline-block;
+            background: var(--accent); color: #000;
+            border: none; padding: 18px 40px;
+            border-radius: 50px; font-size: 1rem;
+            font-weight: 700; cursor: pointer; letter-spacing: 0.5px;
+            box-shadow: 0 0 30px rgba(29,185,84,0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+            text-decoration: none;
+        }
+        .cta-btn:hover { transform: scale(1.05); box-shadow: 0 0 50px rgba(29,185,84,0.7); }
+        .cta-btn:active { transform: scale(0.98); }
+        .footer-note {
+            margin-top: 30px; font-size: 0.78rem;
+            color: rgba(255,255,255,0.3); letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+    <div class="landing-box">
+        <div class="logo-ring">
+            <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+        </div>
+        <h1>VibiPass</h1>
+        <p class="tagline">Your personal secure vault</p>
+        <button class="cta-btn" id="cta-btn" style="display:none" onclick="window.location.href='signup.html'">
+            Start storing your precious sensitive data in the vault
+        </button>
+        <p class="footer-note">One profile. Total privacy. Always yours.</p>
+    </div>
+    <script>
+        function checkProfile() {
+            try {
+                if(localStorage.getItem('vibipass_profile')) {
+                    window.location.href = 'auth.html';
+                } else {
+                    // No profile — show the button
+                    document.getElementById('cta-btn').style.display = 'inline-block';
+                }
+            } catch(e) {
+                // Shim not ready yet, retry
+                setTimeout(checkProfile, 100);
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => setTimeout(checkProfile, 1500));
+    </script>
+</body>
+</html>

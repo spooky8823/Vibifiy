@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>VibiPass - Credentials</title>
+    <style>
+        :root {
+            --accent: #1DB954;
+            --icon-filter: invert(59%) sepia(72%) saturate(422%) hue-rotate(95deg) brightness(95%) contrast(90%);
+            --del-filter: invert(35%) sepia(90%) saturate(600%) hue-rotate(330deg) brightness(110%) contrast(95%);
+        }
+        * { box-sizing: border-box; }
+        body { margin:0; background:#000 no-repeat center center fixed; background-size:cover; color:white; font-family:'Segoe UI',sans-serif; height:100vh; overflow:hidden; display:flex; }
+        #sidebar { position:fixed; left:-260px; top:0; width:250px; height:100%; background:rgba(0,0,0,0.88); backdrop-filter:blur(20px); border-right:1px solid var(--accent); transition:0.4s cubic-bezier(0.4,0,0.2,1); z-index:1000; display:flex; flex-direction:column; padding-top:100px; }
+        #sidebar.open { left:0; }
+        .sidebar-link { text-decoration:none; color:rgba(255,255,255,0.72); padding:15px 30px; border-left:4px solid transparent; transition:0.3s; display:flex; align-items:center; gap:12px; font-size:0.95rem; }
+        .sidebar-link.active { border-left:4px solid var(--accent); background:rgba(255,255,255,0.05); color:var(--accent); }
+        .sidebar-link:hover:not(.active) { background:rgba(255,255,255,0.04); color:white; }
+        .sidebar-icon-img { width:20px; height:20px; object-fit:contain; filter:var(--icon-filter); flex-shrink:0; }
+        .menu-toggle { position:fixed; top:25px; left:25px; z-index:1100; cursor:pointer; background:rgba(0,0,0,0.65); padding:10px; border-radius:8px; border:1px solid var(--accent); display:flex; flex-direction:column; gap:5px; transition:box-shadow 0.2s; }
+        .menu-toggle:hover { box-shadow:0 0 14px var(--accent); }
+        .bar { width:25px; height:3px; background:var(--accent); border-radius:2px; }
+        .wrapper { flex:1; display:flex; flex-direction:column; width:100%; }
+        .top-nav { display:flex; justify-content:center; padding:30px; }
+        #search-bar { width:50%; padding:14px 25px; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.15); backdrop-filter:blur(10px); border-radius:30px; color:white; outline:none; font-size:0.95rem; transition:border-color 0.2s; }
+        #search-bar:focus { border-color:var(--accent); }
+        #search-bar::placeholder { color:rgba(255,255,255,0.35); }
+        .main-content { padding:20px 40px 40px; height:calc(100vh - 110px); overflow-y:auto; }
+        #big-plus { width:58px; height:58px; border-radius:50%; background:var(--accent); border:none; font-size:32px; cursor:pointer; margin-bottom:22px; color:#000; font-weight:bold; transition:transform 0.2s,box-shadow 0.2s; display:flex; align-items:center; justify-content:center; }
+        #big-plus:hover { transform:scale(1.1); box-shadow:0 0 20px var(--accent); }
+        .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:25px; }
+        .card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-top:3px solid var(--accent); border-radius:15px; padding:25px; backdrop-filter:blur(15px); position:relative; transition:box-shadow 0.2s; }
+        .card:hover { box-shadow:0 0 20px rgba(0,0,0,0.3); }
+        .card-actions { position:absolute; top:14px; right:14px; display:none; gap:10px; align-items:center; }
+        .card-action-btn { width:32px; height:32px; border-radius:8px; border:none; background:rgba(255,255,255,0.06); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s,transform 0.15s; padding:0; }
+        .card-action-btn:hover { transform:scale(1.1); }
+        .card-action-btn.edit-btn:hover { background:rgba(29,185,84,0.15); }
+        .card-action-btn.del-btn:hover { background:rgba(255,60,60,0.18); }
+        .card-action-btn img { width:18px; height:18px; object-fit:contain; display:block; }
+        .card-action-btn.edit-btn img { filter:var(--icon-filter); }
+        .card-action-btn.del-btn img { filter:var(--del-filter); }
+        .add-btn { background:var(--accent); color:black; border:none; padding:11px; border-radius:30px; font-weight:bold; cursor:pointer; width:100%; margin-top:15px; font-size:0.9rem; transition:opacity 0.2s; }
+        .add-btn:hover { opacity:0.85; }
+        .modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.88); backdrop-filter:blur(6px); justify-content:center; align-items:center; z-index:2000; }
+        .modal-content { background:rgba(12,18,12,0.97); border:1px solid var(--accent); padding:35px; width:560px; border-radius:16px; }
+        input { width:100%; padding:12px 14px; margin-bottom:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); color:white; border-radius:9px; outline:none; font-size:0.93rem; transition:border-color 0.2s; }
+        input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(29,185,84,0.1); }
+        input::placeholder { color:rgba(255,255,255,0.28); }
+        .field-row { display:flex; gap:10px; margin-bottom:10px; }
+        .captcha-block { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:14px; margin-bottom:12px; }
+        .captcha-block p { font-size:0.68rem; color:rgba(255,255,255,0.35); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:10px; text-align:center; }
+        #captcha-svg { width:280px; height:72px; margin:0 auto; border-radius:8px; overflow:hidden; }
+        .captcha-input-row { display:flex; gap:8px; margin-top:10px; align-items:center; }
+        .captcha-input-row input { flex:1; margin-bottom:0; letter-spacing:3px; font-weight:600; font-size:1rem; }
+        .refresh-btn { flex-shrink:0; width:42px; height:42px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:rgba(255,255,255,0.5); border-radius:9px; cursor:pointer; font-size:1.1rem; display:flex; align-items:center; justify-content:center; transition:border-color 0.2s,color 0.2s; }
+        .refresh-btn:hover { border-color:var(--accent); color:var(--accent); }
+        .loading-msg { font-size:0.82rem; color:var(--accent); margin-top:8px; text-align:center; display:none; }
+    </style>
+</head>
+<body>
+    <div class="menu-toggle" onclick="toggleSidebar()">
+        <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    </div>
+    <div id="sidebar">
+        <a href="cred.html" class="sidebar-link active">
+            <img class="sidebar-icon-img" src="../assets/theme/Red/credentials.png" onerror="this.style.display='none'">
+            Credentials
+        </a>
+        <a href="setting.html" class="sidebar-link">
+            <img class="sidebar-icon-img" src="../assets/theme/Red/settings.png" onerror="this.style.display='none'">
+            Settings
+        </a>
+    </div>
+    <div class="wrapper">
+        <nav class="top-nav">
+            <input type="text" id="search-bar" onkeyup="filterCards()" placeholder="Search vault...">
+        </nav>
+        <div class="main-content">
+            <button id="big-plus" onclick="openAddModal()">+</button>
+            <h1 style="font-style:italic;font-weight:300;margin-bottom:25px;">Credentials</h1>
+            <div class="grid" id="card-grid"></div>
+        </div>
+    </div>
+    <!-- Entry Modal -->
+    <div id="entry-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="color:var(--accent);margin-bottom:20px;">Secure Entry</h2>
+            <input type="text" id="usage-name" placeholder="Application Name">
+            <div id="field-area" style="max-height:250px;overflow-y:auto;"></div>
+            <button onclick="addNewFieldRow()" style="background:none;border:1px dashed rgba(255,255,255,0.2);color:rgba(255,255,255,0.5);padding:10px;cursor:pointer;width:100%;margin-top:10px;border-radius:8px;">
+                + Add Field
+            </button>
+            <div style="margin-top:20px;display:flex;gap:10px;">
+                <button class="add-btn" onclick="saveEntry()">Save</button>
+                <button onclick="closeModal('entry-modal')" class="add-btn" style="background:rgba(255,255,255,0.1);color:white;">Cancel</button>
+            </div>
+        </div>
+    </div>
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="modal">
+        <div class="modal-content" style="width:430px;">
+            <h2 style="color:var(--accent);text-align:center;margin-bottom:20px;">Verify Identity</h2>
+            <input type="password" id="pass-app" placeholder="Master Password">
+            <input type="password" id="pass-dev" placeholder="Device Password">
+            <div class="captcha-block">
+                <p>Type the distorted characters</p>
+                <div id="captcha-svg" style="width:280px;height:72px;margin:0 auto;border-radius:8px;overflow:hidden;"></div>
+                <div class="captcha-input-row">
+                    <input type="text" id="captcha-input" placeholder="Enter characters" autocomplete="off" maxlength="6">
+                    <button class="refresh-btn" onclick="generateCaptcha()">↺</button>
+                </div>
+            </div>
+            <div class="loading-msg" id="verify-loading">?? Verifying...</div>
+            <button id="verify-btn" onclick="verify()" class="add-btn">Confirm</button>
+            <button onclick="closeModal('auth-modal')" class="add-btn" style="background:rgba(255,255,255,0.1);color:white;margin-top:8px;">Cancel</button>
+        </div>
+    </div>
+    <script>
+        // ---- CRYPTO UTILS ----
+        const VCrypto = (() => {
+            const PBKDF2_ITERATIONS = 100000;
+            const SALT_LEN = 16;
+            const IV_LEN = 12;
+            function bufToHex(buf) { return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join(''); }
+            function hexToBuf(hex) { const b = new Uint8Array(hex.length/2); for(let i=0;i<hex.length;i+=2) b[i/2]=parseInt(hex.substr(i,2),16); return b.buffer; }
+            async function deriveKey(password, saltBuf) {
+                const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), {name:'PBKDF2'}, false, ['deriveKey']);
+                return crypto.subtle.deriveKey({name:'PBKDF2',salt:saltBuf,iterations:PBKDF2_ITERATIONS,hash:'SHA-256'}, km, {name:'AES-GCM',length:256}, false, ['encrypt','decrypt']);
+            }
+            async function verifyPassword(password, stored) {
+                const [saltHex, hashHex] = stored.split(':');
+                const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), {name:'PBKDF2'}, false, ['deriveBits']);
+                const hash = await crypto.subtle.deriveBits({name:'PBKDF2',salt:hexToBuf(saltHex),iterations:PBKDF2_ITERATIONS,hash:'SHA-256'}, km, 256);
+                return bufToHex(hash) === hashHex;
+            }
+            async function encryptData(plaintext, password) {
+                const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
+                const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
+                const key = await deriveKey(password, salt);
+                const cipher = await crypto.subtle.encrypt({name:'AES-GCM',iv}, key, new TextEncoder().encode(plaintext));
+                return bufToHex(salt.buffer) + ':' + bufToHex(iv.buffer) + ':' + bufToHex(cipher);
+            }
+            async function decryptData(stored, password) {
+                const [saltHex, ivHex, cipherHex] = stored.split(':');
+                const key = await deriveKey(password, hexToBuf(saltHex));
+                const plain = await crypto.subtle.decrypt({name:'AES-GCM',iv:hexToBuf(ivHex)}, key, hexToBuf(cipherHex));
+                return new TextDecoder().decode(plain);
+            }
+            return { verifyPassword, encryptData, decryptData };
+        })();
+        if(!localStorage.getItem('vibipass_profile')) window.location.href = 'landing.html';
+        const THEME_MAP = {
+            'baby_pink': {folder:'Baby_Pink', color:'#ff80ab'},
+            'black': {folder:'Black', color:'#aaaaaa'},
+            'cyan': {folder:'Cyan', color:'#00e5ff'},
+            'dark_blue': {folder:'Dark_Blue', color:'#4488ff'},
+            'green': {folder:'Green', color:'#1DB954'},
+            'orange': {folder:'Orange', color:'#ff8c00'},
+            'purple': {folder:'Purple', color:'#bb86fc'},
+            'red': {folder:'Red', color:'#ff4444'},
+            'yellow': {folder:'Yellow', color:'#ffd600'},
+        };
+        const ICON_FILTERS = {
+            '#ff80ab': 'invert(66%) sepia(60%) saturate(400%) hue-rotate(295deg) brightness(110%) contrast(95%)',
+            '#aaaaaa': 'invert(70%) sepia(0%) saturate(0%) brightness(100%)',
+            '#00e5ff': 'invert(77%) sepia(90%) saturate(500%) hue-rotate(155deg) brightness(105%) contrast(100%)',
+            '#4488ff': 'invert(40%) sepia(80%) saturate(500%) hue-rotate(205deg) brightness(110%) contrast(95%)',
+            '#1DB954': 'invert(59%) sepia(72%) saturate(422%) hue-rotate(95deg) brightness(95%) contrast(90%)',
+            '#ff8c00': 'invert(55%) sepia(90%) saturate(500%) hue-rotate(10deg) brightness(110%) contrast(95%)',
+            '#bb86fc': 'invert(60%) sepia(40%) saturate(600%) hue-rotate(230deg) brightness(110%) contrast(90%)',
+            '#ff4444': 'invert(35%) sepia(90%) saturate(600%) hue-rotate(330deg) brightness(110%) contrast(95%)',
+            '#ffd600': 'invert(85%) sepia(80%) saturate(500%) hue-rotate(10deg) brightness(105%) contrast(100%)',
+        };
+        let currentCard = null, authMode = '', captchaText = '';
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        function applyTheme() {
+            const key = localStorage.getItem('sentinel_img') || 'green';
+            const theme = THEME_MAP[key] || THEME_MAP['green'];
+            const color = localStorage.getItem('sentinel_color') || theme.color;
+            document.documentElement.style.setProperty('--accent', color);
+            document.documentElement.style.setProperty('--icon-filter', ICON_FILTERS[color] || ICON_FILTERS['#1DB954']);
+            document.documentElement.style.setProperty('--del-filter', 'invert(35%) sepia(90%) saturate(600%) hue-rotate(330deg) brightness(110%) contrast(95%)');
+            document.body.style.backgroundImage = `url('../assets/theme/${theme.folder}/password_manager_theme_background_${key}.jpg')`;
+        }
+        function getSessionKey() { return sessionStorage.getItem('vp_session_key'); }
+        const CAPTCHA_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        function generateCaptcha() {
+            captchaText = Array.from({length:6}, () => CAPTCHA_CHARS[Math.floor(Math.random()*CAPTCHA_CHARS.length)]).join('');
+            document.getElementById('captcha-input').value = '';
+            const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1DB954';
+            const colors = [accent,'#ffffff','#dddddd','#bbbbbb'];
+            let svg=`<svg xmlns="http://www.w3.org/2000/svg" width="280" height="72" style="background:rgba(10,20,10,0.9);">`;
+            for(let i=0;i<80;i++){const x=Math.random()*280,y=Math.random()*72;svg+=`<circle cx="${x}" cy="${y}" r="1" fill="${colors[Math.floor(Math.random()*colors.length)]}" opacity="0.3"/>`;}
+            for(let i=0;i<4;i++){const x1=Math.random()*280,y1=Math.random()*72,x2=Math.random()*280,y2=Math.random()*72;svg+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(100,200,100,0.15)" stroke-width="1.5"/>`;}
+            captchaText.split('').forEach((ch,i)=>{
+                const x=24+i*40,y=40+(Math.random()-0.5)*10,rot=(Math.random()-0.5)*25,size=24+Math.floor(Math.random()*8);
+                const color=colors[Math.floor(Math.random()*colors.length)],skewX=(Math.random()-0.5)*15;
+                svg+=`<text x="${x}" y="${y}" font-family="monospace" font-size="${size}" font-weight="bold" fill="${color}" transform="rotate(${rot},${x},${y}) skewX(${skewX})" style="user-select:none">${ch}</text>`;
+            });
+            for(let i=0;i<5;i++){const x1=Math.random()*280,y1=Math.random()*72,x2=Math.random()*280,y2=Math.random()*72;svg+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(180,180,180,0.18)" stroke-width="1.5"/>`;}
+            svg+=`</svg>`;
+            const img=document.createElement('img');
+            img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+            img.width=280;img.height=72;img.style.borderRadius='8px';img.style.display='block';img.style.margin='0 auto';
+            const c=document.getElementById('captcha-svg');c.innerHTML='';c.appendChild(img);
+        }
+        window.onload = async () => {
+            applyTheme();
+            const key = getSessionKey();
+            if(!key) { window.location.href = 'auth.html'; return; }
+            const encrypted = localStorage.getItem('sentinel_vault');
+            if(encrypted) {
+                try {
+                    const decrypted = await VCrypto.decryptData(encrypted, key);
+                    JSON.parse(decrypted).forEach(c => createCardUI(c.name, c.fields));
+                } catch(e) { console.warn('Could not decrypt vault', e); }
+            }
+        };
+        function openAddModal() {
+            currentCard = null;
+            document.getElementById('usage-name').value = '';
+            document.getElementById('field-area').innerHTML = '';
+            addNewFieldRow();
+            document.getElementById('entry-modal').style.display = 'flex';
+        }
+        function addNewFieldRow(k='', v='') {
+            const row = document.createElement('div');
+            row.className = 'field-row';
+            row.innerHTML = `
+                <input type="text" placeholder="Label" class="f-label" value="${k}" style="flex:1;margin-bottom:0;">
+                <input type="text" placeholder="Value" class="f-value" value="${v}" style="flex:2;margin-bottom:0;">
+                <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#ff4d4d;cursor:pointer;font-size:1.3rem;padding:0 6px;flex-shrink:0;">
+                    <img src="../assets/theme/Red/remove_field.png" style="width:16px;height:16px;object-fit:contain;filter:var(--del-filter);" onerror="this.parentElement.innerHTML='\D7';">
+                </button>`;
+            document.getElementById('field-area').appendChild(row);
+        }
+        async function saveEntry() {
+            const name = document.getElementById('usage-name').value;
+            const fields = Array.from(document.querySelectorAll('.field-row'))
+                .map(r => ({k: r.querySelector('.f-label').value, v: r.querySelector('.f-value').value}))
+                .filter(f => f.k && f.v);
+            if(!name || fields.length === 0) return;
+            if(currentCard) currentCard.remove();
+            createCardUI(name, fields);
+            await saveToVault();
+            closeModal('entry-modal');
+        }
+        function createCardUI(name, fields) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.dataset.fields = JSON.stringify(fields);
+            card.innerHTML = `
+                <div class="card-actions">
+                    <button class="card-action-btn edit-btn" onclick="triggerAuth(this,'edit')" title="Edit">
+                        <img src="../assets/theme/Red/edit.png" onerror="this.src='';this.parentElement.innerHTML='??';">
+                    </button>
+                    <button class="card-action-btn del-btn" onclick="triggerAuth(this,'delete')" title="Delete">
+                        <img src="../assets/theme/Red/delete.png" onerror="this.src='';this.parentElement.innerHTML='???';">
+                    </button>
+                </div>
+                <h3 style="margin-bottom:5px;padding-right:80px;">${name}</h3>
+                <div class="data-display" style="display:none;margin-top:12px;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;"></div>
+                <button class="add-btn toggle-btn" onclick="handleCardToggle(this)">Reveal Details</button>`;
+            document.getElementById('card-grid').appendChild(card);
+        }
+        function handleCardToggle(btn) {
+            const card = btn.closest('.card');
+            if(card.querySelector('.data-display').style.display === 'none') triggerAuth(btn, 'reveal');
+            else {
+                card.querySelector('.data-display').style.display = 'none';
+                card.querySelector('.card-actions').style.display = 'none';
+                btn.innerText = 'Reveal Details';
+            }
+        }
+        function triggerAuth(el, mode) {
+            authMode = mode;
+            currentCard = el.closest('.card');
+            document.getElementById('pass-app').value = '';
+            document.getElementById('pass-dev').value = '';
+            generateCaptcha();
+            document.getElementById('auth-modal').style.display = 'flex';
+        }
+        async function verify() {
+            const p1 = document.getElementById('pass-app').value;
+            const p2 = document.getElementById('pass-dev').value;
+            const cp = document.getElementById('captcha-input').value.toUpperCase().replace(/\s/g,'');
+            const storedApp = localStorage.getItem('sentinel_app_pass');
+            const storedDev = localStorage.getItem('sentinel_dev_pass');
+            document.getElementById('verify-btn').disabled = true;
+            document.getElementById('verify-loading').style.display = 'block';
+            try {
+                const appOk = await VCrypto.verifyPassword(p1, storedApp);
+                const devOk = await VCrypto.verifyPassword(p2, storedDev);
+                if(appOk && devOk && cp === captchaText) {
+                    closeModal('auth-modal');
+                    if(authMode === 'reveal') {
+                        const fields = JSON.parse(currentCard.dataset.fields);
+                        currentCard.querySelector('.data-display').innerHTML = fields.map(f =>
+                            `<p style="margin:7px 0;"><small style="color:var(--accent);font-size:0.72rem;letter-spacing:1px;text-transform:uppercase;">${f.k}</small><br><span style="font-size:0.95rem;">${f.v}</span></p>`
+                        ).join('');
+                        currentCard.querySelector('.data-display').style.display = 'block';
+                        currentCard.querySelector('.card-actions').style.display = 'flex';
+                        currentCard.querySelector('.toggle-btn').innerText = 'Hide Details';
+                    } else if(authMode === 'delete') {
+                        currentCard.remove();
+                        await saveToVault();
+                    } else if(authMode === 'edit') {
+                        const fields = JSON.parse(currentCard.dataset.fields);
+                        document.getElementById('usage-name').value = currentCard.querySelector('h3').innerText;
+                        document.getElementById('field-area').innerHTML = '';
+                        fields.forEach(f => addNewFieldRow(f.k, f.v));
+                        document.getElementById('entry-modal').style.display = 'flex';
+                    }
+                } else {
+                    generateCaptcha();
+                    document.getElementById('captcha-input').value = '';
+                    alert('Authentication failed. Please try again.');
+                }
+            } finally {
+                document.getElementById('verify-btn').disabled = false;
+                document.getElementById('verify-loading').style.display = 'none';
+            }
+        }
+        async function saveToVault() {
+            const key = getSessionKey();
+            if(!key) { console.error('No session key'); return; }
+            const data = Array.from(document.querySelectorAll('.card')).map(c => ({
+                name: c.querySelector('h3').innerText,
+                fields: JSON.parse(c.dataset.fields)
+            }));
+            const encrypted = await VCrypto.encryptData(JSON.stringify(data), key);
+            localStorage.setItem('sentinel_vault', encrypted);
+        }
+        function filterCards() {
+            const q = document.getElementById('search-bar').value.toLowerCase();
+            document.querySelectorAll('.card').forEach(c =>
+                c.style.display = c.querySelector('h3').innerText.toLowerCase().includes(q) ? '' : 'none'
+            );
+        }
+    </script>
+</body>
+</html>
