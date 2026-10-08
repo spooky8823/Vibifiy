@@ -222,8 +222,6 @@ VibiClaw is intentionally not part of the production CI/CD pipeline yet while de
 
 ## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Repository Structure
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Repository Structure
-
 <p align="center">
   <img src="https://github.com/spooky8823/Vibifiy/blob/main/reademeimagedir.png?raw=true" alt="Vibifiy repository structure"/>
 </p>
