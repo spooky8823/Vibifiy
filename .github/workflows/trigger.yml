@@ -40,7 +40,7 @@ jobs:
     name: Build VibiPass
     needs: detect-changes
     if: needs.detect-changes.outputs.vibipass == 'true'
-    uses: ./.github/workflows/build.yml
+    uses: ./.github/workflows/vibipass.yml
     permissions:
       contents: write
 
