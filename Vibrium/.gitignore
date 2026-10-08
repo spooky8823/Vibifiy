@@ -1,0 +1,11 @@
+build/
+deploy/
+deb/
+*.o
+*.obj
+moc_*.cpp
+ui_*.h
+*.pro.user
+*.pro.user.*
+Makefile
+.qmake.stash
