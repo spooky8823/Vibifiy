@@ -26,7 +26,12 @@ jobs:
       website: ${{ steps.filter.outputs.website }}
 
     steps:
-      - name: Detect changes
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed apps
         id: filter
         uses: dorny/paths-filter@v3
         with:
