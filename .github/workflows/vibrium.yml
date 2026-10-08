@@ -1,0 +1,127 @@
+name: Build Vibrium
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+
+      - name: Install Qt + WebEngine
+        run: |
+          sudo apt-get update -y
+          sudo add-apt-repository ppa:ubuntuhandbook1/ppa -y
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            qt6-base-dev \
+            qt6-webengine-dev \
+            qt6-webengine-dev-tools \
+            libqt6webenginecore6 \
+            libqt6webenginewidgets6 \
+            cmake \
+            ninja-build \
+            dpkg-dev \
+            fakeroot
+
+      - name: Build
+        working-directory: Vibrium
+        run: |
+          mkdir build
+          cd build
+          qmake6 ../VibiBrowser.pro CONFIG+=release
+          make -j$(nproc)
+
+      - name: Package .deb
+        working-directory: Vibrium
+        run: |
+          mkdir -p deb/usr/bin
+          mkdir -p deb/usr/share/applications
+          mkdir -p deb/DEBIAN
+
+          cp build/VibiBrowser deb/usr/bin/vibibrowser
+
+          cat > deb/usr/share/applications/vibibrowser.desktop << 'EOF'
+          [Desktop Entry]
+          Name=VibiBrowser
+          Exec=vibibrowser
+          Icon=vibibrowser
+          Type=Application
+          Categories=Network;WebBrowser;
+          EOF
+
+          cat > deb/DEBIAN/control << 'EOF'
+          Package: vibibrowser
+          Version: 1.1.0
+          Architecture: amd64
+          Maintainer: spooky8823 <spooky8823@vibifiy.dev>
+          Description: VibiBrowser - Vibifiy's custom browser
+          Depends: libqt6webenginewidgets6, libqt6core6, libqt6gui6, libqt6widgets6, picom
+          EOF
+
+          mkdir -p deb/etc/vibibrowser
+
+          cat > deb/etc/vibibrowser/picom.conf << 'EOF'
+          backend = "glx";
+          blur-method = "dual_kawase";
+          blur-strength = 8;
+          blur-background = true;
+          blur-background-frame = true;
+          blur-background-fixed = false;
+          blur-background-exclude = [
+            "class_g != 'vibibrowser'"
+          ];
+          EOF
+
+          cat > deb/DEBIAN/postinst << 'EOF'
+          #!/bin/bash
+
+          REAL_USER="${SUDO_USER:-$(logname 2>/dev/null)}"
+
+          if [ -z "$REAL_USER" ]; then
+            REAL_USER=$(who | awk 'NR==1{print $1}')
+          fi
+
+          REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+
+          mkdir -p "$REAL_HOME/.config/picom"
+
+          if [ ! -f "$REAL_HOME/.config/picom/picom.conf" ]; then
+            cp /etc/vibibrowser/picom.conf "$REAL_HOME/.config/picom/picom.conf"
+          fi
+
+          chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.config/picom"
+
+          mkdir -p "$REAL_HOME/.config/autostart"
+
+          printf '[Desktop Entry]\nType=Application\nName=Picom (VibiBrowser blur)\nExec=picom --config /etc/vibibrowser/picom.conf\nHidden=false\nNoDisplay=false\nX-GNOME-Autostart-enabled=true\n' \
+            > "$REAL_HOME/.config/autostart/picom-vibibrowser.desktop"
+
+          chown "$REAL_USER:$REAL_USER" \
+            "$REAL_HOME/.config/autostart/picom-vibibrowser.desktop"
+
+          if ! pgrep -x picom > /dev/null; then
+            su -c "DISPLAY=:0 picom --config /etc/vibibrowser/picom.conf &" \
+              "$REAL_USER" || true
+          fi
+
+          exit 0
+          EOF
+
+          chmod 755 deb/DEBIAN/postinst
+
+          fakeroot dpkg-deb --build deb VibiBrowser-linux.deb
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibiBrowser-linux-deb
+          path: Vibrium/VibiBrowser-linux.deb
+          retention-days: 30
