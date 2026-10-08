@@ -196,20 +196,17 @@ Vibifiy uses GitHub Actions to automate building, testing, releasing, and deploy
 
 The repository uses a central workflow to determine which projects have changed and run only the workflows that are relevant to those changes.
 
-```text
-                     Push / Pull Request
-                             |
-                             v
-                    trigger.yml
-                             |
-             +---------------+---------------+
-             |               |               |
-             v               v               v
-         VibiPass         Vibrium        Website
-             |               |               |
-             v               v               v
-        Build & Release   Build App      Deploy Pages
-```
+<p align="center">
+  <img src="https://github.com/spooky8823/Vibifiy/blob/main/readmeimage.png?raw=true" alt="Vibifiy GitHub Actions workflow"/>
+</p>
+
+> **How the dispatcher works**
+>
+> When a push or pull request targets `main`, `trigger.yml` checks which project directories were changed.
+>
+> Changes to `VibiPass` trigger its build and release workflow, changes to `Vibrium` trigger its build workflow, and changes to `Vibifiy Website` trigger the GitHub Pages deployment.
+>
+> This keeps the monorepo efficient by running only the workflows required for the projects that actually changed.
 
 This keeps the monorepo efficient while allowing each project to maintain its own build process.
 
