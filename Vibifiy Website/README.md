@@ -172,7 +172,7 @@ Every contribution matters.
 
 ## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Connect
 
-- **Website:** https://vibifiy.js.org
+- **Website:** https://spooky8823.github.io/vibifiy-website/
 - **GitHub:** https://github.com/Vibifiy-c
 - **Email:** vibifiyy@gmail.com
 
