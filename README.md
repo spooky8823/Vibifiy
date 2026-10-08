@@ -231,8 +231,10 @@ VibiClaw is intentionally not part of the production CI/CD pipeline yet while de
 >
 > Vibifiy is organized as a monorepo containing multiple independent projects.
 >
-> `VibiPass` contains the password manager, `Vibrium` contains the desktop browser, `VibiClaw` contains the AI coding assistant, and `Vibifiy Website` contains the public website.
->
+> `VibiPass` contains the password manager,
+> `Vibrium` contains the desktop browser,
+> `VibiClaw` contains the AI coding assistant, and
+> `Vibifiy Website` contains the public website.
 > The `.github/workflows/` directory contains the GitHub Actions workflows responsible for building, releasing, and deploying the projects.
 
 ---
