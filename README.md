@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Vibifiy-c">
-    <img src="https://img.shields.io/badge/GitHub-Vibifiy--c-181717?style=for-the-badge&logo=github">
+  <a href="https://github.com/spooky8823/Vibifiy">
+    <img src="https://img.shields.io/badge/GitHub-Vibifiy-181717?style=for-the-badge&logo=github">
   </a>
   <a href="https://spooky8823.github.io/vibifiy-website/">
     <img src="https://img.shields.io/badge/Website-Vibifiy-6C63FF?style=for-the-badge">
