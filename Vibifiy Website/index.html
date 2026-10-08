@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibifiy | Open Source Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="module" src="main.js" defer></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">
+            <img src="logo.jpg" alt="Vibifiy Logo" class="logo-img">
+            <span>Vibifiy</span>
+        </div>
+        
+        <div class="nav-links">
+            <a href="#" class="nav-link active" data-page="dashboard" onclick="event.preventDefault(); navigateTo('dashboard');">Dashboard</a>
+            <a href="#" class="nav-link" data-page="download" onclick="event.preventDefault(); navigateTo('download');">Download</a>
+            <a href="#" class="nav-link" data-page="reviews" onclick="event.preventDefault(); navigateTo('reviews');">Reviews</a>
+            <a href="#" class="nav-link" data-page="bug" onclick="event.preventDefault(); navigateTo('bug');">Bug Report</a>
+            <a href="#" class="nav-link" data-page="discussions" onclick="event.preventDefault(); navigateTo('discussions');">Discussions</a>
+        </div>
+
+        <div class="controls">
+            <input type="text" id="searchInput" placeholder="Search projects..." aria-label="Search projects">
+            <button id="themeToggle" aria-label="Toggle dark mode"></button>
+            <div class="nav-avatar-wrapper">
+                <div class="nav-avatar" id="navAvatar" title="My Profile">
+                    <span id="navAvatarLetter">?</span>
+                    <img id="navAvatarImg" src="" alt="" style="display: none;">
+                </div>
+                <div class="nav-dropdown" id="navDropdown">
+                    <a href="#" class="dropdown-item" id="dropdownProfile" onclick="event.preventDefault(); navigateTo('profile');"> Profile</a>
+                    <a href="#" class="dropdown-item" onclick="event.preventDefault(); navigateTo('settings', { section: 'account' });">⚙️ Settings</a>
+                    <div class="dropdown-divider"></div>
+                    <a href="#" class="dropdown-item" id="dropdownLogout" onclick="event.preventDefault();">🚪 Logout</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="dashboard">
+        <!-- PAGE 1: DASHBOARD -->
+        <section id="page-dashboard" class="page active">
+            <div class="hero-section">
+                <h1>Building awesome open-source apps.</h1>
+                <p>Explore our tools, libraries, and projects. 100% open source, 100% community driven.</p>
+                <a href="https://github.com/Vibifiy-c" target="_blank" class="btn-primary hero-btn">
+                    View Organization on GitHub ↗
+                </a>
+            </div>
+            
+            <div id="orgStats" class="stats-grid"></div>
+            
+            <h2 class="section-title">Our Projects</h2>
+            <div id="projectsList" class="projects-grid">
+                <p style="text-align: center; grid-column: 1/-1; padding: 3rem; color: var(--text-secondary);">
+                    Loading projects from GitHub...
+                </p>
+            </div>
+        </section>
+
+        <!-- PAGE 2: DOWNLOAD -->
+        <section id="page-download" class="page">
+            <div class="content-box">
+                <h1>Download Vibifiy</h1>
+                <p>Get the latest version of Vibifiy and its plugins.</p>
+                <div class="download-options" id="downloadOptions"></div>
+            </div>
+        </section>
+
+        <!-- PAGE 3: REVIEWS -->
+        <section id="page-reviews" class="page">
+            <div class="content-box">
+                <h1>Community Reviews</h1>
+                <p>See what developers are saying about Vibifiy.</p>
+                
+                <div class="form-container">
+                    <h3>Leave a Review</h3>
+                    <form id="reviewForm">
+                        <div class="input-group">
+                            <label>Your Name</label>
+                            <input type="text" id="reviewName" placeholder="John Doe" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Your Rating</label>
+                            <div class="star-rating" id="starRating">
+                                <span data-value="1">★</span><span data-value="2">★</span><span data-value="3">★</span><span data-value="4">★</span><span data-value="5">★</span>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Your Review</label>
+                            <textarea id="reviewText" placeholder="Share your experience..." required></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary">Submit Review</button>
+                    </form>
+                </div>
+                <div id="reviewsList" class="reviews-grid"></div>
+            </div>
+        </section>
+
+        <!-- PAGE 4: BUG REPORT -->
+        <section id="page-bug" class="page">
+            <div class="content-box">
+                <h1>Report a Bug</h1>
+                <p>Help us improve Vibifiy by reporting issues.</p>
+                <div class="form-container">
+                    <form id="bugForm">
+                        <div class="input-group">
+                            <label>Bug Title</label>
+                            <input type="text" id="bugTitle" placeholder="e.g., App crashes on startup" required>
+                            <span class="error-msg">Title is required</span>
+                        </div>
+                        <div class="input-group">
+                            <label>Severity</label>
+                            <select id="bugSeverity" style="width: 100%; padding: 0.8rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="low">Low - Minor issue</option>
+                                <option value="medium" selected>Medium - Affects functionality</option>
+                                <option value="high">High - Major issue</option>
+                                <option value="critical">Critical - System breaking</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Description</label>
+                            <textarea id="bugDesc" placeholder="Describe the bug in detail..." required></textarea>
+                            <span class="error-msg">Description is required</span>
+                        </div>
+                        <button type="submit" class="btn-primary" id="submitBugBtn">Report Bug</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- PAGE 5: DISCUSSIONS -->
+        <section id="page-discussions" class="page">
+            <div class="discussions-container">
+                <div class="discussions-header">
+                    <h1>Community Discussions</h1>
+                    <p>Share ideas, ask questions, and showcase your projects</p>
+                </div>
+                
+                <button class="btn-primary new-post-toggle" id="newPostToggle">+ New Post</button>
+                
+                <div class="create-post-form" id="createPostForm" style="display: none;">
+                    <div class="form-header">
+                        <h3>Create a Discussion</h3>
+                        <button class="btn-icon close-form" id="closePostForm" title="Close">×</button>
+                    </div>
+                    
+                    <div class="form-group">
+                        <input type="text" id="discussionTitle" placeholder="What's on your mind?" required>
+                    </div>
+                    <div class="form-group">
+                        <textarea id="discussionContent" placeholder="Share your thoughts... (Markdown supported)" rows="4"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <input type="text" id="discussionGitHubLink" placeholder="Paste a GitHub link (optional)">
+                    </div>
+                    
+                    <div class="image-attachment-section">
+                        <div class="pin-menu-wrapper">
+                            <button class="btn-icon pin-btn" id="pinMenuToggle" title="Add media">📌</button>
+                            <div class="pin-dropdown" id="pinDropdown">
+                                <div class="pin-menu-item" id="uploadImageBtn">
+                                    <span>🖼️</span>
+                                    <span>Upload Image</span>
+                                </div>
+                                <input type="file" id="discussionImages" multiple accept="image/*" style="display: none;">
+                            </div>
+                        </div>
+                        
+                        <div class="image-url-input" id="imageUrlSection" style="display: none;">
+                            <input type="url" id="discussionImageUrl" placeholder="Paste image URL (https://...)">
+                            <button class="btn-icon-small" id="addImageUrlBtn">Add</button>
+                        </div>
+                        
+                        <div class="image-preview-area" id="imagePreviewArea"></div>
+                    </div>
+                    
+                    <button type="button" class="btn-primary" id="submitDiscussionBtn">Post Discussion</button>
+                </div>
+                
+                <div id="discussionsList" class="discussions-list"></div>
+            </div>
+        </section>
+
+        <!-- PAGE 6: PROFILE -->
+        <section id="page-profile" class="page">
+            <div class="profile-container">
+                <div class="profile-header-card">
+                    <div class="profile-banner" id="profileBanner">
+                        <div class="profile-avatar-wrapper">
+                            <div class="profile-avatar-large" id="profileAvatar">?</div>
+                        </div>
+                    </div>
+                    <div class="profile-info-section">
+                        <div class="profile-info-header">
+                            <div>
+                                <h1 id="profileDisplayName">Loading...</h1>
+                                <p id="profileUsername" class="profile-username">@<span></span></p>
+                            </div>
+                            <button class="btn-primary" id="editProfileBtn" style="width: auto; padding: 0.6rem 1.2rem;">Edit Profile</button>
+                        </div>
+                        <div class="profile-stats" id="profileStats">
+                            <div class="stat"><span id="statPosts">0</span> Posts</div>
+                            <div class="stat"><span id="statReposts">0</span> Reposts</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="profile-links" id="profileLinks" style="display: none;">
+                    <h3>Links</h3>
+                    <div class="links-grid"></div>
+                </div>
+                
+                <div class="readme-section">
+                    <div class="readme-header">
+                        <h3>📄 README</h3>
+                        <button class="btn-icon" id="editReadmeBtn" title="Edit README">✏️</button>
+                    </div>
+                    <div id="readmeContent" class="readme-content">
+                        <p style="color: var(--text-secondary); text-align: center; padding: 2rem;">No README yet. Click the edit button to add one!</p>
+                    </div>
+                </div>
+                
+                <div class="profile-tabs">
+                    <button class="tab-btn active" data-tab="posts">Posts</button>
+                    <button class="tab-btn" data-tab="activity">Activity</button>
+                </div>
+                
+                <div id="profilePosts" class="profile-posts"></div>
+                <div id="profileActivity" class="profile-activity" style="display: none;"></div>
+            </div>
+        </section>
+
+        <!-- SINGLE POST VIEW PAGE -->
+        <section id="page-post-view" class="page">
+            <div class="post-view-container">
+                <button class="btn-outline back-btn" onclick="event.preventDefault(); navigateTo('discussions');">← Back to Discussions</button>
+                
+                <div id="postViewContent" class="post-view-content">
+                    <!-- Post content loaded dynamically -->
+                </div>
+                
+                <div class="comments-section-full">
+                    <h3 class="comments-section-title"> Comments</h3>
+                    
+                    <div class="youtube-comment-form">
+                        <div class="comment-form-user-avatar" id="commentFormAvatar">
+                            <span id="commentFormAvatarLetter">?</span>
+                            <img id="commentFormAvatarImg" src="" alt="" style="display: none;">
+                        </div>
+                        <div class="comment-form-content">
+                            <input type="text" id="viewCommentText" placeholder="Add a comment...">
+                            <div class="comment-form-actions">
+                                <button class="btn-outline" id="cancelCommentBtn" style="display: none;">Cancel</button>
+                                <button class="btn-primary" id="submitViewCommentBtn" disabled>Comment</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="viewCommentsList" class="comments-threaded"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SETTINGS PAGE -->
+        <section id="page-settings" class="page">
+            <div class="github-settings-layout">
+                <nav class="github-sidebar">
+                    <div class="sidebar-section">
+                        <h3>Account</h3>
+                        <ul>
+                            <li><a href="#" class="sidebar-link" data-section="account" onclick="event.preventDefault(); navigateTo('settings', { section: 'account' });">Public profile</a></li>
+                        </ul>
+                    </div>
+                    <div class="sidebar-section">
+                        <h3>General</h3>
+                        <ul>
+                            <li><a href="#" class="sidebar-link" data-section="general" onclick="event.preventDefault(); navigateTo('settings', { section: 'general' });">Appearance</a></li>
+                            <li><a href="#" class="sidebar-link" data-section="general" onclick="event.preventDefault(); navigateTo('settings', { section: 'general' });">Notifications</a></li>
+                        </ul>
+                    </div>
+                    <div class="sidebar-section">
+                        <h3>Activity</h3>
+                        <ul>
+                            <li><a href="#" class="sidebar-link" data-section="posts" onclick="event.preventDefault(); navigateTo('settings', { section: 'posts' });">Posts</a></li>
+                            <li><a href="#" class="sidebar-link" data-section="reposts" onclick="event.preventDefault(); navigateTo('settings', { section: 'reposts' });">Reposts</a></li>
+                            <li><a href="#" class="sidebar-link" data-section="comments" onclick="event.preventDefault(); navigateTo('settings', { section: 'comments' });">Comments & Replies</a></li>
+                        </ul>
+                    </div>
+                </nav>
+                
+                <div class="github-settings-content" id="settingsContent">
+                    <!-- Dynamic content loaded here -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Custom Themed Dialog -->
+    <div id="customDialog" class="custom-dialog" style="display: none;">
+        <div class="custom-dialog-backdrop" onclick="closeCustomDialog()"></div>
+        <div class="custom-dialog-content">
+            <div class="custom-dialog-header">
+                <h3 id="customDialogTitle">Confirm</h3>
+                <button class="custom-dialog-close" onclick="closeCustomDialog()">×</button>
+            </div>
+            <div class="custom-dialog-body">
+                <p id="customDialogMessage">Are you sure?</p>
+            </div>
+            <div class="custom-dialog-actions">
+                <button class="btn-outline" id="customDialogCancel" onclick="closeCustomDialog()">Cancel</button>
+                <button class="btn-danger" id="customDialogConfirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>Powered by vanilla JavaScript & Supabase. Hosted on <a href="https://js.org" target="_blank">js.org</a></p>
+    </footer>
+</body>
+</html>
