@@ -222,28 +222,20 @@ VibiClaw is intentionally not part of the production CI/CD pipeline yet while de
 
 ## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Repository Structure
 
-```text
-Vibifiy/
-│
-├── VibiPass/
-│   └── Password manager
-│
-├── Vibrium/
-│   └── Desktop web browser
-│
-├── VibiClaw/
-│   └── AI coding assistant
-│
-├── Vibifiy Website/
-│   └── Vibifiy website
-│
-└── .github/
-    └── workflows/
-        ├── trigger.yml
-        ├── vibipass.yml
-        ├── vibrium.yml
-        └── website.yml
-```
+## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Repository Structure
+
+<p align="center">
+  <img src="https://github.com/spooky8823/Vibifiy/blob/main/reademeimagedir.png?raw=true" alt="Vibifiy repository structure"/>
+</p>
+
+> [!NOTE]
+> **How the repository is organized**
+>
+> Vibifiy is organized as a monorepo containing multiple independent projects.
+>
+> `VibiPass` contains the password manager, `Vibrium` contains the desktop browser, `VibiClaw` contains the AI coding assistant, and `Vibifiy Website` contains the public website.
+>
+> The `.github/workflows/` directory contains the GitHub Actions workflows responsible for building, releasing, and deploying the projects.
 
 ---
 
