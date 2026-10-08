@@ -23,16 +23,12 @@ jobs:
     outputs:
       vibipass: ${{ steps.filter.outputs.vibipass }}
       vibrium: ${{ steps.filter.outputs.vibrium }}
+      website: ${{ steps.filter.outputs.website }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect changed apps
+      - name: Detect changes
         id: filter
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@v3
         with:
           filters: |
             vibipass:
@@ -40,6 +36,9 @@ jobs:
 
             vibrium:
               - 'Vibrium/**'
+
+            website:
+              - 'Vibifiy Website/**'
 
   build-vibipass:
     name: Build VibiPass
@@ -56,3 +55,13 @@ jobs:
     uses: ./.github/workflows/vibrium.yml
     permissions:
       contents: write
+
+  deploy-website:
+    name: Deploy Vibifiy Website
+    needs: detect-changes
+    if: needs.detect-changes.outputs.website == 'true'
+    uses: ./.github/workflows/website.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
