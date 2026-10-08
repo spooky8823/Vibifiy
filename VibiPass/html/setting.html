@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>VibiPass - Settings</title>
+    <style>
+        :root {
+            --accent: #1DB954;
+            --icon-filter: invert(59%) sepia(72%) saturate(422%) hue-rotate(95deg) brightness(95%) contrast(90%);
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; }
+        body { background: #000 no-repeat center center fixed; background-size: cover; color: white; font-family: 'Segoe UI', sans-serif; display: flex; overflow: hidden; }
+
+        #sidebar { position:fixed; left:-260px; top:0; width:250px; height:100%; background:rgba(0,0,0,0.88); backdrop-filter:blur(20px); border-right:1px solid var(--accent); transition:0.4s cubic-bezier(0.4,0,0.2,1); z-index:1000; display:flex; flex-direction:column; padding-top:100px; }
+        #sidebar.open { left:0; }
+        .sidebar-link { text-decoration:none; color:rgba(255,255,255,0.72); padding:15px 30px; border-left:4px solid transparent; transition:0.3s; display:flex; align-items:center; gap:12px; font-size:0.95rem; }
+        .sidebar-link.active { border-left:4px solid var(--accent); background:rgba(255,255,255,0.05); color:var(--accent); }
+        .sidebar-link:hover:not(.active) { background:rgba(255,255,255,0.04); color:white; }
+        .sidebar-icon-img { width:20px; height:20px; object-fit:contain; filter:var(--icon-filter); flex-shrink:0; }
+        .menu-toggle { position:fixed; top:25px; left:25px; z-index:1100; cursor:pointer; background:rgba(0,0,0,0.65); padding:10px; border-radius:8px; border:1px solid var(--accent); display:flex; flex-direction:column; gap:5px; transition:box-shadow 0.2s; }
+        .menu-toggle:hover { box-shadow:0 0 14px var(--accent); }
+        .bar { width:25px; height:3px; background:var(--accent); border-radius:2px; }
+
+        .main-content { padding:80px 50px 80px 50px; flex:1; height:100vh; overflow-y:auto; scrollbar-width:none; }
+        .main-content::-webkit-scrollbar { display:none; }
+
+        h1 { font-size:2rem; font-weight:300; font-style:italic; margin-bottom:28px; }
+
+        .section-header { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+        .section-header-icon { width:22px; height:22px; object-fit:contain; filter:var(--icon-filter); flex-shrink:0; }
+        .section-header h2 { font-size:1.2rem; font-weight:700; margin:0; }
+        .section-desc { font-size:0.85rem; color:rgba(255,255,255,0.42); margin-bottom:20px; line-height:1.6; }
+
+        .theme-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-bottom:10px; }
+        .theme-card { background:rgba(255,255,255,0.04); border:2px solid rgba(255,255,255,0.1); border-radius:14px; padding:10px; text-align:center; cursor:pointer; transition:transform 0.25s,box-shadow 0.25s,border-color 0.25s; }
+        .theme-card:hover { transform:translateY(-5px); box-shadow:0 10px 28px rgba(0,0,0,0.45); }
+        .theme-card img { width:100%; height:88px; object-fit:cover; border-radius:8px; margin-bottom:8px; display:block; }
+        .theme-card p { font-size:0.82rem; color:rgba(255,255,255,0.82); margin:0; }
+        .theme-dot { width:10px; height:10px; border-radius:50%; margin:6px auto 0; }
+
+        .section-divider { border:none; border-top:1px solid rgba(255,255,255,0.08); margin:44px 0; }
+
+        .control-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:22px 26px; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; gap:20px; }
+        .control-info { display:flex; align-items:flex-start; gap:14px; }
+        .control-icon { width:24px; height:24px; object-fit:contain; filter:var(--icon-filter); flex-shrink:0; margin-top:2px; }
+        .control-text h4 { font-size:1rem; margin-bottom:5px; font-weight:600; }
+        .control-text p { font-size:0.82rem; color:rgba(255,255,255,0.38); line-height:1.55; margin:0; }
+        .btn-danger { background:rgba(255,55,55,0.1); border:1px solid rgba(255,55,55,0.45); color:#ff5555; padding:10px 22px; border-radius:9px; cursor:pointer; font-weight:700; font-size:0.88rem; white-space:nowrap; flex-shrink:0; transition:0.2s; }
+        .btn-danger:hover { background:rgba(255,55,55,0.22); }
+        .btn-primary { background:var(--accent); color:#000; border:none; padding:10px 22px; border-radius:9px; cursor:pointer; font-weight:700; font-size:0.88rem; white-space:nowrap; flex-shrink:0; transition:0.2s; }
+        .btn-primary:hover { opacity:0.82; }
+
+        .modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.88); backdrop-filter:blur(6px); justify-content:center; align-items:center; z-index:2000; }
+        .modal-content { background:rgba(10,14,10,0.97); border:1px solid var(--accent); padding:36px; width:430px; border-radius:18px; }
+        .modal-content h2 { color:var(--accent); text-align:center; margin-bottom:20px; font-size:1.25rem; }
+        input { width:100%; padding:12px 14px; margin-bottom:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); color:white; border-radius:9px; outline:none; font-size:0.93rem; transition:border-color 0.2s; }
+        input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(29,185,84,0.1); }
+        input::placeholder { color:rgba(255,255,255,0.28); }
+        .modal-btn-row { display:flex; gap:10px; margin-top:16px; }
+        .modal-btn { flex:1; padding:12px; border-radius:9px; font-weight:700; cursor:pointer; font-size:0.9rem; border:none; transition:0.2s; }
+        .modal-btn.confirm { background:var(--accent); color:#000; }
+        .modal-btn.confirm:hover { opacity:0.85; }
+        .modal-btn.cancel { background:rgba(255,255,255,0.09); color:white; }
+        .modal-btn.cancel:hover { background:rgba(255,255,255,0.15); }
+        .modal-btn.danger { background:rgba(255,55,55,0.12); color:#ff5555; border:1px solid rgba(255,55,55,0.38); }
+        .modal-btn.danger:hover { background:rgba(255,55,55,0.26); }
+        .warn-box { background:rgba(255,55,55,0.07); border:1px solid rgba(255,55,55,0.25); border-radius:9px; padding:13px; font-size:0.82rem; color:rgba(255,175,175,0.9); margin-bottom:16px; line-height:1.55; }
+        .modal-divider { border:none; border-top:1px solid rgba(255,255,255,0.08); margin:14px 0; }
+    </style>
+</head>
+<body>
+    <div class="menu-toggle" onclick="toggleSidebar()">
+        <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    </div>
+
+    <div id="sidebar">
+        <a href="cred.html" class="sidebar-link">
+            <img class="sidebar-icon-img" src="../assets/theme/Red/credentials.png" onerror="this.style.display='none'">
+            Credentials
+        </a>
+        <a href="setting.html" class="sidebar-link active">
+            <img class="sidebar-icon-img" src="../assets/theme/Red/settings.png" onerror="this.style.display='none'">
+            Settings
+        </a>
+    </div>
+
+    <div class="main-content">
+        <h1>Settings</h1>
+
+        <!-- Theme Section -->
+        <div class="section-header">
+            <img class="section-header-icon" src="../assets/theme/Red/theme_selector.png" onerror="this.style.display='none'">
+            <h2>Theme Selection</h2>
+        </div>
+        <p class="section-desc">Choose your vault's visual theme. Changes apply across all pages instantly.</p>
+        <div class="theme-grid" id="theme-grid"></div>
+
+        <hr class="section-divider">
+
+        <!-- Data Controls Section -->
+        <div class="section-header">
+            <img class="section-header-icon" src="../assets/theme/Red/data_controls.png" onerror="this.style.display='none'">
+            <h2>Data Controls</h2>
+        </div>
+        <p class="section-desc">Manage your vault data and authentication credentials.</p>
+
+        <!-- Change Passwords -->
+        <div class="control-card">
+            <div class="control-info">
+                <img class="control-icon" src="../assets/theme/Red/edit.png" onerror="this.style.display='none'">
+                <div class="control-text">
+                    <h4>Change Passwords</h4>
+                    <p>Update your Master App Password or Device Password. Verify your current credentials first.</p>
+                </div>
+            </div>
+            <button class="btn-primary" onclick="openChangePassModal()">Change</button>
+        </div>
+
+        <!-- Nuke Vault -->
+        <div class="control-card" style="border-color:rgba(255,55,55,0.18);">
+            <div class="control-info">
+                <img class="control-icon" src="../assets/theme/Red/delete.png" onerror="this.style.display='none'" style="filter:invert(35%) sepia(90%) saturate(600%) hue-rotate(330deg) brightness(110%) contrast(95%);">
+                <div class="control-text">
+                    <h4>Nuke Vault</h4>
+                    Permanently erase <strong>all</strong> credentials, profile, theme, and passwords. Irreversible — returns to landing page.
+                </div>
+            </div>
+            <button class="btn-danger" onclick="openNukeModal()">Nuke Vault</button>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="change-pass-modal" class="modal">
+        <div class="modal-content">
+            <h2>Change Passwords</h2>
+            <p style="font-size:0.8rem;color:rgba(255,255,255,0.38);text-align:center;margin-bottom:16px;">Verify current credentials first</p>
+            <input type="password" id="cp-current-app" placeholder="Current Master Password">
+            <input type="password" id="cp-current-dev" placeholder="Current Device Password">
+            <hr class="modal-divider">
+            <input type="password" id="cp-new-app" placeholder="New Master Password (blank = keep)">
+            <input type="password" id="cp-new-dev" placeholder="New Device Password (blank = keep)">
+            <div class="modal-btn-row">
+                <button class="modal-btn confirm" id="change-btn" onclick="changePasswords()">Update</button>
+                <button class="modal-btn cancel" onclick="closeModal('change-pass-modal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Nuke Modal -->
+    <div id="nuke-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="color:#ff5555;">Nuke Vault</h2>
+            <div class="warn-box">
+                This will permanently delete <strong>all</strong> credentials, your profile, theme, and passwords.
+                You'll be sent back to the landing page to start fresh. <strong>Cannot be undone.</strong>
+            </div>
+            <input type="password" id="nuke-app" placeholder="Master Password">
+            <input type="password" id="nuke-dev" placeholder="Device Password">
+            <div class="modal-btn-row">
+                <button class="modal-btn danger" id="nuke-btn" onclick="nukeVault()">Confirm Nuke</button>
+                <button class="modal-btn cancel" onclick="closeModal('nuke-modal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ---- CRYPTO UTILS ----
+        const VCrypto = (() => {
+            const PBKDF2_ITERATIONS = 100000;
+            const SALT_LEN = 16;
+            function bufToHex(buf) { return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join(''); }
+            function hexToBuf(hex) { const b = new Uint8Array(hex.length/2); for(let i=0;i<hex.length;i+=2) b[i/2]=parseInt(hex.substr(i,2),16); return b.buffer; }
+            async function hashPassword(password) {
+                const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
+                const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), {name:'PBKDF2'}, false, ['deriveBits']);
+                const hash = await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:PBKDF2_ITERATIONS,hash:'SHA-256'}, km, 256);
+                return bufToHex(salt.buffer) + ':' + bufToHex(hash);
+            }
+            async function verifyPassword(password, stored) {
+                const [saltHex, hashHex] = stored.split(':');
+                const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), {name:'PBKDF2'}, false, ['deriveBits']);
+                const hash = await crypto.subtle.deriveBits({name:'PBKDF2',salt:hexToBuf(saltHex),iterations:PBKDF2_ITERATIONS,hash:'SHA-256'}, km, 256);
+                return bufToHex(hash) === hashHex;
+            }
+            return { hashPassword, verifyPassword };
+        })();
+
+        if(!localStorage.getItem('vibipass_profile')) window.location.href = 'landing.html';
+
+        const THEME_MAP = {
+            'baby_pink': {folder:'Baby_Pink', color:'#ff80ab'},
+            'black':     {folder:'Black',     color:'#aaaaaa'},
+            'cyan':      {folder:'Cyan',       color:'#00e5ff'},
+            'dark_blue': {folder:'Dark_Blue',  color:'#4488ff'},
+            'green':     {folder:'Green',      color:'#1DB954'},
+            'orange':    {folder:'Orange',     color:'#ff8c00'},
+            'purple':    {folder:'Purple',     color:'#bb86fc'},
+            'red':       {folder:'Red',        color:'#ff4444'},
+            'yellow':    {folder:'Yellow',     color:'#ffd600'},
+        };
+        const ICON_FILTERS = {
+            '#ff80ab': 'invert(66%) sepia(60%) saturate(400%) hue-rotate(295deg) brightness(110%) contrast(95%)',
+            '#aaaaaa': 'invert(70%) sepia(0%) saturate(0%) brightness(100%)',
+            '#00e5ff': 'invert(77%) sepia(90%) saturate(500%) hue-rotate(155deg) brightness(105%) contrast(100%)',
+            '#4488ff': 'invert(40%) sepia(80%) saturate(500%) hue-rotate(205deg) brightness(110%) contrast(95%)',
+            '#1DB954': 'invert(59%) sepia(72%) saturate(422%) hue-rotate(95deg) brightness(95%) contrast(90%)',
+            '#ff8c00': 'invert(55%) sepia(90%) saturate(500%) hue-rotate(10deg) brightness(110%) contrast(95%)',
+            '#bb86fc': 'invert(60%) sepia(40%) saturate(600%) hue-rotate(230deg) brightness(110%) contrast(90%)',
+            '#ff4444': 'invert(35%) sepia(90%) saturate(600%) hue-rotate(330deg) brightness(110%) contrast(95%)',
+            '#ffd600': 'invert(85%) sepia(80%) saturate(500%) hue-rotate(10deg) brightness(105%) contrast(100%)',
+        };
+
+        function applyTheme() {
+            const key   = localStorage.getItem('sentinel_img') || 'green';
+            const theme = THEME_MAP[key] || THEME_MAP['green'];
+            const color = localStorage.getItem('sentinel_color') || theme.color;
+            document.documentElement.style.setProperty('--accent', color);
+            document.documentElement.style.setProperty('--icon-filter', ICON_FILTERS[color] || ICON_FILTERS['#1DB954']);
+            document.body.style.backgroundImage = `url('../assets/theme/${theme.folder}/password_manager_theme_background_${key}.jpg')`;
+        }
+
+        function buildThemeGrid() {
+            const grid = document.getElementById('theme-grid');
+            const activeKey = localStorage.getItem('sentinel_img') || 'green';
+            grid.innerHTML = '';
+            Object.entries(THEME_MAP).forEach(([key, theme]) => {
+                const div = document.createElement('div');
+                div.className = 'theme-card';
+                if(key === activeKey) {
+                    div.style.borderColor = theme.color;
+                    div.style.boxShadow = `0 0 16px ${theme.color}55`;
+                }
+                div.onclick = () => setTheme(theme.color, key);
+                div.innerHTML = `
+                    <img src="../assets/theme/${theme.folder}/password_manager_theme_background_${key}.jpg"
+                         onerror="this.style.background='rgba(255,255,255,0.06)';this.style.height='88px';">
+                    <p>${theme.folder.replace(/_/g,' ')}</p>
+                    <div class="theme-dot" style="background:${theme.color};box-shadow:0 0 7px ${theme.color};"></div>`;
+                grid.appendChild(div);
+            });
+        }
+
+        function setTheme(color, key) {
+            localStorage.setItem('sentinel_color', color);
+            localStorage.setItem('sentinel_img', key);
+            applyTheme();
+            buildThemeGrid();
+        }
+
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+        function openNukeModal() {
+            document.getElementById('nuke-app').value = '';
+            document.getElementById('nuke-dev').value = '';
+            document.getElementById('nuke-modal').style.display = 'flex';
+        }
+
+        function openChangePassModal() {
+            ['cp-current-app','cp-current-dev','cp-new-app','cp-new-dev'].forEach(id => document.getElementById(id).value = '');
+            document.getElementById('change-pass-modal').style.display = 'flex';
+        }
+
+        async function nukeVault() {
+            const a = document.getElementById('nuke-app').value;
+            const d = document.getElementById('nuke-dev').value;
+            const storedApp = localStorage.getItem('sentinel_app_pass');
+            const storedDev = localStorage.getItem('sentinel_dev_pass');
+            const btn = document.getElementById('nuke-btn');
+            btn.disabled = true; btn.innerText = 'Verifying...';
+            try {
+                const appOk = await VCrypto.verifyPassword(a, storedApp);
+                const devOk = await VCrypto.verifyPassword(d, storedDev);
+                if(appOk && devOk) {
+                    ['sentinel_vault','sentinel_color','sentinel_img','sentinel_app_pass','sentinel_dev_pass','vibipass_profile']
+                        .forEach(k => localStorage.removeItem(k));
+                    sessionStorage.removeItem('vp_session_key');
+                    window.location.href = 'landing.html';
+                } else {
+                    alert('Incorrect credentials.');
+                }
+            } finally {
+                btn.disabled = false; btn.innerText = 'Confirm Nuke';
+            }
+        }
+
+        async function changePasswords() {
+            const curApp = document.getElementById('cp-current-app').value;
+            const curDev = document.getElementById('cp-current-dev').value;
+            const newApp = document.getElementById('cp-new-app').value;
+            const newDev = document.getElementById('cp-new-dev').value;
+            const storedApp = localStorage.getItem('sentinel_app_pass');
+            const storedDev = localStorage.getItem('sentinel_dev_pass');
+            const btn = document.getElementById('change-btn');
+            btn.disabled = true; btn.innerText = 'Verifying...';
+            try {
+                const appOk = await VCrypto.verifyPassword(curApp, storedApp);
+                const devOk = await VCrypto.verifyPassword(curDev, storedDev);
+                if(!appOk || !devOk) { alert('Current credentials are incorrect.'); return; }
+                if(!newApp && !newDev) { alert('Enter at least one new password.'); return; }
+                if(newApp) {
+                    const newHash = await VCrypto.hashPassword(newApp);
+                    localStorage.setItem('sentinel_app_pass', newHash);
+                    // Update session key so vault stays decryptable
+                    sessionStorage.setItem('vp_session_key', newApp);
+                }
+                if(newDev) {
+                    const newHash = await VCrypto.hashPassword(newDev);
+                    localStorage.setItem('sentinel_dev_pass', newHash);
+                }
+                closeModal('change-pass-modal');
+                alert('Passwords updated successfully!');
+            } finally {
+                btn.disabled = false; btn.innerText = 'Update';
+            }
+        }
+
+        window.onload = () => { 
+    // Small delay to ensure pre-loaded localStorage is ready
+    setTimeout(() => { applyTheme(); buildThemeGrid(); }, 100);
+};
+    </script>
+</body>
+</html>
