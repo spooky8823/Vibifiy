@@ -1,0 +1,166 @@
+ main vibi.claw     // starting entry point to call the tool
+ 
+   import vibi.tools;   //importing tools
+
+    
+{                       // opening for jobs
+      jobs                    // for listing jobs
+   
+      {                          // opening for a specific tool
+         vibi.tool = [create.file] | path? = ["your path here"] //create file tool with path, do not alter anyting, the spaces are 100% impoertant between ? and =  
+         "#1file_name_here"     //the file you name u want to create in double inverted commas you can list how many file names ever u want so it is n numbers
+         "#2file_name_here"
+         "#3file_name_here"
+         "#n file_name_here"
+      }                          // closing for a specific tool
+      
+      {
+         vibi.tool = [edit.file]? = "file_name_here" | path? = ["your path here"] // edit file tool where u select a folder with path specifications
+            
+           full.file.content:                           // full file content writes the file with the content u provide and overwrites everything with the new content
+           " your content herer whatever here blah blah blah" // the file content which will overwrite the current file contents, it is in double inverted commas
+           file.save()
+           
+           &&     // an and operator which say "and" which is denoted by "&&" so insted of writing a new chain you can just call the "&&" operator and bulk write content
+           
+         vibi.tool = [edit.file]? = "file_name_here" | path? = ["your path here"] // edit file tool where u select a folder with path specifications
+            
+           full.file.content:           // full file content writes the file with the content u provide and overwrites everything with the new content
+           " your content herer whatever here blah blah blah"     // the file content which will overwrite the current file contents, it is in double inverted commas
+           file.save()  // save file call
+           
+      }
+         
+      {
+        vibi.tool = [edit.file]? = "file_name_here" | path? = ["your path here"]  // edit file tool where u select a folder with path specifications
+       
+         search.file.content:                          // this sub-tool searches the specific part of the content with the search content you have provide
+         " your search content here blah blah blah"      // your search content in double inverted commas
+          
+         replace.file.content: // this sub-tool replaces the sub-tool's specific search content with the replace content if the search content has been sucessfully found
+         "your replace content which replacees your search content here"  // your replace content in double inverted commas
+         
+         file.save()  //file save call
+         
+          &&  // and operator
+          
+        vibi.tool = [edit.file]? = "file_name_here" | path? = ["your path here"]  // edit file tool where u select a folder with path specifications
+       
+         search.file.content:            // this sub-tool searches the specific part of the content with the search content you have provide
+         " your search content here blah blah blah"   // your search content in double inverted commas
+          
+         replace.file.content: // this sub-tool replaces the sub-tool's specific search content with the replace content if the search content has been sucessfully found
+         "your replace content which replacees your search content here" // your replace content in double inverted commas
+         
+         file.save()  //file save call
+      }
+     
+     {
+        vibi.tool = [delete.file] | path? = ["your path here"] // a tool which deletes files in a specific path if found
+        "#1file_name_here" // list of file names
+        "#2file_name_here"
+        "#3file_name_here"
+        "#4file_name_here"
+        "#n file_name_here"
+        file.delete()   // delete file call
+     }
+     
+    {
+       vibi.tool = [run.command] | path? = ["your path here"]  // this is a tool which runs commands on you system irrespective of os and the specific path
+       "your #1 command here irrespective of operating system" // your commands here in double inverted commas,you can add n number of commands here but some are blocked
+       "your #2command here irrespective of operating system"  // some are blocked like rm-rf, cd, etc
+       "your #3command here irrespective of operating system" 
+       "your #4command here irrespective of operating system"
+       "your #n command here irrespective of operating system" 
+        run.command() // calls run command tool
+    }
+
+   {
+     vibi.tool = [rename.file] |["the current file path here"] // this tool renames files if the files are in the same path as mentioned
+     "#1current_file_name_here" => "your new file name here"  // your current file name followed by "=>" and your new file name
+     "#2current_file_name_here" => "your new file name here" // and yes you can add n number of file renames here
+     "#n current_file_name_here" => "your new file name here"
+     rename.file() // calls rename file
+   }
+    
+   {
+     vibi.tool = [rename.folder]?="current_folder_dir_here" =>"your new folder dir here" // this is a tool which renames the folder
+     rename.folder()// calls folder rename                                       // example src/abc/gph => src/deb/gph, here the folder contents wont be affected 
+
+   }
+ 
+   {
+     vibi.tool = [create.directory]? = ["your new directory here"] // this a tool which creates folder when u mention like " src/gph/abc/geo " it creates all those files
+     create.directory() // calls create directory
+   }
+
+  {
+     vibi.tool = [download.repository]? = "your public git hub repository link here"| path? = ["your download path here"] // tool to download repo from github with path
+     download.repository() // downloads repository to specified path
+  }
+
+  {
+    vibi.tool = [download.private.repository] = " your private github repository link here"|git token = "your github prsonal acesses token here" | path? = ["your  download path here"]  // this tool lets you download the specifc private repository from your account with github acesses token with github repo link
+    
+     download.private.repository() // downloads your private repository only if you have acess to!
+  }
+  
+  {
+ 
+    vibi.tool = [open.folder]? = ["your dir which this syntax will open visually for you"] // opens the directory in explored or your file manager 
+    open.folder() // calls open folder
+  }
+  
+  {
+    vibi.tool = [open.app]  // opens a specific intalled app on the user's machine!
+    ["a real desktop or installed app on the user's pc here"] // list of apps to be opened in user's machine
+    ["a real desktop or installed app on the user's pc here"]
+    ["a real desktop or installed app on the user's pc here"]
+    ["a real desktop or installed app on the user's pc here"]
+    open.app() // calls open app tool
+  }
+  
+  {
+    vibi.tool = [move.file] | path = ["current path of the files, if a few files are different, start a new chain and do the same"] // moves file that is cut, with path
+    "file_name" => ["new path here"] // file name and new path, n number of files to n number of directory inside the root of the sandbox only and for other tools too
+    "file_name" => ["new path here"]
+    "file_name" => ["new path here"]
+    "file_name" => ["new path here"]
+    move.file() // calls move tool
+  }
+  
+  {
+    vibi.tool = [copy.file] | path? = ["current path of file here"] // copys the files from a path to new path, if in the same path copy, then adds "duped" in brackets
+    "file_name"  => [" new path of the file here and if same path then rename file with "duped" in brackets in the end"]
+    "file_name"  => [" new path of the file here and if same path then rename file with "duped" in brackets in the end"]
+    "file_name"  => [" new path of the file here and if same path then rename file with "duped" in brackets in the end"]
+    "file_name"  => [" new path of the file here and if same path then rename file with "duped" in brackets in the end"]
+    "file_name"  => [" new path of the file here and if same path then rename file with "duped" in brackets in the end"]
+    "file_name"  => [" new path of the file here and if same path then rename file with "duped" in brackets in the end"]
+    copy.file() // calls copy file tool
+  }
+  
+  {
+    vibi.tool = [read.file]    // this tool reads the files the user or ai wants to and returns the contents
+    "file_name" | path? = ["path of the file here"] // file to be read with path, can have multiple path inside the root and n number of reads
+    "file_name" | path? = ["path of the file here"]
+    "file_name" | path? = ["path of the file here"]
+    "file_name" | path? = ["path of the file here"]
+    "file_name" | path? = ["path of the file here"]
+    "file_name" | path? = ["path of the file here"]
+    read.file() // calls read tool
+  }
+  
+  {
+    vibi.tool = [path.tree]? = ["directory"] // this is a tool which represents your project structure visually with diagrams in plain text
+    path.tree() // calls path tree
+  }
+  
+  {
+    vibi.tool = [path.tree]?= ["directroy"] | [exclude.folders]? = [ folder path so it is exclude, example: src/.github which contains files we dont need to represent in the tree return, but howere src/ other files will be incuded in tree unless excluded] //this is the tool which excudes folders or files which are unnecessary in the tree
+    path.tree() // calls the path tree 
+  }
+  
+    jobs() // closing the listing for jobs
+    
+} // closes the jobs brace

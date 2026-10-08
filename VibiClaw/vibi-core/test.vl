@@ -1,0 +1,27 @@
+main vibi.claw
+import vibi.tools;
+
+{
+  jobs
+  {
+    vibi.tool = [create.directory]?= ["./test_output"]
+    create.directory()
+  }
+  {
+    vibi.tool = [create.file] | path?= ["./test_output"]
+    "hello.txt"
+    "readme.md"
+  }
+  {
+    vibi.tool = [edit.file]?= "hello.txt" | path?= ["./test_output"]
+    full.file.content:
+    "Hello from VibiClaw v2!"
+    file.save()
+  }
+  {
+    vibi.tool = [run.command] | path? = ["./test_output"]
+    "ls -la"
+    "pwd"
+  }
+  jobs()
+}
