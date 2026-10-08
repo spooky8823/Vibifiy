@@ -4,17 +4,50 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'VibiPass/**'
+
+  pull_request:
+    branches:
+      - main
 
   workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
+  detect-changes:
+    name: Detect changed apps
+    runs-on: ubuntu-latest
+
+    outputs:
+      vibipass: ${{ steps.filter.outputs.vibipass }}
+      vibrium: ${{ steps.filter.outputs.vibrium }}
+
+    steps:
+      - name: Detect changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            vibipass:
+              - 'VibiPass/**'
+
+            vibrium:
+              - 'Vibrium/**'
+
   build-vibipass:
     name: Build VibiPass
+    needs: detect-changes
+    if: needs.detect-changes.outputs.vibipass == 'true'
     uses: ./.github/workflows/build.yml
+    permissions:
+      contents: write
+
+  build-vibrium:
+    name: Build Vibrium
+    needs: detect-changes
+    if: needs.detect-changes.outputs.vibrium == 'true'
+    uses: ./.github/workflows/vibrium.yml
     permissions:
       contents: write
