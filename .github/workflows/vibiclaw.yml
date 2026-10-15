@@ -1,0 +1,64 @@
+name: Build and release VibiClaw (Windows)
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build VibiClaw (Windows) and publish release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust (MSVC)
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable-x86_64-pc-windows-msvc
+          override: true
+
+      - name: Show Rust version
+        run: rustc --version
+
+      - name: Build VibiClaw (release)
+        working-directory: .
+        run: |
+          cargo build --release --manifest-path VibiClaw/vibi-core/Cargo.toml
+
+      - name: Package exe into zip
+        shell: powershell
+        run: |
+          $exe = 'VibiClaw\vibi-core\target\release\vibi_core.exe'
+          if (-Not (Test-Path $exe)) { Write-Error "Binary not found: $exe"; exit 1 }
+          $zip = "vibiclaw-windows-${{ github.run_number }}.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path $exe -DestinationPath $zip -Force
+          Write-Host "Packaged: $zip"
+
+      - name: Create GitHub release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: vibiclaw-windows-${{ github.run_number }}
+          release_name: VibiClaw Windows Build ${{ github.run_number }}
+          body: Automated Windows build of VibiClaw (commit ${{ github.sha }})
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release asset (zip)
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: vibiclaw-windows-${{ github.run_number }}.zip
+          asset_name: vibiclaw-windows-${{ github.run_number }}.zip
+          asset_content_type: application/zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
