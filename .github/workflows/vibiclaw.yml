@@ -1,64 +1,114 @@
-name: Build and release VibiClaw (Windows)
+name: VibiClaw Build
 
+# NOTE: if your trigger.yml dispatcher already calls this workflow, delete the
+# push/pull_request blocks below and use only workflow_call, otherwise it will run twice.
 on:
-  workflow_call: {}
+  push:
+    branches: [main]
+    paths:
+      - "VibiClaw/**"
+      - ".github/workflows/vibiclaw.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "VibiClaw/**"
+      - ".github/workflows/vibiclaw.yml"
+  workflow_dispatch:
+  workflow_call:
 
-permissions:
-  contents: write
+env:
+  MANIFEST: VibiClaw/vibi-core/Cargo.toml
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    name: Build VibiClaw (Windows) and publish release
-    runs-on: windows-latest
-
+  # ---------------------------------------------------------------
+  # Linux: GTK3 + WebKitGTK. This is the platform the project's
+  # dependencies (gtk, webkit2gtk, soup3, inotify) are written for.
+  # ---------------------------------------------------------------
+  linux:
+    name: Linux build
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Install Rust (MSVC)
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable-x86_64-pc-windows-msvc
-          override: true
-
-      - name: Show Rust version
-        run: rustc --version
-
-      - name: Build VibiClaw (release)
-        working-directory: .
+      - name: Install system libraries
         run: |
-          cargo build --release --manifest-path VibiClaw/vibi-core/Cargo.toml
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config build-essential libssl-dev \
+            libglib2.0-dev libcairo2-dev libpango1.0-dev \
+            libgdk-pixbuf-2.0-dev libatk1.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev
 
-      - name: Package exe into zip
-        shell: powershell
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: VibiClaw/vibi-core
+
+      - name: Build (release)
+        run: cargo build --release --manifest-path "$MANIFEST"
+
+      - name: Collect binaries
         run: |
-          $exe = 'VibiClaw\vibi-core\target\release\vibi_core.exe'
-          if (-Not (Test-Path $exe)) { Write-Error "Binary not found: $exe"; exit 1 }
-          $zip = "vibiclaw-windows-${{ github.run_number }}.zip"
-          if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -Path $exe -DestinationPath $zip -Force
-          Write-Host "Packaged: $zip"
+          mkdir -p dist
+          find VibiClaw/vibi-core/target/release -maxdepth 1 -type f -perm -u+x \
+            ! -name '*.so' ! -name '*.d' ! -name 'build-script-*' \
+            -exec cp {} dist/ \;
+          ls -la dist
 
-      - name: Create GitHub release
-        id: create_release
-        uses: actions/create-release@v1
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: vibiclaw-windows-${{ github.run_number }}
-          release_name: VibiClaw Windows Build ${{ github.run_number }}
-          body: Automated Windows build of VibiClaw (commit ${{ github.sha }})
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: VibiClaw-linux
+          path: dist/*
+          if-no-files-found: error
 
-      - name: Upload release asset (zip)
-        uses: actions/upload-release-asset@v1
+  # ---------------------------------------------------------------
+  # Windows: GTK3 from MSYS2 (MinGW64) so no pkg-config errors.
+  # webkit2gtk / inotify are gated to Linux in Cargo.toml, and the
+  # WebView models use a stub on Windows (API models work normally).
+  # ---------------------------------------------------------------
+  windows:
+    name: Windows exe build
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: vibiclaw-windows-${{ github.run_number }}.zip
-          asset_name: vibiclaw-windows-${{ github.run_number }}.zip
-          asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-rust
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-gtk3
+
+      - name: Build (release)
+        run: cargo build --release --manifest-path "$MANIFEST"
+
+      - name: Bundle exe + GTK runtime DLLs
+        run: |
+          mkdir -p dist
+          for exe in VibiClaw/vibi-core/target/release/*.exe; do
+            cp "$exe" dist/
+            ldd "$exe" | grep -i '/mingw64/' | awk '{print $3}' | xargs -I{} cp -n {} dist/
+          done
+          mkdir -p dist/share dist/lib
+          cp -r VibiClaw/vibi-core/src/icons dist/icons
+          cp -r /mingw64/share/glib-2.0 dist/share/ || true
+          cp -r /mingw64/share/icons dist/share/ || true
+          cp -r /mingw64/lib/gdk-pixbuf-2.0 dist/lib/ || true
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VibiClaw-windows
+          path: dist/**
+          if-no-files-found: error
