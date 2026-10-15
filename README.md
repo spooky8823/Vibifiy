@@ -197,7 +197,7 @@ Vibifiy uses GitHub Actions to automate building, testing, releasing, and deploy
 The repository uses a central workflow to determine which projects have changed and run only the workflows that are relevant to those changes.
 
 <p align="center">
-  <img src="https://github.com/spooky8823/Vibifiy/blob/main/readmeimage.png?raw=true" alt="Vibifiy GitHub Actions workflow"/>
+  <img src="https://github.com/spooky8823/Vibifiy/blob/main/readmeimageworkflow.png?raw=true" alt="Vibifiy GitHub Actions workflow"/>
 </p>
 
 > **How the dispatcher works**
