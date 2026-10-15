@@ -292,4 +292,3 @@ Every contribution helps make the ecosystem better.
 
 
 
-[![Download VibiPass](https://alive-readme-buttons.spookyminecraftgamer.workers.dev/btn.svg?text=Download+VibiPass&bg=a04abf&fg=000000&icon=windows&style=pill&fill=gradient&anim=shine)](https://github.com/spooky8823/Vibifiy/releases/download/v1.0.1/VibiPass_Setup_1.0.exe)
