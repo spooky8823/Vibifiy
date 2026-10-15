@@ -35,7 +35,7 @@ Our goal is simple:
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> What We Build
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> What We Build
 
 - AI-powered developer tools
 - Desktop applications
@@ -51,7 +51,7 @@ Vibifiy is intentionally broad. We build software that solves problems, explores
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Technologies We Love Building With
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Technologies We Love Building With
 
 <p align="center">
   <a href="https://skillicons.dev">
@@ -67,7 +67,7 @@ The right tool should serve the software, not the other way around.
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Our Philosophy
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Our Philosophy
 
 Technology should be open, understandable, and accessible.
 
@@ -79,7 +79,7 @@ Every Vibifiy project is built with these ideas at its core.
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Core Principles
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Core Principles
 
 - Open source by default
 - Built in public
@@ -93,7 +93,7 @@ Every Vibifiy project is built with these ideas at its core.
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Featured Projects
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Featured Projects
 
 ### VibiClaw
 
@@ -151,7 +151,7 @@ The website provides information about Vibifiy and its projects and is automatic
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Open Source First
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Open Source First
 
 Vibifiy projects are developed in public because open development makes software better.
 
@@ -171,7 +171,7 @@ You do not need to be an expert to contribute.
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Copyleft
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Copyleft
 
 Software should stay free.
 
@@ -190,7 +190,7 @@ We believe software becomes stronger when improvements remain part of the common
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Automated Development
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Automated Development
 
 Vibifiy uses GitHub Actions to automate building, testing, releasing, and deploying projects.
 
@@ -220,7 +220,7 @@ VibiClaw is intentionally not part of the production CI/CD pipeline yet while de
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Repository Structure
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Repository Structure
 
 <p align="center">
   <img src="https://github.com/spooky8823/Vibifiy/blob/main/reademeimagedir.png?raw=true" alt="Vibifiy repository structure"/>
@@ -239,7 +239,7 @@ VibiClaw is intentionally not part of the production CI/CD pipeline yet while de
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Why Vibifiy?
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Why Vibifiy?
 
 We are not building software simply because there is another market to enter.
 
@@ -251,7 +251,7 @@ It is how we think about software.
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Join the Community
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Join the Community
 
 Whether you're an experienced contributor or writing your first pull request, there is a place for you at Vibifiy.
 
@@ -270,7 +270,7 @@ Every contribution helps make the ecosystem better.
 
 ---
 
-## <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="22" align="center"> Connect
+## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Connect
 
 - **Website:** https://spooky8823.github.io/vibifiy-website/
 - **GitHub:** https://github.com/Vibifiy-c
@@ -279,7 +279,7 @@ Every contribution helps make the ecosystem better.
 ---
 
 <p align="center">
-  <img src="https://github.com/Vibifiy-c/vibifiy-website/blob/main/logo.jpg?raw=true" width="70">
+  <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="70">
 </p>
 
 <h3 align="center">
