@@ -1132,6 +1132,7 @@ fn build_code_editor_page(stack: Stack, project_directory: Rc<RefCell<Option<Str
         .join("vibi-ai")
         .join("sandbox");
     
+    #[cfg(target_os = "linux")]
     std::thread::spawn(move || {
         use inotify::{Inotify, WatchMask};
         if let Ok(mut watcher) = Inotify::init() {
@@ -1158,6 +1159,20 @@ fn build_code_editor_page(stack: Stack, project_directory: Rc<RefCell<Option<Str
         }
     });
     
+    #[cfg(not(target_os = "linux"))]
+    std::thread::spawn(move || {
+        // No inotify here: poll the sandbox and notify when something changed.
+        let mut last = crate::paths::dir_signature(&sandbox_watch);
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            let now = crate::paths::dir_signature(&sandbox_watch);
+            if now != last {
+                last = now;
+                let _ = tx_clone.try_send(());
+            }
+        }
+    });
+
     gtk::glib::spawn_future_local(async move {
         while let Ok(()) = rx.recv().await {
             let scroll_pos = get_tree_scroll_value(&th_watch.borrow());
@@ -1179,7 +1194,7 @@ fn build_code_editor_page(stack: Stack, project_directory: Rc<RefCell<Option<Str
 
 fn get_icon_path(filename: &str) -> Option<String> {
     let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
-    let icons_dir = std::path::PathBuf::from("src/icons");
+    let icons_dir = crate::paths::icons_dir();
     
     let icon_name = match ext.as_str() {
         "rs" => "rust-programming-language-icon.png",
