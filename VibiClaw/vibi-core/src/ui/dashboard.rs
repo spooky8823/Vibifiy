@@ -518,9 +518,9 @@ fn build_model_card(emoji: &str, name: &str, _domain: &str, company: &str, model
         _ => "",
     };
     let icon_path = if !dash_icon.is_empty() {
-        format!("src/icons/{}", dash_icon)
+        crate::paths::icons_dir().join(dash_icon).to_string_lossy().to_string()
     } else {
-        format!("src/icons/{}-icon.png", model_id)
+        crate::paths::icons_dir().join(format!("{}-icon.png", model_id)).to_string_lossy().to_string()
     };
     let icon_widget: GtkBox = if std::path::Path::new(&icon_path).exists() {
         if let Ok(pixbuf) = gdk_pixbuf::Pixbuf::from_file_at_scale(&icon_path, 28, 28, true) {
