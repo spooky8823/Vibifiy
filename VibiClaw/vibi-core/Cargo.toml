@@ -3,6 +3,10 @@ name = "VibiClaw"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "VibiClaw"
+path = "src/main.rs"
+
 [dependencies]
 gtk = "0.18"
 gio = "0.18"
@@ -19,11 +23,15 @@ dirs = "5"
 regex = "1"
 rand = "0.8"
 ring = "0.17"
-webkit2gtk = "2.0"
 gdk-pixbuf = "0.18"
-webkit2gtk-sys = "2.0"
 tungstenite = "0.21"
 async-channel = "2"
 sysinfo = "0.30"
-inotify = "0.10"
 reqwest = { version = "0.11", features = ["blocking", "json"] }
+
+# Linux-only: WebKitGTK embedded browser and inotify file watching.
+# Windows/macOS use the stub bridge and a polling file watcher instead.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
+webkit2gtk-sys = "2.0"
+inotify = "0.10"
