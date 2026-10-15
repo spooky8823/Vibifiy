@@ -1,8 +1,15 @@
+#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
+
 mod types;
 mod sandbox;
 mod executor;
 mod ui;
+#[cfg(target_os = "linux")]
 mod ai_bridge;
+#[cfg(not(target_os = "linux"))]
+#[path = "ai_bridge_stub.rs"]
+mod ai_bridge;
+mod paths;
 mod vibi_lang;
 mod storage;
 mod chat_store;
