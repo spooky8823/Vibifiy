@@ -1,18 +1,5 @@
 name: VibiClaw Build
-
-# NOTE: if your trigger.yml dispatcher already calls this workflow, delete the
-# push/pull_request blocks below and use only workflow_call, otherwise it will run twice.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "VibiClaw/**"
-      - ".github/workflows/vibiclaw.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "VibiClaw/**"
-      - ".github/workflows/vibiclaw.yml"
   workflow_dispatch:
   workflow_call:
 
@@ -21,10 +8,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ---------------------------------------------------------------
-  # Linux: GTK3 + WebKitGTK. This is the platform the project's
-  # dependencies (gtk, webkit2gtk, soup3, inotify) are written for.
-  # ---------------------------------------------------------------
   linux:
     name: Linux build
     runs-on: ubuntu-22.04
@@ -52,25 +35,20 @@ jobs:
       - name: Build (release)
         run: cargo build --release --manifest-path "$MANIFEST"
 
-      - name: Collect binaries
+      - name: Collect binary + icons
         run: |
           mkdir -p dist
           find VibiClaw/vibi-core/target/release -maxdepth 1 -type f -perm -u+x \
             ! -name '*.so' ! -name '*.d' ! -name 'build-script-*' \
             -exec cp {} dist/ \;
+          cp -r VibiClaw/vibi-core/src/icons dist/icons
           ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: VibiClaw-linux
-          path: dist/*
+          path: dist/**
           if-no-files-found: error
-
-  # ---------------------------------------------------------------
-  # Windows: GTK3 from MSYS2 (MinGW64) so no pkg-config errors.
-  # webkit2gtk / inotify are gated to Linux in Cargo.toml, and the
-  # WebView models use a stub on Windows (API models work normally).
-  # ---------------------------------------------------------------
   windows:
     name: Windows exe build
     runs-on: windows-latest
@@ -112,3 +90,71 @@ jobs:
           name: VibiClaw-windows
           path: dist/**
           if-no-files-found: error
+  release:
+    name: Publish release
+    needs: [linux, windows]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: ver
+        run: |
+          v=$(grep -m1 '^version' VibiClaw/vibi-core/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=VibiClaw-v$v" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this version is already released
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.ver.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release ${{ steps.ver.outputs.tag }} already exists. Bump version in Cargo.toml to publish a new one."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download build artifacts
+        if: steps.exists.outputs.exists != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package
+        if: steps.exists.outputs.exists != 'true'
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          mkdir -p out
+          mv artifacts/VibiClaw-linux   "VibiClaw-v$v-linux-x64"
+          mv artifacts/VibiClaw-windows "VibiClaw-v$v-windows-x64"
+          chmod +x "VibiClaw-v$v-linux-x64/VibiClaw"
+          tar czf "out/VibiClaw-v$v-linux-x64.tar.gz" "VibiClaw-v$v-linux-x64"
+          zip -qr "out/VibiClaw-v$v-windows-x64.zip" "VibiClaw-v$v-windows-x64"
+          ls -la out
+
+      - name: Create GitHub release
+        if: steps.exists.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: VibiClaw v${{ steps.ver.outputs.version }}
+          make_latest: false  
+          files: |
+            out/*.tar.gz
+            out/*.zip
+          body: |
+            ## VibiClaw v${{ steps.ver.outputs.version }}
+
+            **Windows:** download the `.zip`, extract the whole folder, run `VibiClaw.exe`.
+            Keep the DLLs and `icons` folder next to the exe.
+
+            **Linux:** download the `.tar.gz`, extract it, run `./VibiClaw`.
+            Requires GTK 3 and WebKitGTK 4.1 (`sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0`).
+
+            WebView models (ChatGPT / Gemini in the embedded browser) currently work on Linux only;
+            API models work on both.
