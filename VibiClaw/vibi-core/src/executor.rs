@@ -95,8 +95,16 @@ impl Executor {
         let command = cmd.content.as_deref()
             .ok_or("No command specified")?;
 
-        let output = ShellCommand::new("sh")
-            .arg("-c")
+        let mut shell = if cfg!(windows) {
+            let mut c = ShellCommand::new("cmd");
+            c.arg("/C");
+            c
+        } else {
+            let mut c = ShellCommand::new("sh");
+            c.arg("-c");
+            c
+        };
+        let output = shell
             .arg(command)
             .current_dir(self.sandbox.working_dir())
             .output()
@@ -131,7 +139,7 @@ impl Executor {
     fn run_move_file(&self, cmd: &Command) -> Result<String, String> {
         let src = cmd.path.as_deref().ok_or("No source path")?;
         let dst = cmd.content.as_deref().ok_or("No destination")?;
-        let dst_path = if dst.starts_with('/') || dst.contains(":/") {
+        let dst_path = if dst.starts_with('/') || dst.contains(":/") || std::path::Path::new(dst).is_absolute() {
             dst.to_string()
         } else {
             let src_dir = std::path::Path::new(src).parent().unwrap_or(std::path::Path::new("."));
@@ -148,7 +156,7 @@ impl Executor {
     fn run_copy_file(&self, cmd: &Command) -> Result<String, String> {
         let src = cmd.path.as_deref().ok_or("No source path")?;
         let dst = cmd.content.as_deref().ok_or("No destination")?;
-        let dst_path = if dst.starts_with('/') || dst.contains(":/") {
+        let dst_path = if dst.starts_with('/') || dst.contains(":/") || std::path::Path::new(dst).is_absolute() {
             dst.to_string()
         } else {
             let src_dir = std::path::Path::new(src).parent().unwrap_or(std::path::Path::new("."));
@@ -169,10 +177,30 @@ impl Executor {
     fn run_open(&self, cmd: &Command) -> Result<String, String> {
         let target = cmd.path.as_deref().or(cmd.content.as_deref()).ok_or("No target")?;
         let resolved = self.sandbox.resolve(target).unwrap_or_else(|| std::path::PathBuf::from(target));
-        std::process::Command::new("xdg-open")
-            .arg(&resolved)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        #[cfg(target_os = "windows")]
+        {
+            // canonicalize() yields \\?\C:\... paths; `start` can't handle that prefix
+            let p = resolved.to_string_lossy().trim_start_matches(r"\\?\").to_string();
+            std::process::Command::new("cmd")
+                .args(["/C", "start", ""])
+                .arg(p)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(&resolved)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(&resolved)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
         Ok(format!("Opened: {}", target))
     }
 
