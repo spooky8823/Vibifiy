@@ -10,6 +10,8 @@ mod ai_bridge;
 #[path = "ai_bridge_stub.rs"]
 mod ai_bridge;
 mod paths;
+#[cfg(target_os = "windows")]
+mod webview2_probe;
 mod vibi_lang;
 mod storage;
 mod chat_store;
@@ -24,8 +26,12 @@ use gtk::{Application, CssProvider};
 use glib::LogLevel;
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    if std::env::var("VIBI_PROBE").is_ok() {
+        let _ = webview2_probe::probe(0);
+    }
 
-    // Global panic hook - logs crashes with location
+
     std::panic::set_hook(Box::new(|info| {
         let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
             s.to_string()
