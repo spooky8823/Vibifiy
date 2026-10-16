@@ -78,6 +78,10 @@ jobs:
             cp "$exe" dist/
             ldd "$exe" | grep -i '/mingw64/' | awk '{print $3}' | xargs -I{} cp -n {} dist/
           done
+          cargo_home="${CARGO_HOME:-$(cygpath -u "$USERPROFILE")/.cargo}"
+          loader=$(find "$cargo_home/registry/src" VibiClaw/vibi-core/target -name WebView2Loader.dll 2>/dev/null | grep -i x64 | head -n 1)
+          test -n "$loader" || { echo "WebView2Loader.dll not found"; exit 1; }
+          cp "$loader" dist/
           mkdir -p dist/share dist/lib
           cp -r VibiClaw/vibi-core/src/icons dist/icons
           cp -r /mingw64/share/glib-2.0 dist/share/ || true
