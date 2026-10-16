@@ -31,6 +31,9 @@ reqwest = { version = "0.11", features = ["blocking", "json"] }
 
 # Linux-only: WebKitGTK embedded browser and inotify file watching.
 # Windows/macOS use the stub bridge and a polling file watcher instead.
+[target.'cfg(target_os = "windows")'.dependencies]
+wry = "0.53"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
 webkit2gtk-sys = "2.0"
