@@ -74,10 +74,21 @@ jobs:
       - name: Bundle exe + GTK runtime DLLs
         run: |
           mkdir -p dist
-          for exe in VibiClaw/vibi-core/target/release/*.exe; do
-            cp "$exe" dist/
-            ldd "$exe" | grep -i '/mingw64/' | awk '{print $3}' | xargs -I{} cp -n {} dist/
+          cp VibiClaw/vibi-core/target/release/*.exe dist/
+          # Copy MinGW DLLs recursively: scan the exe and every DLL copied so far,
+          # repeat until a pass finds nothing new.
+          for pass in 1 2 3 4 5 6 7 8; do
+            before=$(ls dist/*.dll 2>/dev/null | wc -l)
+            for f in dist/*.exe dist/*.dll; do
+              [ -f "$f" ] || continue
+              ldd "$f" 2>/dev/null | grep -i '/mingw64/' | awk '{print $3}' | xargs -r -I{} cp -n {} dist/
+            done
+            after=$(ls dist/*.dll 2>/dev/null | wc -l)
+            echo "pass $pass: $before -> $after DLLs"
+            [ "$before" -eq "$after" ] && break
           done
+          echo "--- unresolved dependencies (should be empty) ---"
+          ldd dist/*.exe | grep -i 'not found' || true
           cargo_home="${CARGO_HOME:-$(cygpath -u "$USERPROFILE")/.cargo}"
           loader=$(find "$cargo_home/registry/src" VibiClaw/vibi-core/target -name WebView2Loader.dll 2>/dev/null | grep -i x64 | head -n 1)
           test -n "$loader" || { echo "WebView2Loader.dll not found"; exit 1; }
