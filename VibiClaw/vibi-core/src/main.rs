@@ -6,18 +6,20 @@ mod executor;
 mod ui;
 #[cfg(target_os = "linux")]
 mod ai_bridge;
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "windows")]
+#[path = "ai_bridge_windows.rs"]
+mod ai_bridge;
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 #[path = "ai_bridge_stub.rs"]
 mod ai_bridge;
 mod paths;
-#[cfg(target_os = "windows")]
-mod webview2_probe;
 mod vibi_lang;
 mod storage;
 mod chat_store;
 mod crypto;
 mod logger;
 mod notification_panel;
+mod approval_queue;
 mod debug;
 pub mod api;
 
@@ -26,11 +28,6 @@ use gtk::{Application, CssProvider};
 use glib::LogLevel;
 
 fn main() {
-    #[cfg(target_os = "windows")]
-    if std::env::var("VIBI_PROBE").is_ok() {
-        let _ = webview2_probe::probe(0);
-    }
-
 
     std::panic::set_hook(Box::new(|info| {
         let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {

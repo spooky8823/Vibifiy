@@ -133,13 +133,13 @@ pub fn build_chat_view(
 
 fn build_dynamic_greeting() -> Label {
     let hour = chrono::Local::now().hour();
-    let text = if hour < 4 { "🌙 Early Night" }
-    else if hour < 7 { "🌄 Early Morning" }
-    else if hour < 12 { "☀️ Good Morning" }
-    else if hour < 17 { "🌤️ Good Afternoon" }
-    else if hour < 19 { "🌅 Early Evening" }
-    else if hour < 21 { "🌆 Good Evening" }
-    else { "🌙 Good Night" };
+    let text = if hour < 4 { "Early Night" }
+    else if hour < 7 { "Early Morning" }
+    else if hour < 12 { "Good Morning" }
+    else if hour < 17 { "Good Afternoon" }
+    else if hour < 19 { "Early Evening" }
+    else if hour < 21 { "Good Evening" }
+    else { "Good Night" };
 
     let label = Label::new(Some(text));
     label.style_context().add_class("dashboard-greeting");
@@ -229,7 +229,7 @@ fn build_section_header(title: &str) -> Label {
 
 fn build_webview_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>>, view_stack: Stack, bridge: Rc<crate::ai_bridge::AiBridge>, chat_title: Label, _api_chat: Option<Rc<ApiChat>>, _chat_store: Rc<RefCell<ChatStore>>, renderer_mode: Rc<RefCell<String>>) -> GtkBox {
     let section = GtkBox::new(Orientation::Vertical, 10);
-    section.pack_start(&build_section_header("🌐 WebView Models"), false, false, 0);
+    section.pack_start(&build_section_header("WebView Models"), false, false, 0);
 
     let flow = gtk::FlowBox::new();
     flow.set_selection_mode(gtk::SelectionMode::None);
@@ -240,8 +240,8 @@ fn build_webview_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>>, vi
     flow.set_column_spacing(10);
 
     let models = vec![
-        ("chatgpt", "🟢", "ChatGPT", "openai.com", "OpenAI"),
-        ("gemini", "🔵", "Gemini", "gemini.google.com", "Google"),
+        ("chatgpt", "", "ChatGPT", "openai.com", "OpenAI"),
+        ("gemini", "", "Gemini", "gemini.google.com", "Google"),
     ];
 
     for (id, emoji, name, domain, company) in &models {
@@ -267,7 +267,7 @@ fn build_webview_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>>, vi
 
 fn build_official_api_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>>, view_stack: Stack, _bridge: Rc<crate::ai_bridge::AiBridge>, chat_title: Label, api_chat: Option<Rc<ApiChat>>, chat_store: Rc<RefCell<ChatStore>>, renderer_mode: Rc<RefCell<String>>) -> GtkBox {
     let section = GtkBox::new(Orientation::Vertical, 10);
-    section.pack_start(&build_section_header("🔑 Official API Models"), false, false, 0);
+    section.pack_start(&build_section_header("Official API Models"), false, false, 0);
 
     let flow = gtk::FlowBox::new();
     flow.set_selection_mode(gtk::SelectionMode::None);
@@ -278,15 +278,15 @@ fn build_official_api_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>
     flow.set_column_spacing(10);
 
     let models = vec![
-        ("gpt-4o", "🟢", "GPT-4o", "api.openai.com", "OpenAI"),
-        ("gpt-4", "🟢", "GPT-4", "api.openai.com", "OpenAI"),
-        ("gpt-3.5-turbo", "🟢", "GPT-3.5", "api.openai.com", "OpenAI"),
-        ("gemini-2.5-pro", "🔵", "Gemini 2.5 Pro", "api.google.com", "Google"),
-        ("gemini-2.5-flash", "🔵", "Gemini 2.5 Flash", "api.google.com", "Google"),
-        ("claude-opus", "🟠", "Claude Opus", "api.anthropic.com", "Anthropic"),
-        ("claude-sonnet", "🟠", "Claude Sonnet", "api.anthropic.com", "Anthropic"),
-        ("deepseek-v3", "🐋", "DeepSeek V3", "api.deepseek.com", "DeepSeek"),
-        ("deepseek-r1", "🐋", "DeepSeek R1", "api.deepseek.com", "DeepSeek"),
+        ("gpt-4o", "", "GPT-4o", "api.openai.com", "OpenAI"),
+        ("gpt-4", "", "GPT-4", "api.openai.com", "OpenAI"),
+        ("gpt-3.5-turbo", "", "GPT-3.5", "api.openai.com", "OpenAI"),
+        ("gemini-2.5-pro", "", "Gemini 2.5 Pro", "api.google.com", "Google"),
+        ("gemini-2.5-flash", "", "Gemini 2.5 Flash", "api.google.com", "Google"),
+        ("claude-opus", "", "Claude Opus", "api.anthropic.com", "Anthropic"),
+        ("claude-sonnet", "", "Claude Sonnet", "api.anthropic.com", "Anthropic"),
+        ("deepseek-v3", "", "DeepSeek V3", "api.deepseek.com", "DeepSeek"),
+        ("deepseek-r1", "", "DeepSeek R1", "api.deepseek.com", "DeepSeek"),
     ];
 
     for (id, emoji, name, domain, company) in &models {
@@ -317,7 +317,7 @@ fn build_official_api_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>
 
 fn build_unofficial_api_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>>, view_stack: Stack, _bridge: Rc<crate::ai_bridge::AiBridge>, chat_title: Label, api_chat: Option<Rc<ApiChat>>, chat_store: Rc<RefCell<ChatStore>>, renderer_mode: Rc<RefCell<String>>) -> GtkBox {
     let section = GtkBox::new(Orientation::Vertical, 10);
-    section.pack_start(&build_section_header("🔓 Unofficial API Models"), false, false, 0);
+    section.pack_start(&build_section_header("Unofficial API Models"), false, false, 0);
 
     let flow = gtk::FlowBox::new();
     flow.set_selection_mode(gtk::SelectionMode::None);
@@ -328,9 +328,9 @@ fn build_unofficial_api_section(cards_registry: &Rc<RefCell<Vec<(String, Button)
     flow.set_column_spacing(10);
 
     let models = vec![
-        ("openrouter", "🔗", "OpenRouter", "openrouter.ai", "Multi-Provider"),
-        ("groq", "⚡", "Groq", "api.groq.com", "Groq"),
-        ("together", "🤝", "Together AI", "api.together.xyz", "Together"),
+        ("openrouter", "", "OpenRouter", "openrouter.ai", "Multi-Provider"),
+        ("groq", "", "Groq", "api.groq.com", "Groq"),
+        ("together", "", "Together AI", "api.together.xyz", "Together"),
     ];
 
     for (id, emoji, name, domain, company) in &models {
@@ -361,7 +361,7 @@ fn build_unofficial_api_section(cards_registry: &Rc<RefCell<Vec<(String, Button)
 
 fn build_local_models_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>>, view_stack: Stack, _bridge: Rc<crate::ai_bridge::AiBridge>, chat_title: Label, api_chat: Option<Rc<ApiChat>>, chat_store: Rc<RefCell<ChatStore>>, renderer_mode: Rc<RefCell<String>>) -> GtkBox {
     let section = GtkBox::new(Orientation::Vertical, 10);
-    section.pack_start(&build_section_header("💻 Local Models"), false, false, 0);
+    section.pack_start(&build_section_header("Local Models"), false, false, 0);
 
     let flow = gtk::FlowBox::new();
     flow.set_selection_mode(gtk::SelectionMode::None);
@@ -372,8 +372,8 @@ fn build_local_models_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>
     flow.set_column_spacing(10);
 
     let models = vec![
-        ("ollama", "🦙", "Ollama", "localhost:11434", "Local Runtime"),
-        ("lmstudio", "🖥️", "LM Studio", "localhost:1234", "Local Runtime"),
+        ("ollama", "", "Ollama", "localhost:11434", "Local Runtime"),
+        ("lmstudio", "", "LM Studio", "localhost:1234", "Local Runtime"),
     ];
 
     for (id, emoji, name, domain, company) in &models {
@@ -398,7 +398,7 @@ fn build_local_models_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>
         flow.insert(&card, -1);
     }
 
-    let scan_btn = Button::with_label("🔍 Scan for local models");
+    let scan_btn = Button::with_label("Scan for local models");
     scan_btn.style_context().add_class("dashboard-scan-btn");
     scan_btn.set_halign(Align::Center);
     section.pack_start(&scan_btn, false, false, 0);
@@ -409,7 +409,7 @@ fn build_local_models_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>
 
 fn build_cloud_gpu_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>>, view_stack: Stack, _bridge: Rc<crate::ai_bridge::AiBridge>, chat_title: Label, api_chat: Option<Rc<ApiChat>>, chat_store: Rc<RefCell<ChatStore>>, renderer_mode: Rc<RefCell<String>>) -> GtkBox {
     let section = GtkBox::new(Orientation::Vertical, 10);
-    section.pack_start(&build_section_header("☁️ Cloud GPU Models"), false, false, 0);
+    section.pack_start(&build_section_header("Cloud GPU Models"), false, false, 0);
 
     let flow = gtk::FlowBox::new();
     flow.set_selection_mode(gtk::SelectionMode::None);
@@ -420,10 +420,10 @@ fn build_cloud_gpu_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>>, 
     flow.set_column_spacing(10);
 
     let models = vec![
-        ("kaggle", "📊", "Kaggle GPU", "kaggle.com", "Kaggle"),
-        ("colab", "🔬", "Google Colab", "colab.research.google.com", "Google"),
-        ("runpod", "🚀", "RunPod", "runpod.io", "RunPod"),
-        ("lambdalabs", "☁️", "Lambda Labs", "lambdalabs.com", "Lambda"),
+        ("kaggle", "", "Kaggle GPU", "kaggle.com", "Kaggle"),
+        ("colab", "", "Google Colab", "colab.research.google.com", "Google"),
+        ("runpod", "", "RunPod", "runpod.io", "RunPod"),
+        ("lambdalabs", "", "Lambda Labs", "lambdalabs.com", "Lambda"),
     ];
 
     for (id, emoji, name, domain, company) in &models {
@@ -454,7 +454,7 @@ fn build_cloud_gpu_section(cards_registry: &Rc<RefCell<Vec<(String, Button)>>>, 
 
 fn build_recent_chats_section(chat_store: Rc<RefCell<ChatStore>>, view_stack: Stack, chat_title: Label, renderer_mode: Rc<RefCell<String>>) -> GtkBox {
     let section = GtkBox::new(Orientation::Vertical, 10);
-    section.pack_start(&build_section_header("💬 Recent Chats"), false, false, 0);
+    section.pack_start(&build_section_header("Recent Chats"), false, false, 0);
 
     let flow = gtk::FlowBox::new();
     flow.set_selection_mode(gtk::SelectionMode::None);

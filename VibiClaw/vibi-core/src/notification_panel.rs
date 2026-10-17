@@ -4,20 +4,11 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use crate::logger::{Logger, LogEntry, LogLevel};
 use crate::types::Command;
-use std::sync::Mutex;
 
-static APPROVAL_TX: Mutex<Option<async_channel::Sender<Vec<Command>>>> = Mutex::new(None);
-
-pub fn set_approval_channel(tx: async_channel::Sender<Vec<Command>>) {
-    *APPROVAL_TX.lock().unwrap() = Some(tx);
-}
-
+/// Entry point used by the vibi runtime. Commands go into the backend approval queue
+/// (see approval_queue.rs); the Approval panel mirrors that queue.
 pub fn queue_for_approval(commands: Vec<Command>) {
-    if let Ok(tx) = APPROVAL_TX.lock() {
-        if let Some(ref tx) = *tx {
-            let _ = tx.try_send(commands);
-        }
-    }
+    crate::approval_queue::enqueue(commands);
 }
 
 pub struct NotificationPanel {
@@ -47,7 +38,7 @@ impl NotificationPanel {
         header.set_margin_top(12);
         header.set_margin_bottom(8);
 
-        let title = Label::new(Some("🔔 Notifications"));
+        let title = Label::new(Some("Notifications"));
         title.style_context().add_class("notification-title");
         title.set_halign(Align::Start);
         title.set_hexpand(true);
@@ -141,10 +132,10 @@ fn build_notification_row(entry: &LogEntry) -> GtkBox {
 
     let top = GtkBox::new(Orientation::Horizontal, 8);
     let icon = match entry.level {
-        LogLevel::Success => "🟢",
-        LogLevel::Error => "🔴",
-        LogLevel::Warning => "🟡",
-        LogLevel::Info => "🔵",
+        LogLevel::Success => "",
+        LogLevel::Error => "",
+        LogLevel::Warning => "",
+        LogLevel::Info => "",
         LogLevel::Debug => "⚪",
     };
     let icon_label = Label::new(Some(icon));

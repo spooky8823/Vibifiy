@@ -79,7 +79,7 @@ pub fn decrypt_session_data(encrypted: &str) -> Result<String, String> {
     
     let mut in_out = ciphertext;
     let plaintext = key.open_in_place(nonce, Aad::empty(), &mut in_out)
-        .map_err(|_| "🔒 FILE TAMPERED — Cannot decrypt. This session log has been modified externally.".to_string())?;
+        .map_err(|_| "FILE TAMPERED — Cannot decrypt. This session log has been modified externally.".to_string())?;
     
     String::from_utf8(plaintext.to_vec()).map_err(|e| format!("UTF-8 error: {:?}", e))
 }

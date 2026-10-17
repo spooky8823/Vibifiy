@@ -53,6 +53,18 @@ pub fn build_chat_renderer(
     // Set default visible child
     inner_stack.set_visible_child_name("native");
 
+    // Show the WebView page (or the native chat page) every time the renderer
+    // page becomes visible. Dashboard cards set `current_mode` before switching.
+    {
+        let inner = inner_stack.clone();
+        let mode = current_mode.clone();
+        container.connect_map(move |_| {
+            let page = if *mode.borrow() == "webview" { "webview" } else { "native" };
+            println!("[AiBridge] renderer shown, inner page = {}", page);
+            inner.set_visible_child_name(page);
+        });
+    }
+
     (container, current_mode)
 }
 

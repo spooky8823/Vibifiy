@@ -15,7 +15,7 @@ pub fn execute(mut commands: Vec<Command>, executor: &Executor, require_approval
     if require_approval {
         // Queue commands to notification panel for user approval
         crate::notification_panel::queue_for_approval(commands.clone());
-        return vec!["⏳ Commands queued for approval. Check the right panel.".to_string()];
+        return vec!["Commands queued for approval. Check the right panel.".to_string()];
     }
     
     let mut results = Vec::new();
@@ -25,13 +25,13 @@ pub fn execute(mut commands: Vec<Command>, executor: &Executor, require_approval
         match &cmd.status {
             CommandStatus::Done => {
                 let output = cmd.output.as_deref().unwrap_or("Done");
-                results.push(format!("✅ {}", output));
+                results.push(format!("{}", output));
             }
             CommandStatus::Failed(e) => {
-                results.push(format!("❌ {}", e));
+                results.push(format!("{}", e));
             }
             _ => {
-                results.push(format!("⚠️ {:?}", cmd.status));
+                results.push(format!("{:?}", cmd.status));
             }
         }
     }

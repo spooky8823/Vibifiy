@@ -36,12 +36,12 @@ pub fn build_model_selector() -> ModelSelector {
     trigger.set_halign(Align::Start);
     
     let trigger_content = GtkBox::new(Orientation::Horizontal, 8);
-    let icon = Label::new(Some("🟢"));
+    let icon = Label::new(Some(""));
     icon.style_context().add_class("model-trigger-icon");
     
     let selected_label = Rc::new(RefCell::new(Label::new(Some("Select Model"))));
     let selected_icon = Rc::new(RefCell::new(icon.clone()));
-    icon.set_text("🤖");
+    icon.set_text("");
     trigger_content.pack_start(&icon, false, false, 0);
     trigger_content.pack_start(&selected_label.borrow().clone(), false, false, 0);
     let arrow = Label::new(Some("▾"));
@@ -73,7 +73,7 @@ pub fn build_model_selector() -> ModelSelector {
 fn get_companies() -> Vec<CompanyGroup> {
     vec![
         CompanyGroup {
-            icon: "🟢",
+            icon: "",
             name: "OpenAI",
             models: vec![
                 ModelEntry { id: "chatgpt".into(), name: "ChatGPT-4o".into(), desc: "Latest multimodal model".into() },
@@ -82,7 +82,7 @@ fn get_companies() -> Vec<CompanyGroup> {
             ],
         },
         CompanyGroup {
-            icon: "🟠",
+            icon: "",
             name: "Anthropic",
             models: vec![
                 ModelEntry { id: "claude".into(), name: "Claude Opus 4.8".into(), desc: "Most powerful".into() },
@@ -92,7 +92,7 @@ fn get_companies() -> Vec<CompanyGroup> {
             ],
         },
         CompanyGroup {
-            icon: "🔵",
+            icon: "",
             name: "Google",
             models: vec![
                 ModelEntry { id: "gemini".into(), name: "Gemini 2.5 Pro".into(), desc: "Deep research".into() },
@@ -101,7 +101,7 @@ fn get_companies() -> Vec<CompanyGroup> {
             ],
         },
         CompanyGroup {
-            icon: "🐋",
+            icon: "",
             name: "DeepSeek",
             models: vec![
                 ModelEntry { id: "deepseek".into(), name: "DeepSeek-V3".into(), desc: "Latest flagship".into() },
@@ -109,7 +109,7 @@ fn get_companies() -> Vec<CompanyGroup> {
             ],
         },
         CompanyGroup {
-            icon: "⚡",
+            icon: "",
             name: "xAI",
             models: vec![
                 ModelEntry { id: "grok".into(), name: "Grok-3".into(), desc: "Latest generation".into() },
@@ -117,7 +117,7 @@ fn get_companies() -> Vec<CompanyGroup> {
             ],
         },
         CompanyGroup {
-            icon: "🟣",
+            icon: "",
             name: "Alibaba",
             models: vec![
                 ModelEntry { id: "qwen".into(), name: "Qwen 3.7 Max".into(), desc: "Top performance".into() },
@@ -127,7 +127,7 @@ fn get_companies() -> Vec<CompanyGroup> {
             ],
         },
         CompanyGroup {
-            icon: "🌙",
+            icon: "",
             name: "MoonShot",
             models: vec![
                 ModelEntry { id: "kimi".into(), name: "Kimi Code 2.7".into(), desc: "Coding specialist".into() },

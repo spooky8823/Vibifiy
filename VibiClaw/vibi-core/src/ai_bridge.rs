@@ -514,4 +514,4 @@ fn hex_to_string(hex: &str) -> String {
         .filter_map(|i| u8::from_str_radix(&hex[i..i+2], 16).ok())
         .collect();
     String::from_utf8_lossy(&bytes).to_string()
-}
+} 

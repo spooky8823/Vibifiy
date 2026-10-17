@@ -72,10 +72,10 @@ pub fn build_sidebar(stack: gtk::Stack, storage: Rc<RefCell<crate::storage::AppS
     let agentic_btn = nav_item_button_with_icon("Code", "", None);
     nav_box.pack_start(&agentic_btn, false, false, 0);
 
-    let notebook_btn = nav_item_button_with_icon("AI Notebook", "📓", Some("WEB"));
+    let notebook_btn = nav_item_button_with_icon("AI Notebook", "", Some("WEB"));
     nav_box.pack_start(&notebook_btn, false, false, 0);
 
-    let logs_btn = nav_item_button_with_icon("Logs", "📋", None);
+    let logs_btn = nav_item_button_with_icon("Logs", "", None);
     nav_box.pack_start(&logs_btn, false, false, 0);
 
 
