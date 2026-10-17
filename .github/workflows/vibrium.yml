@@ -53,17 +53,22 @@ jobs:
 
       - name: GeckoKit setup (Linux)
         working-directory: Vibrium
-        run: npx geckokit setup
+        run: |
+          set -e
+          npx geckokit setup
         env:
           GECKOKIT_ACCEPT_LICENSE: "1"
 
       - name: Build Vibrium (Linux)
         working-directory: Vibrium
-        run: npx geckokit build
+        run: |
+          set -e
+          npx geckokit build
 
       - name: Package (Linux)
         working-directory: Vibrium
         run: |
+          set -e
           npx geckokit package
           mkdir -p dist
           cp -r .geckokit/firefox/obj-geckokit-*/dist/* dist/ || true
