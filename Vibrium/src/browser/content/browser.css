@@ -1,0 +1,22 @@
+/* Vibrium identity */
+:root {
+  --vibrium-accent: #6c5ce7;
+  --vibrium-bg: #121212;
+  --vibrium-fg: #e6e6e6;
+}
+
+#navigator-toolbox {
+  background: var(--vibrium-bg) !important;
+  color: var(--vibrium-fg) !important;
+}
+
+#urlbar-background {
+  background: #1e1e1e !important;
+  border: 1px solid var(--vibrium-accent) !important;
+  border-radius: 4px !important;
+}
+
+#urlbar[focused="true"] #urlbar-background {
+  border-color: var(--vibrium-accent) !important;
+  box-shadow: 0 0 0 1px var(--vibrium-accent) !important;
+}
