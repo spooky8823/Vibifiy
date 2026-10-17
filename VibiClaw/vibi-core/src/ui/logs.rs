@@ -129,7 +129,7 @@ fn build_sessions_page(logger: Rc<RefCell<Logger>>, stack: Stack, back_btn: Butt
                     false.into()
                 });
 
-                let delete_btn = Button::with_label("🗑");
+                let delete_btn = Button::with_label("Delete");
                 delete_btn.style_context().add_class("log-delete-btn");
                 delete_btn.set_tooltip_text(Some("Delete this session log"));
                 card.pack_start(&delete_btn, false, false, 0);
@@ -176,7 +176,7 @@ fn session_card(title: &str, subtitle: &str, is_live: bool) -> GtkBox {
     card.set_size_request(280, 70);
     card.set_hexpand(true);
 
-    let indicator = Label::new(Some(if is_live { "🟢" } else { "📄" }));
+    let indicator = Label::new(Some(if is_live { "" } else { "" }));
     indicator.style_context().add_class("log-card-icon");
     card.pack_start(&indicator, false, false, 0);
 

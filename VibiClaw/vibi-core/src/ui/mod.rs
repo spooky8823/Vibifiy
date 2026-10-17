@@ -48,9 +48,9 @@ pub fn refresh_sidebar_chat_list(container: &GtkBox, store: &crate::chat_store::
         });
         row.pack_start(&item, true, true, 0);
 
-        let edit_btn = chat_action_btn("✏️");
-        let delete_btn = chat_action_btn("🗑");
-        let share_btn = chat_action_btn("📤");
+        let edit_btn = chat_action_btn("Edit");
+        let delete_btn = chat_action_btn("Delete");
+        let share_btn = chat_action_btn("Share");
 
         row.pack_start(&edit_btn, false, false, 0);
         row.pack_start(&delete_btn, false, false, 0);
@@ -126,7 +126,7 @@ fn build_save_screen() -> GtkBox {
     screen.set_vexpand(true);
     screen.style_context().add_class("save-screen");
 
-    let icon = Label::new(Some("💾"));
+    let icon = Label::new(Some(""));
     icon.style_context().add_class("save-icon");
     screen.pack_start(&icon, false, false, 0);
 
@@ -238,8 +238,20 @@ pub fn build_window(app: &Application) {
     approval_panel.revealer.set_valign(Align::Fill);
     main_overlay.add_overlay(&approval_panel.revealer);
 
+    // On Windows the web page is a native child window that always draws above
+    // GTK widgets, so make it step aside while the approval panel is open.
+    #[cfg(target_os = "windows")]
+    approval_panel.revealer.connect_reveal_child_notify(|r| {
+        let width = if r.reveals_child() {
+            r.child().map(|c| c.preferred_width().1).unwrap_or(0)
+        } else {
+            0
+        };
+        crate::ai_bridge::set_right_inset(width);
+    });
+
     // Bell button fixed in top-right
-    let bell_btn = Button::with_label("🔔");
+    let bell_btn = Button::with_label("Alerts");
     bell_btn.style_context().add_class("notification-bell-float");
     bell_btn.set_halign(Align::End);
     bell_btn.set_valign(Align::Start);
@@ -255,72 +267,48 @@ pub fn build_window(app: &Application) {
 
 
 
-    // Channel for approval requests from ai_bridge (using async channel)
-    let (approval_tx, approval_rx) = async_channel::unbounded::<Vec<crate::types::Command>>();
-    
-    // Store transmitter globally for ai_bridge to use
-    crate::notification_panel::set_approval_channel(approval_tx);
+    // Backend approval queue. Commands compiled from ```vibi blocks are held in memory by
+    // crate::approval_queue; this panel only mirrors it. Approving a card removes the
+    // command from memory and runs it on a background worker (results come back below).
+    let (queue_tx, queue_rx) = async_channel::unbounded::<()>();
+    let (result_tx, result_rx) = async_channel::unbounded::<crate::types::Command>();
+    crate::approval_queue::init(queue_tx, result_tx);
 
-    // Listen for approval requests on the main thread
+    // Queue gained items -> mirror memory into the panel and open it.
     let ap_panel = approval_panel.clone();
     gtk::glib::spawn_future_local(async move {
-        while let Ok(commands) = approval_rx.recv().await {
-            ap_panel.clear();
-            for cmd in &commands {
-                let tool = format!("{:?}", cmd.kind);
-                let path = cmd.path.as_deref().unwrap_or("-");
-                let detail = cmd.content.as_deref().unwrap_or("");
-                let short: String = detail.chars().take(60).collect();
-                ap_panel.add_card(&tool, path, &short, cmd.clone());
+        while let Ok(_) = queue_rx.recv().await {
+            ap_panel.sync();
+            if ap_panel.has_cards() {
+                ap_panel.show();
             }
-            ap_panel.show();
-            
-            // Poll until all cards are resolved, then execute approved ones
-            let panel = ap_panel.clone();
-            let cmds = commands.clone();
-            gtk::glib::spawn_future_local(async move {
-                // Wait for user to resolve all cards
-                loop {
-                    if panel.all_resolved() && !panel.is_empty() {
-                        break;
-                    }
-                    glib::timeout_future(std::time::Duration::from_millis(500)).await;
-                }
-                let approved = panel.get_approved_commands();
-                let total = commands.len();
-                let denied_count = total - approved.len();
-                
-                if denied_count > 0 && approved.is_empty() {
-                    println!("[VibiClaw] ❌ All {} action(s) denied by user.", denied_count);
-                }
-                
-                if !approved.is_empty() {
-                    if denied_count > 0 {
-                        println!("[VibiClaw] {} denied, executing {} approved.", denied_count, approved.len());
-                    }
-                    let sandbox_path = dirs::config_dir()
-                        .unwrap_or_else(|| std::path::PathBuf::from("."))
-                        .join("vibi-ai")
-                        .join("sandbox");
-                    if let Ok(executor) = crate::executor::Executor::new(
-                        sandbox_path.to_str().unwrap(),
-                        true,
-                    ) {
-                        let mut exec_cmds = approved;
-                        for cmd in &mut exec_cmds {
-                            executor.run(cmd);
-                            println!("[VibiClaw] {}", 
-                                if let crate::types::CommandStatus::Done = cmd.status {
-                                    format!("✅ {}", cmd.output.as_deref().unwrap_or("Done"))
-                                } else {
-                                    format!("❌ {:?}", cmd.status)
-                                }
-                            );
-                        }
-                    }
-                }
-                panel.hide();
-            });
+        }
+    });
+
+    // An approved command finished running -> report it in the Logs view.
+    let result_logger = logger.clone();
+    gtk::glib::spawn_future_local(async move {
+        while let Ok(cmd) = result_rx.recv().await {
+            let label = cmd.kind.label();
+            let target = cmd.path.as_deref().unwrap_or("");
+            let output = cmd.output.as_deref().unwrap_or("");
+            let (level, text) = match &cmd.status {
+                crate::types::CommandStatus::Done => (
+                    crate::logger::LogLevel::Success,
+                    format!("{} {} - {}", label, target, output),
+                ),
+                crate::types::CommandStatus::Failed(e) => (
+                    crate::logger::LogLevel::Error,
+                    format!("{} {} failed: {}", label, target, e),
+                ),
+                other => (
+                    crate::logger::LogLevel::Info,
+                    format!("{} {} - {:?}", label, target, other),
+                ),
+            };
+            println!("[VibiClaw] {}", text);
+            let shown: String = text.chars().take(2000).collect();
+            result_logger.borrow_mut().log(level, "Executor", &shown);
         }
     });
 

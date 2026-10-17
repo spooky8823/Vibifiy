@@ -3,7 +3,7 @@ use crate::types::{Command, CommandKind};
 
 pub struct Analyzer;
 
-impl Analyzer {
+impl Analyzer { 
     pub fn analyze(response: &str) -> Vec<Command> {
         let mut commands = Vec::new();
 
@@ -16,7 +16,7 @@ impl Analyzer {
         commands.dedup_by(|a, b| a.path == b.path && a.path.is_some());
 
         commands
-    }
+    } 
 
     fn extract_file_operations(text: &str) -> Vec<Command> {
         let mut commands = Vec::new();

@@ -225,7 +225,7 @@ fn build_project_card(name: &str, id: &str, directory: &str, stack: Stack, sel_d
     content.set_halign(Align::Center);
     content.set_valign(Align::Center);
 
-    let icon = Label::new(Some("📁"));
+    let icon = Label::new(Some(""));
     icon.style_context().add_class("project-card-icon");
     icon.set_halign(Align::Center);
     content.pack_start(&icon, false, false, 0);
@@ -253,11 +253,11 @@ fn build_project_card(name: &str, id: &str, directory: &str, stack: Stack, sel_d
     actions.set_margin_top(2);
     actions.set_margin_bottom(6);
 
-    let edit_btn = Button::with_label("✏️");
+    let edit_btn = Button::with_label("Edit");
     edit_btn.style_context().add_class("project-action-btn");
     edit_btn.set_size_request(28, 28);
 
-    let delete_btn = Button::with_label("🗑");
+    let delete_btn = Button::with_label("Delete");
     delete_btn.style_context().add_class("project-action-btn");
     delete_btn.style_context().add_class("project-delete-btn");
     delete_btn.set_size_request(28, 28);
@@ -746,7 +746,7 @@ fn build_draft_card(name: &str, index: usize, drafts: Rc<RefCell<Vec<DraftProjec
     card.style_context().add_class("project-card");
     card.set_size_request(180, 150);
 
-    let icon = Label::new(Some("📝"));
+    let icon = Label::new(Some(""));
     icon.style_context().add_class("project-card-icon");
     icon.set_halign(Align::Center);
     card.pack_start(&icon, false, false, 0);
@@ -1043,7 +1043,7 @@ fn build_code_editor_page(stack: Stack, project_directory: Rc<RefCell<Option<Str
     editor_area.set_hexpand(true);
     editor_area.set_vexpand(true);
     
-    let dir_label = Label::new(Some("📂 Loading..."));
+    let dir_label = Label::new(Some("Loading..."));
     dir_label.style_context().add_class("editor-dir-label");
     dir_label.set_halign(Align::Start);
     dir_label.set_margin_start(12);
@@ -1307,7 +1307,7 @@ fn build_file_tree(code_view: gtk::TextView, tab_bar: Rc<RefCell<GtkBox>>, proje
                 if is_dir {
                     let collapsed = is_folder_collapsed(&path_str);
                     let arrow = if collapsed { "▶" } else { "▼" };
-                    let icon_label = Label::new(Some("📁"));
+                    let icon_label = Label::new(Some(""));
                     icon_label.set_size_request(16, 16);
                     row_content.pack_start(&icon_label, false, false, 0);
                     let name_label = Label::new(Some(&format!("{} {}", arrow, name)));
@@ -1319,7 +1319,7 @@ fn build_file_tree(code_view: gtk::TextView, tab_bar: Rc<RefCell<GtkBox>>, proje
                             row_content.pack_start(&icon_image, false, false, 0);
                         }
                     } else {
-                        let fallback = Label::new(Some("📄"));
+                        let fallback = Label::new(Some(""));
                         fallback.style_context().add_class("file-tree-item");
                         row_content.pack_start(&fallback, false, false, 0);
                     }
@@ -1530,7 +1530,7 @@ fn show_inline_name_input(base_dir: std::path::PathBuf, is_file: bool, active_pa
             input_row.set_margin_top(0);
             input_row.set_margin_bottom(0);
             
-            let icon = Label::new(Some(if is_file { "📄" } else { "📁" }));
+            let icon = Label::new(Some(if is_file { "" } else { "" }));
             input_row.pack_start(&icon, false, false, 0);
             
             let entry = Entry::new();
@@ -1573,7 +1573,7 @@ fn show_inline_name_input(base_dir: std::path::PathBuf, is_file: bool, active_pa
                 input_row.set_margin_top(0);
                 input_row.set_margin_bottom(0);
                 
-                let icon = Label::new(Some(if is_file { "📄" } else { "📁" }));
+                let icon = Label::new(Some(if is_file { "" } else { "" }));
                 input_row.pack_start(&icon, false, false, 0);
                 
                 let entry = Entry::new();
