@@ -112,30 +112,39 @@ jobs:
         run: npm install
 
       - name: GeckoKit setup (Windows)
-        working-directory: Vibrium
         shell: cmd
         run: |
-          call C:\mozilla-build\start-shell.bat -c "cd /c/actions-runner/_work/Vibifiy/Vibifiy/Vibrium && npx geckokit setup"
+          echo "Testing MozillaBuild shell..."
+          call C:\mozilla-build\start-shell.bat -c "cd /c/actions-runner/_work/Vibifiy/Vibifiy/Vibrium && ls -la && npx geckokit setup"
         env:
           GECKOKIT_ACCEPT_LICENSE: "1"
 
       - name: Build Vibrium (Windows)
-        working-directory: Vibrium
         shell: cmd
         run: |
           call C:\mozilla-build\start-shell.bat -c "cd /c/actions-runner/_work/Vibifiy/Vibifiy/Vibrium && npx geckokit build"
 
       - name: Package (Windows)
-        working-directory: Vibrium
         shell: cmd
         run: |
           call C:\mozilla-build\start-shell.bat -c "cd /c/actions-runner/_work/Vibifiy/Vibifiy/Vibrium && npx geckokit package"
+          
+          echo "Checking for output directories..."
+          dir /s /b "Vibrium\.geckokit" | findstr "dist" || echo "No dist found inside Vibrium\.geckokit"
+          
           mkdir dist
-          xcopy /E /I /Y ".geckokit\firefox\obj-geckokit-*\dist" "dist"
+          if exist "Vibrium\.geckokit\firefox\obj-geckokit-*\dist" (
+            xcopy /E /I /Y "Vibrium\.geckokit\firefox\obj-geckokit-*\dist" "dist"
+          ) else if exist "Vibrium\dist" (
+            xcopy /E /I /Y "Vibrium\dist" "dist"
+          ) else (
+            echo "ERROR: Could not find GeckoKit build output!"
+            exit /b 1
+          )
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: Vibrium-windows
-          path: Vibrium/dist/
+          path: dist/
           retention-days: 30
