@@ -51,13 +51,13 @@ jobs:
         working-directory: Vibrium
         run: npm install
 
-      - name: GeckoKit setup
+      - name: GeckoKit setup (Linux)
         working-directory: Vibrium
         run: npx geckokit setup
         env:
           GECKOKIT_ACCEPT_LICENSE: "1"
 
-      - name: Build Vibrium
+      - name: Build Vibrium (Linux)
         working-directory: Vibrium
         run: npx geckokit build
 
@@ -75,7 +75,7 @@ jobs:
           path: Vibrium/dist/
           retention-days: 30
 
-    build-windows:
+  build-windows:
     runs-on: windows-latest
     timeout-minutes: 360
 
@@ -104,6 +104,7 @@ jobs:
           mkdir -p extensions
           UBO_VERSION="1.75.0"
           UBO_URL="https://github.com/gorhill/uBlock/releases/download/${UBO_VERSION}/uBlock0_${UBO_VERSION}.firefox.signed.xpi"
+          echo "Downloading uBO from: $UBO_URL"
           curl -L -f -o "extensions/uBlock0@raymondhill.net.xpi" "$UBO_URL"
           ls -la extensions/
 
