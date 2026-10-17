@@ -10,118 +10,132 @@ permissions:
 jobs:
   build-linux:
     runs-on: ubuntu-22.04
+    timeout-minutes: 360
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.2.2
 
-      - name: Install Qt + WebEngine
+      - name: Free disk space
         run: |
-          sudo apt-get update -y
-          sudo add-apt-repository ppa:ubuntuhandbook1/ppa -y
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install system deps (Linux)
+        run: |
           sudo apt-get update -y
           sudo apt-get install -y \
-            qt6-base-dev \
-            qt6-webengine-dev \
-            qt6-webengine-dev-tools \
-            libqt6webenginecore6 \
-            libqt6webenginewidgets6 \
-            cmake \
-            ninja-build \
-            dpkg-dev \
-            fakeroot
+            build-essential python3 python3-pip python3-venv \
+            mercurial libgtk-3-dev libdbus-glib-1-dev \
+            libpulse-dev libasound2-dev libxt-dev \
+            libx11-xcb-dev libgl1-mesa-dev libegl1-mesa-dev \
+            yasm nasm zip unzip dpkg-dev fakeroot curl
 
-      - name: Build
+      - name: Bundle uBlock Origin
         working-directory: Vibrium
         run: |
-          mkdir build
-          cd build
-          qmake6 ../VibiBrowser.pro CONFIG+=release
-          make -j$(nproc)
+          mkdir -p extensions
+          UBO_VERSION="1.75.0"
+          UBO_URL="https://github.com/gorhill/uBlock/releases/download/${UBO_VERSION}/uBlock0_${UBO_VERSION}.firefox.signed.xpi"
+          echo "Downloading uBO from: $UBO_URL"
+          curl -L -f -o "extensions/uBlock0@raymondhill.net.xpi" "$UBO_URL"
+          ls -la extensions/
 
-      - name: Package .deb
+      - name: Install GeckoKit
+        working-directory: Vibrium
+        run: npm install
+
+      - name: GeckoKit setup
+        working-directory: Vibrium
+        run: npx geckokit setup
+        env:
+          GECKOKIT_ACCEPT_LICENSE: "1"
+
+      - name: Build Vibrium
+        working-directory: Vibrium
+        run: npx geckokit build
+
+      - name: Package (Linux)
         working-directory: Vibrium
         run: |
-          mkdir -p deb/usr/bin
-          mkdir -p deb/usr/share/applications
-          mkdir -p deb/DEBIAN
+          npx geckokit package
+          mkdir -p dist
+          cp -r .geckokit/firefox/obj-geckokit-*/dist/* dist/ || true
 
-          cp build/VibiBrowser deb/usr/bin/vibibrowser
-
-          cat > deb/usr/share/applications/vibibrowser.desktop << 'EOF'
-          [Desktop Entry]
-          Name=VibiBrowser
-          Exec=vibibrowser
-          Icon=vibibrowser
-          Type=Application
-          Categories=Network;WebBrowser;
-          EOF
-
-          cat > deb/DEBIAN/control << 'EOF'
-          Package: vibibrowser
-          Version: 1.1.0
-          Architecture: amd64
-          Maintainer: spooky8823 <spooky8823@vibifiy.dev>
-          Description: VibiBrowser - Vibifiy's custom browser
-          Depends: libqt6webenginewidgets6, libqt6core6, libqt6gui6, libqt6widgets6, picom
-          EOF
-
-          mkdir -p deb/etc/vibibrowser
-
-          cat > deb/etc/vibibrowser/picom.conf << 'EOF'
-          backend = "glx";
-          blur-method = "dual_kawase";
-          blur-strength = 8;
-          blur-background = true;
-          blur-background-frame = true;
-          blur-background-fixed = false;
-          blur-background-exclude = [
-            "class_g != 'vibibrowser'"
-          ];
-          EOF
-
-          cat > deb/DEBIAN/postinst << 'EOF'
-          #!/bin/bash
-
-          REAL_USER="${SUDO_USER:-$(logname 2>/dev/null)}"
-
-          if [ -z "$REAL_USER" ]; then
-            REAL_USER=$(who | awk 'NR==1{print $1}')
-          fi
-
-          REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
-
-          mkdir -p "$REAL_HOME/.config/picom"
-
-          if [ ! -f "$REAL_HOME/.config/picom/picom.conf" ]; then
-            cp /etc/vibibrowser/picom.conf "$REAL_HOME/.config/picom/picom.conf"
-          fi
-
-          chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.config/picom"
-
-          mkdir -p "$REAL_HOME/.config/autostart"
-
-          printf '[Desktop Entry]\nType=Application\nName=Picom (VibiBrowser blur)\nExec=picom --config /etc/vibibrowser/picom.conf\nHidden=false\nNoDisplay=false\nX-GNOME-Autostart-enabled=true\n' \
-            > "$REAL_HOME/.config/autostart/picom-vibibrowser.desktop"
-
-          chown "$REAL_USER:$REAL_USER" \
-            "$REAL_HOME/.config/autostart/picom-vibibrowser.desktop"
-
-          if ! pgrep -x picom > /dev/null; then
-            su -c "DISPLAY=:0 picom --config /etc/vibibrowser/picom.conf &" \
-              "$REAL_USER" || true
-          fi
-
-          exit 0
-          EOF
-
-          chmod 755 deb/DEBIAN/postinst
-
-          fakeroot dpkg-deb --build deb VibiBrowser-linux.deb
-
-      - name: Upload .deb artifact
+      - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VibiBrowser-linux-deb
-          path: Vibrium/VibiBrowser-linux.deb
+          name: Vibrium-linux
+          path: Vibrium/dist/
+          retention-days: 30
+
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install MozillaBuild
+        shell: powershell
+        run: |
+          $url = "https://ftp.mozilla.org/pub/mozilla.org/mozilla/libraries/win32/MozillaBuildSetup-Latest.exe"
+          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\MozillaBuildSetup.exe"
+          Start-Process -FilePath "$env:TEMP\MozillaBuildSetup.exe" -ArgumentList "/S" -Wait
+          echo "C:\mozilla-build" >> $env:GITHUB_PATH
+
+      - name: Bundle uBlock Origin
+        working-directory: Vibrium
+        shell: bash
+        run: |
+          mkdir -p extensions
+          UBO_VERSION="1.75.0"
+          UBO_URL="https://github.com/gorhill/uBlock/releases/download/${UBO_VERSION}/uBlock0_${UBO_VERSION}.firefox.signed.xpi"
+          echo "Downloading uBO from: $UBO_URL"
+          curl -L -f -o "extensions/uBlock0@raymondhill.net.xpi" "$UBO_URL"
+          ls -la extensions/
+
+      - name: Install GeckoKit
+        working-directory: Vibrium
+        run: npm install
+
+      - name: GeckoKit setup (Windows)
+        working-directory: Vibrium
+        shell: cmd
+        run: |
+          call C:\mozilla-build\start-shell.bat -c "cd /c/actions-runner/_work/Vibifiy/Vibifiy/Vibrium && npx geckokit setup"
+        env:
+          GECKOKIT_ACCEPT_LICENSE: "1"
+
+      - name: Build Vibrium (Windows)
+        working-directory: Vibrium
+        shell: cmd
+        run: |
+          call C:\mozilla-build\start-shell.bat -c "cd /c/actions-runner/_work/Vibifiy/Vibifiy/Vibrium && npx geckokit build"
+
+      - name: Package (Windows)
+        working-directory: Vibrium
+        shell: cmd
+        run: |
+          call C:\mozilla-build\start-shell.bat -c "cd /c/actions-runner/_work/Vibifiy/Vibifiy/Vibrium && npx geckokit package"
+          mkdir dist
+          xcopy /E /I /Y ".geckokit\firefox\obj-geckokit-*\dist" "dist"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vibrium-windows
+          path: Vibrium/dist/
           retention-days: 30
