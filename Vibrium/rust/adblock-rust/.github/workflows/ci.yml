@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable]
+        include:
+          - os: ubuntu-latest
+            target: Linux
+          - os: macos-latest
+            target: Macos
+          - os: windows-latest
+            target: Windows
+
+    env:
+      # Deny warnings for all steps
+      # (changing this flag triggers a complete rebuild, so it's helpful to define it globally)
+      RUSTFLAGS: --deny warnings
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Can be removed once https://github.com/actions/runner-images/pull/13076 is released
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Cargo build 'adblock' package
+        run: cargo build --all-features --all-targets
+
+      - name: Cargo build 'adblock' package (no default features)
+        run: cargo build --no-default-features --all-targets
+
+      - name: Cargo build 'adblock' package (wasm32)
+        if: matrix.os == 'ubuntu-latest'
+        run: rustup target add wasm32-unknown-unknown && cargo build --target wasm32-unknown-unknown
+
+      - name: Build npm package
+        run: npm ci
+
+      - name: Test npm package JS bindings
+        run: npm run test:js
+
+      - name: Fetch live filter lists
+        run: node data/fetch-live-lists.js
+
+      - name: Cargo test 'adblock' package
+        run: cargo test --all-features --tests --no-fail-fast
+
+      - name: Cargo test 'adblock' package (release)
+        run: cargo test --all-features --release --tests --no-fail-fast
+
+      - name: Cargo test 'adblock' package (no default features)
+        run: cargo test --no-default-features --features embedded-domain-resolver,full-regex-handling --tests --no-fail-fast

@@ -1,0 +1,1512 @@
+#[cfg(test)]
+mod parse_tests {
+    use super::super::*;
+
+    #[derive(Debug, PartialEq)]
+    struct NetworkFilterBreakdown {
+        filter: Option<String>,
+        hostname: Option<String>,
+        opt_domains: Option<Vec<Hash>>,
+        opt_not_domains: Option<Vec<Hash>>,
+        modifier_option: Option<String>,
+
+        // filter type
+        is_exception: bool,
+        is_hostname_anchor: bool,
+        is_right_anchor: bool,
+        is_left_anchor: bool,
+        is_regex: bool,
+        is_csp: bool,
+        is_plain: bool,
+        is_important: bool,
+
+        // Options
+        first_party: bool,
+        from_network_types: bool,
+        from_font: bool,
+        from_image: bool,
+        from_media: bool,
+        from_object: bool,
+        from_other: bool,
+        from_ping: bool,
+        from_script: bool,
+        from_stylesheet: bool,
+        from_subdocument: bool,
+        from_websocket: bool,
+        from_xml_http_request: bool,
+        from_document: bool,
+        from_get: bool,
+        from_head: bool,
+        from_post: bool,
+        match_case: bool,
+        third_party: bool,
+    }
+
+    impl From<&NetworkFilter<'_>> for NetworkFilterBreakdown {
+        fn from(filter: &NetworkFilter) -> NetworkFilterBreakdown {
+            NetworkFilterBreakdown {
+                filter: filter.filter.string_view(),
+                hostname: filter.hostname.as_ref().map(|host| host.to_string()),
+                opt_domains: filter.opt_domains.as_ref().cloned(),
+                opt_not_domains: filter.opt_not_domains.as_ref().cloned(),
+                modifier_option: filter
+                    .modifier_option
+                    .as_ref()
+                    .map(|value| value.to_string()),
+
+                // filter type
+                is_exception: filter.is_exception(),
+                is_hostname_anchor: filter.is_hostname_anchor(),
+                is_right_anchor: filter.is_right_anchor(),
+                is_left_anchor: filter.is_left_anchor(),
+                is_regex: filter.is_regex(),
+                is_csp: filter.is_csp(),
+                is_plain: filter.is_plain(),
+                is_important: filter.is_important(),
+
+                // Options
+                first_party: filter.first_party(),
+                from_network_types: filter.mask.contains(NetworkFilterMask::FROM_NETWORK_TYPES),
+                from_font: filter.mask.contains(NetworkFilterMask::FROM_FONT),
+                from_image: filter.mask.contains(NetworkFilterMask::FROM_IMAGE),
+                from_media: filter.mask.contains(NetworkFilterMask::FROM_MEDIA),
+                from_object: filter.mask.contains(NetworkFilterMask::FROM_OBJECT),
+                from_other: filter.mask.contains(NetworkFilterMask::FROM_OTHER),
+                from_ping: filter.mask.contains(NetworkFilterMask::FROM_PING),
+                from_script: filter.mask.contains(NetworkFilterMask::FROM_SCRIPT),
+                from_stylesheet: filter.mask.contains(NetworkFilterMask::FROM_STYLESHEET),
+                from_subdocument: filter.mask.contains(NetworkFilterMask::FROM_SUBDOCUMENT),
+                from_websocket: filter.mask.contains(NetworkFilterMask::FROM_WEBSOCKET),
+                from_xml_http_request: filter.mask.contains(NetworkFilterMask::FROM_XMLHTTPREQUEST),
+                from_document: filter.mask.contains(NetworkFilterMask::FROM_DOCUMENT),
+                from_get: filter.mask.contains(NetworkFilterMask::FROM_GET),
+                from_head: filter.mask.contains(NetworkFilterMask::FROM_HEAD),
+                from_post: filter.mask.contains(NetworkFilterMask::FROM_POST),
+                match_case: filter.match_case(),
+                third_party: filter.third_party(),
+            }
+        }
+    }
+
+    fn default_network_filter_breakdown() -> NetworkFilterBreakdown {
+        NetworkFilterBreakdown {
+            filter: None,
+            hostname: None,
+            opt_domains: None,
+            opt_not_domains: None,
+            modifier_option: None,
+
+            // filter type
+            is_exception: false,
+            is_hostname_anchor: false,
+            is_right_anchor: false,
+            is_left_anchor: false,
+            is_regex: false,
+            is_csp: false,
+            is_plain: false,
+            is_important: false,
+
+            // Options
+            first_party: true,
+            from_network_types: true,
+            from_font: true,
+            from_image: true,
+            from_media: true,
+            from_object: true,
+            from_other: true,
+            from_ping: true,
+            from_script: true,
+            from_stylesheet: true,
+            from_subdocument: true,
+            from_websocket: true,
+            from_xml_http_request: true,
+            from_document: false,
+            from_get: false,
+            from_head: false,
+            from_post: false,
+            match_case: false,
+            third_party: true,
+        }
+    }
+
+    fn foo_method_breakdown(get: bool, head: bool, post: bool) -> NetworkFilterBreakdown {
+        let mut expected = default_network_filter_breakdown();
+        expected.hostname = Some(String::from("foo"));
+        expected.is_hostname_anchor = true;
+        expected.is_plain = true;
+        expected.from_get = get;
+        expected.from_head = head;
+        expected.from_post = post;
+        expected
+    }
+
+    #[test]
+    // pattern
+    fn parses_plain_pattern() {
+        {
+            let filter = NetworkFilter::parse("ads", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = Some(String::from("ads"));
+            defaults.is_plain = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter = NetworkFilter::parse("/ads/foo-", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = Some(String::from("/ads/foo-"));
+            defaults.is_plain = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("/ads/foo-$important", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = Some(String::from("/ads/foo-"));
+            defaults.is_plain = true;
+            defaults.is_important = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("foo.com/ads$important", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = Some(String::from("foo.com/ads"));
+            defaults.is_plain = true;
+            defaults.is_important = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+    }
+
+    #[test]
+    // ||pattern
+    fn parses_hostname_anchor_pattern() {
+        {
+            let filter = NetworkFilter::parse("||foo.com", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = None;
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.is_plain = true;
+            defaults.is_hostname_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$important", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = None;
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.is_plain = true;
+            defaults.is_hostname_anchor = true;
+            defaults.is_important = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com/bar/baz$important", true, Default::default())
+                    .unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.filter = Some(String::from("/bar/baz"));
+            defaults.is_plain = true;
+            defaults.is_hostname_anchor = true;
+            defaults.is_important = true;
+            defaults.is_left_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+    }
+
+    #[test]
+    // ||pattern|
+    fn parses_hostname_right_anchor_pattern() {
+        {
+            let filter = NetworkFilter::parse("||foo.com|", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.filter = None;
+            defaults.is_plain = true;
+            defaults.is_right_anchor = true;
+            defaults.is_hostname_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com|$important", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.filter = None;
+            defaults.is_plain = true;
+            defaults.is_important = true;
+            defaults.is_right_anchor = true;
+            defaults.is_hostname_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com/bar/baz|$important", true, Default::default())
+                    .unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.filter = Some(String::from("/bar/baz"));
+            defaults.is_plain = true;
+            defaults.is_important = true;
+            defaults.is_left_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.is_hostname_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com^bar/*baz|$important", true, Default::default())
+                    .unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.filter = Some(String::from("^bar/*baz"));
+            defaults.is_important = true;
+            defaults.is_left_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.is_hostname_anchor = true;
+            defaults.is_regex = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+    }
+
+    #[test]
+    // |pattern
+    fn parses_left_anchor_pattern() {
+        {
+            let filter = NetworkFilter::parse("|foo.com", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = Some(String::from("foo.com"));
+            defaults.is_plain = true;
+            defaults.is_left_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("|foo.com/bar/baz", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = Some(String::from("foo.com/bar/baz"));
+            defaults.is_plain = true;
+            defaults.is_left_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("|foo.com^bar/*baz", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = Some(String::from("foo.com^bar/*baz"));
+            defaults.is_regex = true;
+            defaults.is_left_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+    }
+
+    #[test]
+    // |pattern|
+    fn parses_left_right_anchor_pattern() {
+        {
+            let filter = NetworkFilter::parse("|foo.com|", true, Default::default()).unwrap();
+
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = Some(String::from("foo.com"));
+            defaults.is_plain = true;
+            defaults.is_right_anchor = true;
+            defaults.is_left_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter = NetworkFilter::parse("|foo.com/bar|", true, Default::default()).unwrap();
+
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = Some(String::from("foo.com/bar"));
+            defaults.is_plain = true;
+            defaults.is_right_anchor = true;
+            defaults.is_left_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter = NetworkFilter::parse("|foo.com*bar^|", true, Default::default()).unwrap();
+
+            let mut defaults = default_network_filter_breakdown();
+            defaults.filter = Some(String::from("foo.com*bar^"));
+            defaults.is_regex = true;
+            defaults.is_right_anchor = true;
+            defaults.is_left_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+    }
+
+    #[test]
+    // ||regexp
+    fn parses_hostname_anchor_regex_pattern() {
+        {
+            let filter = NetworkFilter::parse("||foo.com*bar^", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.filter = Some(String::from("bar^"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_regex = true;
+            defaults.is_plain = false;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com^bar*/baz^", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.filter = Some(String::from("^bar*/baz^"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_left_anchor = true;
+            defaults.is_regex = true;
+            defaults.is_plain = false;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+    }
+
+    #[test]
+    // ||regexp|
+    fn parses_hostname_right_anchor_regex_pattern() {
+        {
+            let filter = NetworkFilter::parse("||foo.com*bar^|", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.filter = Some(String::from("bar^"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.is_regex = true;
+            defaults.is_plain = false;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com^bar*/baz^|", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.filter = Some(String::from("^bar*/baz^"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_left_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.is_regex = true;
+            defaults.is_plain = false;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+    }
+
+    #[test]
+    // |regexp
+    fn parses_hostname_left_anchor_regex_pattern() {
+        {
+            let filter = NetworkFilter::parse("|foo.com*bar^", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = None;
+            defaults.filter = Some(String::from("foo.com*bar^"));
+            defaults.is_left_anchor = true;
+            defaults.is_regex = true;
+            defaults.is_plain = false;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("|foo.com^bar*/baz^", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = None;
+            defaults.filter = Some(String::from("foo.com^bar*/baz^"));
+            defaults.is_left_anchor = true;
+            defaults.is_regex = true;
+            defaults.is_plain = false;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+    }
+
+    #[test]
+    // |regexp|
+    fn parses_hostname_left_right_anchor_regex_pattern() {
+        {
+            let filter = NetworkFilter::parse("|foo.com*bar^|", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = None;
+            defaults.filter = Some(String::from("foo.com*bar^"));
+            defaults.is_left_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.is_regex = true;
+            defaults.is_plain = false;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter =
+                NetworkFilter::parse("|foo.com^bar*/baz^|", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = None;
+            defaults.filter = Some(String::from("foo.com^bar*/baz^"));
+            defaults.is_left_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.is_regex = true;
+            defaults.is_plain = false;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+    }
+
+    #[test]
+    // @@pattern
+    fn parses_exception_pattern() {
+        {
+            let filter = NetworkFilter::parse("@@ads", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.is_exception = true;
+            defaults.filter = Some(String::from("ads"));
+            defaults.is_plain = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+        {
+            let filter = NetworkFilter::parse("@@||foo.com/ads", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.is_exception = true;
+            defaults.filter = Some(String::from("/ads"));
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_left_anchor = true;
+            defaults.is_plain = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+        {
+            let filter = NetworkFilter::parse("@@|foo.com/ads", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.is_exception = true;
+            defaults.filter = Some(String::from("foo.com/ads"));
+            defaults.is_left_anchor = true;
+            defaults.is_plain = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+        {
+            let filter = NetworkFilter::parse("@@|foo.com/ads|", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.is_exception = true;
+            defaults.filter = Some(String::from("foo.com/ads"));
+            defaults.is_left_anchor = true;
+            defaults.is_plain = true;
+            defaults.is_right_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+        {
+            let filter = NetworkFilter::parse("@@foo.com/ads|", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.is_exception = true;
+            defaults.filter = Some(String::from("foo.com/ads"));
+            defaults.is_plain = true;
+            defaults.is_right_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+        {
+            let filter =
+                NetworkFilter::parse("@@||foo.com/ads|", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.is_exception = true;
+            defaults.filter = Some(String::from("/ads"));
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_left_anchor = true;
+            defaults.is_plain = true;
+            defaults.is_right_anchor = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+    }
+
+    // Options
+
+    #[test]
+    fn accepts_any_content_type() {
+        {
+            let filter = NetworkFilter::parse("||foo.com", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.from_network_types = true;
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_plain = true;
+
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$first-party", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.from_network_types = true;
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_plain = true;
+            defaults.first_party = true;
+            defaults.third_party = false;
+
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$third-party", true, Default::default()).unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.from_network_types = true;
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_plain = true;
+            defaults.first_party = false;
+            defaults.third_party = true;
+
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$domain=test.com", true, Default::default())
+                    .unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.from_network_types = true;
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_plain = true;
+            defaults.opt_domains = Some(vec![utils::fast_hash("test.com")]);
+
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$domain=test.com", true, Default::default())
+                    .unwrap();
+            let mut defaults = default_network_filter_breakdown();
+            defaults.from_network_types = true;
+            defaults.hostname = Some(String::from("foo.com"));
+            defaults.is_hostname_anchor = true;
+            defaults.is_plain = true;
+            defaults.opt_domains = Some(vec![utils::fast_hash("test.com")]);
+
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+        }
+    }
+
+    #[test]
+    fn parses_important() {
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$important", true, Default::default()).unwrap();
+            assert!(filter.is_important());
+        }
+        {
+            // parses ~important
+            let filter = NetworkFilter::parse("||foo.com$~important", true, Default::default());
+            assert_eq!(filter.err(), Some(NetworkFilterError::NegatedImportant));
+        }
+        {
+            // defaults to false
+            let filter = NetworkFilter::parse("||foo.com", true, Default::default()).unwrap();
+            assert!(!filter.is_important());
+        }
+    }
+
+    #[test]
+    fn parses_csp() {
+        {
+            let filter = NetworkFilter::parse("||foo.com", true, Default::default()).unwrap();
+            assert_eq!(filter.modifier_option, None);
+        }
+        {
+            // parses simple CSP
+            let filter =
+                NetworkFilter::parse(r#"||foo.com$csp=self bar """#, true, Default::default())
+                    .unwrap();
+            assert!(filter.is_csp());
+            assert_eq!(filter.modifier_option, Some(r#"self bar """#));
+        }
+        {
+            // parses empty CSP
+            let filter = NetworkFilter::parse("||foo.com$csp", true, Default::default()).unwrap();
+            assert!(filter.is_csp());
+            assert_eq!(filter.modifier_option, None);
+        }
+        {
+            // CSP mixed with content type is an error
+            let filter = NetworkFilter::parse(
+                r#"||foo.com$domain=foo|bar,csp=self bar "",image"#,
+                true,
+                Default::default(),
+            );
+            assert_eq!(filter.err(), Some(NetworkFilterError::CspWithContentType));
+        }
+    }
+
+    #[test]
+    fn parses_domain() {
+        // parses domain
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$domain=bar.com", true, Default::default()).unwrap();
+            assert_eq!(filter.opt_domains, Some(vec![utils::fast_hash("bar.com")]));
+            assert_eq!(filter.opt_not_domains, None);
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$domain=bar.com|baz.com", true, Default::default())
+                    .unwrap();
+            let mut domains = vec![utils::fast_hash("bar.com"), utils::fast_hash("baz.com")];
+            domains.sort_unstable();
+            assert_eq!(filter.opt_domains, Some(domains));
+            assert_eq!(filter.opt_not_domains, None);
+        }
+
+        // parses ~domain
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$domain=~bar.com", true, Default::default())
+                    .unwrap();
+            assert_eq!(filter.opt_domains, None);
+            assert_eq!(
+                filter.opt_not_domains,
+                Some(vec![utils::fast_hash("bar.com")])
+            );
+        }
+        {
+            let filter = NetworkFilter::parse(
+                "||foo.com$domain=~bar.com|~baz.com",
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert_eq!(filter.opt_domains, None);
+            let mut domains = vec![utils::fast_hash("bar.com"), utils::fast_hash("baz.com")];
+            domains.sort_unstable();
+            assert_eq!(filter.opt_not_domains, Some(domains));
+        }
+        // parses domain and ~domain
+        {
+            let filter = NetworkFilter::parse(
+                "||foo.com$domain=~bar.com|baz.com",
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert_eq!(filter.opt_domains, Some(vec![utils::fast_hash("baz.com")]));
+            assert_eq!(
+                filter.opt_not_domains,
+                Some(vec![utils::fast_hash("bar.com")])
+            );
+        }
+        {
+            let filter = NetworkFilter::parse(
+                "||foo.com$domain=bar.com|~baz.com",
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert_eq!(filter.opt_domains, Some(vec![utils::fast_hash("bar.com")]));
+            assert_eq!(
+                filter.opt_not_domains,
+                Some(vec![utils::fast_hash("baz.com")])
+            );
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$domain=foo|~bar|baz", true, Default::default())
+                    .unwrap();
+            let mut domains = vec![utils::fast_hash("foo"), utils::fast_hash("baz")];
+            domains.sort();
+            assert_eq!(filter.opt_domains, Some(domains));
+            assert_eq!(filter.opt_not_domains, Some(vec![utils::fast_hash("bar")]));
+        }
+        // defaults to no constraint
+        {
+            let filter = NetworkFilter::parse("||foo.com", true, Default::default()).unwrap();
+            assert_eq!(filter.opt_domains, None);
+            assert_eq!(filter.opt_not_domains, None);
+        }
+        // `from` is an alias for `domain`
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$from=bar.com", true, Default::default()).unwrap();
+            assert_eq!(filter.opt_domains, Some(vec![utils::fast_hash("bar.com")]));
+            assert_eq!(filter.opt_not_domains, None);
+        }
+        {
+            let filter = NetworkFilter::parse(
+                r"||video.twimg.com/ext_tw_video/*/*.m3u8$domain=/^i[a-z]*\.strmrdr[a-z]+\..*/",
+                true,
+                Default::default(),
+            );
+            assert_eq!(filter.err(), Some(NetworkFilterError::NoSupportedDomains));
+        }
+    }
+
+    #[test]
+    fn parses_to() {
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$to=bar.com", true, Default::default()).unwrap();
+            assert_eq!(filter.opt_domains, None);
+            assert_eq!(filter.opt_not_domains, None);
+            assert_eq!(
+                filter.opt_to_domains,
+                Some(vec![utils::fast_hash("bar.com")])
+            );
+            assert_eq!(filter.opt_not_to_domains, None);
+            assert!(filter.has_to_option());
+        }
+        {
+            let filter = NetworkFilter::parse(
+                "||foo.com$to=google.*|gstatic.com",
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert_eq!(filter.opt_to_domains.as_ref().map(|d| d.len()), Some(2));
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$to=~example.it", true, Default::default()).unwrap();
+            assert_eq!(
+                filter.opt_not_to_domains,
+                Some(vec![utils::fast_hash("example.it")])
+            );
+        }
+        {
+            let filter = NetworkFilter::parse("||foo.com$to=/^foo/", true, Default::default());
+            assert_eq!(filter.err(), Some(NetworkFilterError::NoSupportedDomains));
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$to=/^foo/|bar.com", true, Default::default())
+                    .unwrap();
+            assert_eq!(filter.opt_to_domains.as_ref().map(|d| d.len()), Some(1));
+        }
+        {
+            let filter = NetworkFilter::parse(
+                "||foo.com$domain=bar.com,to=baz.com",
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert_eq!(filter.opt_domains, Some(vec![utils::fast_hash("bar.com")]));
+            assert_eq!(
+                filter.opt_to_domains,
+                Some(vec![utils::fast_hash("baz.com")])
+            );
+        }
+        {
+            let filter = NetworkFilter::parse(
+                "*$script,3p,from=ovagames.com,to=~facebook.net|~fbcdn.net",
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert_eq!(
+                filter.opt_domains,
+                Some(vec![utils::fast_hash("ovagames.com")])
+            );
+            assert!(filter.opt_not_to_domains.is_some());
+            assert_eq!(filter.opt_to_domains, None);
+            assert!(filter.has_to_option());
+        }
+    }
+
+    #[test]
+    fn parses_redirects() {
+        // parses redirect
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com$redirect=bar.js", true, Default::default())
+                    .unwrap();
+            assert_eq!(filter.modifier_option, Some("bar.js"));
+        }
+        {
+            let filter =
+                NetworkFilter::parse("$redirect=bar.js", true, Default::default()).unwrap();
+            assert_eq!(filter.modifier_option, Some("bar.js"));
+        }
+        // parses ~redirect
+        {
+            // ~redirect is not a valid option
+            let filter = NetworkFilter::parse("||foo.com$~redirect", true, Default::default());
+            assert_eq!(filter.err(), Some(NetworkFilterError::NegatedRedirection));
+        }
+        // parses redirect without a value
+        {
+            // Not valid
+            let filter = NetworkFilter::parse("||foo.com$redirect", true, Default::default());
+            assert_eq!(filter.err(), Some(NetworkFilterError::EmptyRedirection));
+        }
+        {
+            let filter = NetworkFilter::parse("||foo.com$redirect=", true, Default::default());
+            assert_eq!(filter.err(), Some(NetworkFilterError::EmptyRedirection))
+        }
+        // defaults to false
+        {
+            let filter = NetworkFilter::parse("||foo.com", true, Default::default()).unwrap();
+            assert_eq!(filter.modifier_option, None);
+        }
+    }
+
+    #[test]
+    fn parses_rewrite() {
+        // `rewrite=X` must parse identically to `redirect=X`.
+        {
+            let rewrite =
+                NetworkFilter::parse("||foo.com$rewrite=noopjs", true, Default::default()).unwrap();
+            let redirect =
+                NetworkFilter::parse("||foo.com$redirect=noopjs", true, Default::default())
+                    .unwrap();
+            assert_eq!(rewrite.mask, redirect.mask);
+            assert_eq!(rewrite.modifier_option, redirect.modifier_option);
+        }
+        // the `abp-resource:` prefix is preserved verbatim, not stripped
+        {
+            let filter = NetworkFilter::parse(
+                "||foo.com$rewrite=abp-resource:blank-js",
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert_eq!(filter.modifier_option, Some("abp-resource:blank-js"));
+        }
+        // parses ~rewrite
+        {
+            let filter = NetworkFilter::parse("||foo.com$~rewrite", true, Default::default());
+            assert_eq!(filter.err(), Some(NetworkFilterError::NegatedRedirection));
+        }
+        // parses rewrite without a value
+        {
+            let filter = NetworkFilter::parse("||foo.com$rewrite", true, Default::default());
+            assert_eq!(filter.err(), Some(NetworkFilterError::EmptyRedirection));
+        }
+        {
+            let filter = NetworkFilter::parse("||foo.com$rewrite=", true, Default::default());
+            assert_eq!(filter.err(), Some(NetworkFilterError::EmptyRedirection));
+        }
+    }
+
+    #[test]
+    fn parses_removeparam() {
+        {
+            let filter = NetworkFilter::parse("||foo.com^$removeparam", true, Default::default());
+            assert!(filter.is_err());
+        }
+        {
+            let filter = NetworkFilter::parse("$~removeparam=test", true, Default::default());
+            assert!(filter.is_err());
+        }
+        {
+            let filter =
+                NetworkFilter::parse("@@||foo.com^$removeparam=test", true, Default::default());
+            assert!(filter.is_err());
+        }
+        {
+            let filter = NetworkFilter::parse("||foo.com^$removeparam=", true, Default::default());
+            assert!(filter.is_err());
+        }
+        {
+            let filter = NetworkFilter::parse(
+                "||foo.com^$removeparam=test,redirect=test",
+                true,
+                Default::default(),
+            );
+            assert!(filter.is_err());
+        }
+        {
+            let filter = NetworkFilter::parse(
+                "||foo.com^$removeparam=test,removeparam=test2",
+                true,
+                Default::default(),
+            );
+            assert!(filter.is_err());
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com^$removeparam=𝐔𝐍𝐈𝐂𝐎𝐃𝐄🧋", true, Default::default());
+            assert!(filter.is_err());
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com^$removeparam=/abc.*/", true, Default::default());
+            assert_eq!(filter, Err(NetworkFilterError::RemoveparamRegexUnsupported));
+        }
+        {
+            let filter =
+                NetworkFilter::parse("||foo.com^$removeparam=test", true, Default::default())
+                    .unwrap();
+            assert!(filter.is_removeparam());
+            assert_eq!(filter.modifier_option, Some("test"));
+        }
+    }
+
+    #[test]
+    fn parses_match_case() {
+        // match-case on non-regex rules is invalid
+        {
+            assert!(
+                NetworkFilter::parse("||foo.com$match-case", true, Default::default()).is_err()
+            );
+        }
+        {
+            assert!(
+                NetworkFilter::parse("||foo.com$image,match-case", true, Default::default())
+                    .is_err()
+            );
+        }
+        {
+            assert!(
+                NetworkFilter::parse("||foo.com$media,match-case,image", true, Default::default())
+                    .is_err()
+            );
+        }
+        // match-case on regex rules is ok
+        {
+            let filter = NetworkFilter::parse(
+                r#"/foo[0-9]*\.com/$media,match-case,image"#,
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert!(filter.match_case());
+        }
+        {
+            let filter = NetworkFilter::parse(r#"/^https?:\/\/[a-z]{8,15}\.top\/[-a-z]{4,}\.css\?aHR0c[\/0-9a-zA-Z]{33,}=?=?\$/$css,3p,match-case"#, true, Default::default()).unwrap();
+            assert!(filter.match_case());
+        }
+
+        // parses ~match-case
+        {
+            // ~match-case is not supported
+            let filter = NetworkFilter::parse("||foo.com$~match-case", true, Default::default());
+            assert_eq!(
+                filter.err(),
+                Some(NetworkFilterError::NegatedOptionMatchCase)
+            );
+        }
+
+        // defaults to false
+        {
+            let filter = NetworkFilter::parse("||foo.com", true, Default::default()).unwrap();
+            assert!(!filter.match_case())
+        }
+    }
+
+    #[test]
+    fn parses_first_party() {
+        // parses first-party
+        assert!(
+            NetworkFilter::parse("||foo.com$first-party", true, Default::default())
+                .unwrap()
+                .first_party()
+        );
+        assert!(
+            NetworkFilter::parse("@@||foo.com$first-party", true, Default::default())
+                .unwrap()
+                .first_party()
+        );
+        assert!(
+            NetworkFilter::parse("@@||foo.com|$first-party", true, Default::default())
+                .unwrap()
+                .first_party()
+        );
+        // parses ~first-party
+        assert!(
+            !NetworkFilter::parse("||foo.com$~first-party", true, Default::default())
+                .unwrap()
+                .first_party()
+        );
+        assert!(
+            !NetworkFilter::parse(
+                "||foo.com$first-party,~first-party",
+                true,
+                Default::default()
+            )
+            .unwrap()
+            .first_party()
+        );
+        // defaults to true
+        assert!(
+            NetworkFilter::parse("||foo.com", true, Default::default())
+                .unwrap()
+                .first_party()
+        );
+    }
+
+    #[test]
+    fn parses_third_party() {
+        // parses third-party
+        assert!(
+            NetworkFilter::parse("||foo.com$third-party", true, Default::default())
+                .unwrap()
+                .third_party()
+        );
+        assert!(
+            NetworkFilter::parse("@@||foo.com$third-party", true, Default::default())
+                .unwrap()
+                .third_party()
+        );
+        assert!(
+            NetworkFilter::parse("@@||foo.com|$third-party", true, Default::default())
+                .unwrap()
+                .third_party()
+        );
+        assert!(
+            NetworkFilter::parse("||foo.com$~first-party", true, Default::default())
+                .unwrap()
+                .third_party()
+        );
+        // parses ~third-party
+        assert!(
+            !NetworkFilter::parse("||foo.com$~third-party", true, Default::default())
+                .unwrap()
+                .third_party()
+        );
+        assert!(
+            !NetworkFilter::parse(
+                "||foo.com$first-party,~third-party",
+                true,
+                Default::default()
+            )
+            .unwrap()
+            .third_party()
+        );
+        // defaults to true
+        assert!(
+            NetworkFilter::parse("||foo.com", true, Default::default())
+                .unwrap()
+                .third_party()
+        );
+    }
+
+    #[test]
+    fn parses_generic_hide() {
+        {
+            let filter = NetworkFilter::parse("||foo.com$generichide", true, Default::default());
+            assert!(filter.is_err());
+        }
+        {
+            let filter =
+                NetworkFilter::parse("@@||foo.com$generichide", true, Default::default()).unwrap();
+            assert!(filter.is_exception());
+            assert!(filter.is_generic_hide());
+        }
+        {
+            let filter =
+                NetworkFilter::parse("@@||foo.com|$generichide", true, Default::default()).unwrap();
+            assert!(filter.is_exception());
+            assert!(filter.is_generic_hide());
+        }
+        {
+            let filter = NetworkFilter::parse(
+                "@@$generichide,domain=example.com",
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert!(filter.is_generic_hide());
+            let breakdown = NetworkFilterBreakdown::from(&filter);
+            assert_eq!(
+                breakdown.opt_domains,
+                Some(vec![utils::fast_hash("example.com")])
+            );
+        }
+        {
+            let filter = NetworkFilter::parse("||foo.com", true, Default::default()).unwrap();
+            assert!(!filter.is_generic_hide());
+        }
+    }
+
+    #[test]
+    fn parses_hosts_style() {
+        {
+            let filter = NetworkFilter::parse_hosts_style("example.com", true).unwrap();
+            assert!(filter.raw_line.is_some());
+            assert_eq!(filter.raw_line.as_deref().unwrap(), "||example.com^");
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some("example.com".to_string());
+            defaults.is_plain = true;
+            defaults.is_hostname_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.from_document = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter = NetworkFilter::parse_hosts_style("www.example.com", true).unwrap();
+            assert!(filter.raw_line.is_some());
+            assert_eq!(filter.raw_line.as_deref().unwrap(), "||www.example.com^");
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some("www.example.com".to_string());
+            defaults.is_plain = true;
+            defaults.is_hostname_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.from_document = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        {
+            let filter = NetworkFilter::parse_hosts_style("malware.example.com", true).unwrap();
+            assert!(filter.raw_line.is_some());
+            assert_eq!(
+                filter.raw_line.as_deref().unwrap(),
+                "||malware.example.com^"
+            );
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some("malware.example.com".to_string());
+            defaults.is_plain = true;
+            defaults.is_hostname_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.from_document = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        // Uppercase hostname
+        {
+            let filter = NetworkFilter::parse_hosts_style("Example.COM", true).unwrap();
+            assert!(filter.raw_line.is_some());
+            assert_eq!(filter.raw_line.as_deref().unwrap(), "||Example.COM^");
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some("example.com".to_string());
+            defaults.is_plain = true;
+            defaults.is_hostname_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.from_document = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        // Mixed-case with www prefix
+        {
+            let filter = NetworkFilter::parse_hosts_style("WWW.Example.COM", true).unwrap();
+            assert!(filter.raw_line.is_some());
+            assert_eq!(filter.raw_line.as_deref().unwrap(), "||WWW.Example.COM^");
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some("www.example.com".to_string());
+            defaults.is_plain = true;
+            defaults.is_hostname_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.from_document = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        // Non-ASCII / punycode hostname
+        {
+            let filter = NetworkFilter::parse_hosts_style("münchen.de", true).unwrap();
+            assert!(filter.raw_line.is_some());
+            assert_eq!(filter.raw_line.as_deref().unwrap(), "||münchen.de^");
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some("xn--mnchen-3ya.de".to_string());
+            defaults.is_plain = true;
+            defaults.is_hostname_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.from_document = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        // Non-ASCII with www prefix
+        {
+            let filter = NetworkFilter::parse_hosts_style("www.münchen.de", true).unwrap();
+            assert!(filter.raw_line.is_some());
+            assert_eq!(filter.raw_line.as_deref().unwrap(), "||www.münchen.de^");
+            let mut defaults = default_network_filter_breakdown();
+            defaults.hostname = Some("www.xn--mnchen-3ya.de".to_string());
+            defaults.is_plain = true;
+            defaults.is_hostname_anchor = true;
+            defaults.is_right_anchor = true;
+            defaults.from_document = true;
+            assert_eq!(defaults, NetworkFilterBreakdown::from(&filter))
+        }
+        // Equivalence between parse_hosts_style and manually constructing the parse input
+        {
+            let hosts_filter = NetworkFilter::parse_hosts_style("Example.COM", true).unwrap();
+            let parse_filter =
+                NetworkFilter::parse("||example.com^", true, Default::default()).unwrap();
+            assert_eq!(hosts_filter.hostname, parse_filter.hostname);
+            assert_eq!(hosts_filter.mask, parse_filter.mask);
+        }
+    }
+
+    #[test]
+    fn handles_unsupported_options() {
+        let options = vec!["genericblock", "inline-script", "popunder", "popup", "woot"];
+
+        for option in options {
+            let rule = format!("||foo.com${option}");
+            let filter = NetworkFilter::parse(&rule, true, Default::default());
+            assert!(filter.is_err());
+        }
+    }
+
+    #[test]
+    fn handles_content_type_options() {
+        let options = vec![
+            "font",
+            "image",
+            "media",
+            "object",
+            "object-subrequest",
+            "other",
+            "ping",
+            "script",
+            "stylesheet",
+            "subdocument",
+            "websocket",
+            "xmlhttprequest",
+            "xhr",
+        ];
+
+        fn set_all_options(breakdown: &mut NetworkFilterBreakdown, value: bool) {
+            breakdown.from_font = value;
+            breakdown.from_image = value;
+            breakdown.from_media = value;
+            breakdown.from_object = value;
+            breakdown.from_other = value;
+            breakdown.from_ping = value;
+            breakdown.from_script = value;
+            breakdown.from_stylesheet = value;
+            breakdown.from_subdocument = value;
+            breakdown.from_websocket = value;
+            breakdown.from_xml_http_request = value;
+        }
+
+        fn set_option(option: &str, breakdown: &mut NetworkFilterBreakdown, value: bool) {
+            match option {
+                "font" => breakdown.from_font = value,
+                "image" => breakdown.from_image = value,
+                "media" => breakdown.from_media = value,
+                "object" => breakdown.from_object = value,
+                "object-subrequest" => breakdown.from_object = value,
+                "other" => breakdown.from_other = value,
+                "ping" => breakdown.from_ping = value,
+                "script" => breakdown.from_script = value,
+                "stylesheet" => breakdown.from_stylesheet = value,
+                "subdocument" => breakdown.from_subdocument = value,
+                "websocket" => breakdown.from_websocket = value,
+                "xmlhttprequest" => breakdown.from_xml_http_request = value,
+                "xhr" => breakdown.from_xml_http_request = value,
+                _ => unreachable!(),
+            }
+        }
+
+        for option in options {
+            // positive
+            {
+                let rule = format!("||foo.com${option}");
+                let filter = NetworkFilter::parse(&rule, true, Default::default()).unwrap();
+                let mut defaults = default_network_filter_breakdown();
+                defaults.hostname = Some(String::from("foo.com"));
+                defaults.is_hostname_anchor = true;
+                defaults.is_plain = true;
+                defaults.from_network_types = false;
+                set_all_options(&mut defaults, false);
+                set_option(option, &mut defaults, true);
+                assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+            }
+
+            {
+                let rule = format!("||foo.com$object,{option}");
+                let filter = NetworkFilter::parse(&rule, true, Default::default()).unwrap();
+                let mut defaults = default_network_filter_breakdown();
+                defaults.hostname = Some(String::from("foo.com"));
+                defaults.is_hostname_anchor = true;
+                defaults.is_plain = true;
+                defaults.from_network_types = false;
+                set_all_options(&mut defaults, false);
+                set_option(option, &mut defaults, true);
+                set_option("object", &mut defaults, true);
+                assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+            }
+
+            {
+                let rule = format!("||foo.com$domain=bar.com,{option}");
+                let filter = NetworkFilter::parse(&rule, true, Default::default()).unwrap();
+                let mut defaults = default_network_filter_breakdown();
+                defaults.hostname = Some(String::from("foo.com"));
+                defaults.is_hostname_anchor = true;
+                defaults.is_plain = true;
+                defaults.from_network_types = false;
+                defaults.opt_domains = Some(vec![utils::fast_hash("bar.com")]);
+                set_all_options(&mut defaults, false);
+                set_option(option, &mut defaults, true);
+                assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+            }
+
+            // negative
+            {
+                let rule = format!("||foo.com$~{option}");
+                let filter = NetworkFilter::parse(&rule, true, Default::default()).unwrap();
+                let mut defaults = default_network_filter_breakdown();
+                defaults.hostname = Some(String::from("foo.com"));
+                defaults.is_hostname_anchor = true;
+                defaults.is_plain = true;
+                defaults.from_network_types = false;
+                set_all_options(&mut defaults, true);
+                set_option(option, &mut defaults, false);
+                assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+            }
+
+            {
+                let rule = format!("||foo.com${option},~{option}");
+                let filter = NetworkFilter::parse(&rule, true, Default::default()).unwrap();
+                let mut defaults = default_network_filter_breakdown();
+                defaults.hostname = Some(String::from("foo.com"));
+                defaults.is_hostname_anchor = true;
+                defaults.is_plain = true;
+                defaults.from_network_types = false;
+                set_all_options(&mut defaults, true);
+                set_option(option, &mut defaults, false);
+                assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+            }
+            // default - positive
+            {
+                let filter = NetworkFilter::parse("||foo.com", true, Default::default()).unwrap();
+                let mut defaults = default_network_filter_breakdown();
+                defaults.hostname = Some(String::from("foo.com"));
+                defaults.is_hostname_anchor = true;
+                defaults.is_plain = true;
+                defaults.from_network_types = true;
+                set_all_options(&mut defaults, true);
+                assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+            }
+        }
+    }
+
+    #[test]
+    fn parse_empty_host_anchor_exception() {
+        let filter_parsed =
+            NetworkFilter::parse("@@||$domain=auth.wi-fi.ru", true, Default::default());
+        assert!(filter_parsed.is_ok());
+
+        let filter = filter_parsed.unwrap();
+
+        let mut defaults = default_network_filter_breakdown();
+
+        defaults.hostname = Some(String::from(""));
+        defaults.is_hostname_anchor = true;
+        defaults.is_exception = true;
+        defaults.is_plain = true;
+        defaults.from_network_types = true;
+        defaults.opt_domains = Some(vec![utils::fast_hash("auth.wi-fi.ru")]);
+        assert_eq!(defaults, NetworkFilterBreakdown::from(&filter));
+    }
+
+    #[test]
+    fn test_simple_pattern_tokenization() {
+        let rule = "||some.primewire.c*/sw$script,1p";
+        let filter = NetworkFilter::parse(rule, true, ParseOptions::default()).unwrap();
+        let mut tokens_buffer = utils::TokensBuffer::default();
+        assert_eq!(filter.get_tokens(&mut tokens_buffer), FilterTokens::Other);
+        assert_eq!(
+            tokens_buffer.as_slice(),
+            &[utils::fast_hash("some"), utils::fast_hash("primewire")]
+        );
+    }
+
+    #[test]
+    fn test_percent_encoded_pattern_tokenization() {
+        // Leading `*` is stripped; `%` splits the encoded path so this is not
+        // dumped into the fallback (token 0) bucket.
+        let filter =
+            NetworkFilter::parse("*%2Faymt%2Faa%2F%3F$image", true, ParseOptions::default())
+                .unwrap();
+        let mut tokens_buffer = utils::TokensBuffer::default();
+        assert_eq!(filter.get_tokens(&mut tokens_buffer), FilterTokens::Other);
+        assert!(
+            tokens_buffer
+                .as_slice()
+                .contains(&utils::fast_hash("2faymt")),
+            "tokens: {:?}",
+            tokens_buffer.iter().copied().collect::<Vec<_>>(),
+        );
+        assert!(tokens_buffer.as_slice().contains(&utils::fast_hash("2faa")));
+
+        let request = crate::request::Request::new(
+            "https://example.com/pixel?u=%2Faymt%2Faa%2F%3F",
+            "https://example.com/",
+            "image",
+            "",
+        )
+        .unwrap();
+        assert!(
+            request.get_tokens().contains(&utils::fast_hash("2faymt")),
+            "request tokens must include the filter token or the bucket is never probed"
+        );
+        assert!(filter.matches_test(&request));
+    }
+
+    #[test]
+    fn handles_method_options() {
+        const CASES: &[(&str, bool, bool, bool)] = &[
+            ("||foo$method=post", false, false, true),
+            ("||foo$method=post|get", true, false, true),
+            ("||foo$method=head|get", true, true, false),
+            ("||foo$method=~get", false, true, true),
+            ("||foo$method=POST", false, false, true),
+            ("||foo$method=post|put", false, false, true),
+        ];
+
+        for (rule, get, head, post) in CASES {
+            let filter = NetworkFilter::parse(rule, true, Default::default()).unwrap();
+            assert_eq!(
+                foo_method_breakdown(*get, *head, *post),
+                NetworkFilterBreakdown::from(&filter),
+                "rule: {rule}",
+            );
+        }
+
+        const RULES: &[&str] = &[
+            "||lemonde.fr/*?s=$xhr,method=post",
+            "||perplexity.ai/rest/metrics/collect^$xhr,1p,method=post",
+            "||apmplus.volces.com/monitor_web/collect$xhr,method=post",
+            "@@||www.realclear*/esm/assets/js/analytics/chartbeat.js?v=$xhr,1p,method=get,domain=com|org",
+            "||pagead2.googlesyndication.com^$3p,xhr,method=head,redirect-rule=noop.js,domain=photopea.com",
+            "||void.nicopr.fr/rec$method=POST",
+        ];
+
+        for filter_text in RULES {
+            assert!(
+                NetworkFilter::parse(filter_text, true, Default::default()).is_ok(),
+                "failed to parse: {filter_text}"
+            );
+        }
+
+        {
+            let filter = NetworkFilter::parse(
+                "||perplexity.ai/rest/metrics/collect^$xhr,1p,method=post",
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert!(filter.mask.contains(NetworkFilterMask::FROM_POST));
+            assert!(filter.mask.contains(NetworkFilterMask::FROM_XMLHTTPREQUEST));
+            assert!(!filter.mask.contains(NetworkFilterMask::FROM_NETWORK_TYPES));
+            assert!(filter.first_party());
+            assert!(!filter.third_party());
+        }
+
+        {
+            let filter = NetworkFilter::parse(
+                "@@*$xhr,method=head|get,domain=app.axenthost.com,3p",
+                true,
+                Default::default(),
+            )
+            .unwrap();
+            assert!(filter.is_exception());
+            assert!(filter.mask.contains(NetworkFilterMask::FROM_HEAD));
+            assert!(filter.mask.contains(NetworkFilterMask::FROM_GET));
+            assert!(!filter.mask.contains(NetworkFilterMask::FROM_POST));
+        }
+
+        const INVALID_RULES: &[&str] = &[
+            "||foo$method=put",
+            "||foo$method=connect|delete",
+            "||foo$method=",
+            "||foo$~method=post",
+        ];
+
+        for filter_text in INVALID_RULES {
+            assert!(
+                NetworkFilter::parse(filter_text, true, Default::default()).is_err(),
+                "expected parse error: {filter_text}"
+            );
+        }
+
+        assert!(NetworkFilter::parse("@@||foo^$generichide", true, Default::default()).is_ok());
+
+        for filter_text in [
+            "@@||foo^$generichide,method=post",
+            "@@||foo^$ghide,method=get",
+            "@@||foo^$generichide,method=head|get",
+        ] {
+            assert_eq!(
+                NetworkFilter::parse(filter_text, true, Default::default()).err(),
+                Some(NetworkFilterError::MethodWithGenerichide),
+                "expected MethodWithGenerichide: {filter_text}",
+            );
+        }
+    }
+}

@@ -1,0 +1,31 @@
+[package]
+name = "adblock-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+adblock = { path = ".." }
+
+[[bin]]
+name = "parse_filter"
+path = "fuzz_targets/parse_filter.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "parse_filter_hosts"
+path = "fuzz_targets/parse_filter_hosts.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "parse_request"
+path = "fuzz_targets/parse_request.rs"
+test = false
+doc = false

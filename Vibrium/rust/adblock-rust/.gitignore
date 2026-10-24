@@ -1,0 +1,16 @@
+/target
+data/live-filters.txt
+**/*.rs.bk
+.vscode/
+.DS_Store
+project.code-workspace
+js/target
+js/index.node
+js/artifacts.json
+**/*~
+**/node_modules
+**/.DS_Store
+**/target/
+ignored/
+NDK/
+.cargo
