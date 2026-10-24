@@ -1,21 +1,17 @@
 use crate::engine::VibriumAdblock;
 use crate::error::VibriumAdblockError;
-use crate::filter_list_updater::FilterListUpdater;
+use crate::filter_list_updater::{FilterListDownloader, FilterListUpdater};
 use crate::filter_lists::{FilterList, FilterListCollection};
 use crate::filter_storage::FilterStorage;
 
-pub struct FilterManager {
+pub struct FilterManager<D: FilterListDownloader = FilterListUpdater> {
     lists: FilterListCollection,
-    updater: FilterListUpdater,
+    updater: D,
     storage: FilterStorage,
 }
 
-impl FilterManager {
-    pub fn new(
-        lists: FilterListCollection,
-        updater: FilterListUpdater,
-        storage: FilterStorage,
-    ) -> Self {
+impl<D: FilterListDownloader> FilterManager<D> {
+    pub fn new(lists: FilterListCollection, updater: D, storage: FilterStorage) -> Self {
         Self {
             lists,
             updater,
@@ -43,7 +39,6 @@ impl FilterManager {
         validated_list.validate()?;
 
         self.storage.save(name, &downloaded_rules)?;
-
         self.lists.update_rules(name, downloaded_rules)?;
 
         Ok(())
@@ -59,5 +54,22 @@ impl FilterManager {
 
     pub fn storage(&self) -> &FilterStorage {
         &self.storage
+    }
+
+    pub fn load_stored_lists(&mut self) -> Result<(), VibriumAdblockError> {
+        let mut stored_lists = Vec::new();
+
+        for list in self.lists.iter().filter(|list| list.enabled) {
+            if self.storage.exists(&list.name)? {
+                let contents = self.storage.load(&list.name)?;
+                stored_lists.push((list.name.clone(), contents));
+            }
+        }
+
+        for (name, contents) in stored_lists {
+            self.lists.update_rules(&name, contents)?;
+        }
+
+        Ok(())
     }
 }

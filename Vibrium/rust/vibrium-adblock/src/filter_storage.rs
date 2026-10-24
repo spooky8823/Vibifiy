@@ -96,6 +96,21 @@ impl FilterStorage {
         Ok(contents)
     }
 
+    pub fn exists(&self, name: &str) -> Result<bool, VibriumAdblockError> {
+        validate_name(name)?;
+
+        match fs::metadata(self.directory.join(format!("{name}.txt"))) {
+            Ok(metadata) => {
+                if !metadata.is_file() {
+                    return Err(storage_error("Stored filter list is not a regular file"));
+                }
+                Ok(true)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(io_error("inspect stored filter list", error)),
+        }
+    }
+
     pub fn delete(&self, name: &str) -> Result<(), VibriumAdblockError> {
         validate_name(name)?;
 
