@@ -3,19 +3,24 @@ use crate::error::VibriumAdblockError;
 use crate::filter_list_updater::{FilterListDownloader, FilterListUpdater};
 use crate::filter_lists::{FilterList, FilterListCollection};
 use crate::filter_storage::FilterStorage;
+use crate::filter_validation::validate_and_clean_filter_list;
 
 pub struct FilterManager<D: FilterListDownloader = FilterListUpdater> {
     lists: FilterListCollection,
     updater: D,
     storage: FilterStorage,
+    active_engine: Option<VibriumAdblock>,
 }
 
 impl<D: FilterListDownloader> FilterManager<D> {
     pub fn new(lists: FilterListCollection, updater: D, storage: FilterStorage) -> Self {
+        let active_engine = VibriumAdblock::from_filter_lists(&lists).ok();
+
         Self {
             lists,
             updater,
             storage,
+            active_engine,
         }
     }
 
@@ -28,34 +33,41 @@ impl<D: FilterListDownloader> FilterManager<D> {
             })?
             .clone();
 
-        // Download first. A failed download must not modify existing rules.
+        // Download and validate without changing active state.
         let downloaded_rules = self.updater.download(&list)?;
+        let (cleaned_rules, _report) = validate_and_clean_filter_list(&downloaded_rules)?;
 
         let validated_list = FilterList::from_text(
             list.name.clone(),
             list.source_url.clone(),
-            downloaded_rules.clone(),
+            cleaned_rules.clone(),
         );
-
-        // Validate list metadata and ensure there is usable rule content.
         validated_list.validate()?;
 
-        // Ask the existing engine to parse the downloaded rules before saving.
-        // This constructor does not return parse errors, so this is a parsing
-        // step rather than a strict guarantee that every rule is valid.
-        let _validated_engine = VibriumAdblock::from_filter_list(&downloaded_rules);
+        // Prepare candidate state independently of the currently active state.
+        let mut candidate_lists = self.lists.clone();
+        candidate_lists.update_rules(name, cleaned_rules.clone())?;
 
-        // Save before changing in-memory state. If saving fails, the current
-        // list remains unchanged in memory.
-        self.storage.save(name, &downloaded_rules)?;
+        let candidate_engine = VibriumAdblock::from_filter_lists(&candidate_lists)?;
 
-        self.lists.update_rules(name, downloaded_rules)?;
+        // Persist before committing the candidate state.
+        self.storage.save(name, &cleaned_rules)?;
+
+        // Commit both in-memory components only after preparation and storage succeed.
+        self.lists = candidate_lists;
+        self.active_engine = Some(candidate_engine);
 
         Ok(())
     }
 
     pub fn rebuild_engine(&self) -> Result<VibriumAdblock, VibriumAdblockError> {
         VibriumAdblock::from_filter_lists(&self.lists)
+    }
+
+    pub fn active_engine(&self) -> Result<&VibriumAdblock, VibriumAdblockError> {
+        self.active_engine.as_ref().ok_or_else(|| {
+            VibriumAdblockError::FilterListError("No active ad-blocking engine is available".into())
+        })
     }
 
     pub fn lists(&self) -> &FilterListCollection {
@@ -67,19 +79,30 @@ impl<D: FilterListDownloader> FilterManager<D> {
     }
 
     pub fn load_stored_lists(&mut self) -> Result<(), VibriumAdblockError> {
+        // Read all stored content before modifying any in-memory state.
         let mut stored_lists = Vec::new();
 
         for list in self.lists.iter().filter(|list| list.enabled) {
             if self.storage.exists(&list.name)? {
                 let contents = self.storage.load(&list.name)?;
-                stored_lists.push((list.name.clone(), contents));
+                let (cleaned_rules, _report) = validate_and_clean_filter_list(&contents)?;
+
+                stored_lists.push((list.name.clone(), cleaned_rules));
             }
         }
 
-        // Load all files successfully before mutating the in-memory collection.
+        // Prepare candidate state using the restored rules.
+        let mut candidate_lists = self.lists.clone();
+
         for (name, contents) in stored_lists {
-            self.lists.update_rules(&name, contents)?;
+            candidate_lists.update_rules(&name, contents)?;
         }
+
+        // Prepare the engine before committing the restored state.
+        let candidate_engine = VibriumAdblock::from_filter_lists(&candidate_lists)?;
+
+        self.lists = candidate_lists;
+        self.active_engine = Some(candidate_engine);
 
         Ok(())
     }

@@ -215,3 +215,235 @@ fn missing_stored_file_keeps_existing_rules() {
 
     let _ = fs::remove_dir_all(directory);
 }
+
+#[test]
+fn invalid_download_preserves_existing_rules_and_saved_file() {
+    let directory = unique_test_directory("invalid-download");
+
+    let storage = FilterStorage::new(directory.clone());
+    storage
+        .save("test-list", "||previously-saved-ads.example^")
+        .expect("Existing valid rules should be saved");
+
+    let mut manager = manager_with_fake_downloader(
+        directory.clone(),
+        "||current-ads.example^",
+        Ok("! Only a comment\n[Adblock Plus 2.0]\n".to_string()),
+    );
+
+    let result = manager.update_list("test-list");
+
+    assert!(result.is_err(), "Invalid filter content must be rejected");
+
+    assert_eq!(
+        manager
+            .lists()
+            .get("test-list")
+            .expect("Filter list should exist")
+            .rules,
+        "||current-ads.example^",
+        "In-memory rules must remain unchanged after an invalid update"
+    );
+
+    assert_eq!(
+        storage
+            .load("test-list")
+            .expect("Previously saved rules should remain available"),
+        "||previously-saved-ads.example^",
+        "Invalid content must not overwrite the saved filter list"
+    );
+
+    let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
+fn mixed_valid_and_invalid_download_saves_only_after_validation() {
+    let directory = unique_test_directory("mixed-download");
+
+    let mut manager = manager_with_fake_downloader(
+        directory.clone(),
+        "||current-ads.example^",
+        Ok("||new-ads.example^".to_string()),
+    );
+
+    let result = manager.update_list("test-list");
+
+    assert!(
+        result.is_ok(),
+        "A list containing valid rules should be accepted even if some lines are rejected"
+    );
+
+    assert_eq!(
+        manager
+            .lists()
+            .get("test-list")
+            .expect("Filter list should exist")
+            .rules,
+        "||new-ads.example^"
+    );
+
+    assert_eq!(
+        manager
+            .storage()
+            .load("test-list")
+            .expect("Validated list should be saved"),
+        "||new-ads.example^"
+    );
+
+    let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
+fn storage_failure_preserves_existing_in_memory_rules() {
+    let directory = unique_test_directory("storage-failure");
+
+    // A regular file at this path prevents the storage layer from creating
+    // the directory it needs for saving the updated filter list.
+    fs::write(&directory, "not a directory").expect("Test setup should create a blocking file");
+
+    let mut manager = manager_with_fake_downloader(
+        directory.clone(),
+        "||current-ads.example^",
+        Ok("||new-ads.example^".to_string()),
+    );
+
+    let result = manager.update_list("test-list");
+
+    assert!(
+        result.is_err(),
+        "The update should fail when storage cannot be created"
+    );
+
+    assert_eq!(
+        manager
+            .lists()
+            .get("test-list")
+            .expect("Filter list should exist")
+            .rules,
+        "||current-ads.example^",
+        "Existing in-memory rules must remain unchanged after a storage failure"
+    );
+
+    let _ = fs::remove_file(directory);
+}
+
+#[test]
+fn failed_download_preserves_existing_saved_rules() {
+    let directory = unique_test_directory("failed-download-saved-rules");
+
+    let mut manager = manager_with_fake_downloader(
+        directory.clone(),
+        "||current-ads.example^",
+        Err("simulated network failure".to_string()),
+    );
+
+    // Save the existing rules before attempting the update.
+    manager
+        .storage()
+        .save("test-list", "||current-ads.example^")
+        .expect("Existing rules should be saved");
+
+    let result = manager.update_list("test-list");
+
+    assert!(result.is_err(), "The download should fail");
+
+    let saved_rules = manager
+        .storage()
+        .load("test-list")
+        .expect("Existing saved rules should remain readable");
+
+    assert_eq!(
+        saved_rules, "||current-ads.example^",
+        "A failed download must not overwrite the saved rules"
+    );
+
+    let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
+fn successful_update_changes_active_engine_rules() {
+    let directory = unique_test_directory("active-engine-update");
+
+    let mut manager = manager_with_fake_downloader(
+        directory.clone(),
+        "||old-ads.example^",
+        Ok("||new-ads.example^".to_string()),
+    );
+
+    // The initial engine should use the original rules.
+    assert!(
+        manager
+            .active_engine()
+            .unwrap()
+            .should_block(
+                "https://old-ads.example/ad.js",
+                "https://site.example/",
+                "script",
+            )
+            .unwrap()
+    );
+
+    manager
+        .update_list("test-list")
+        .expect("The valid update should succeed");
+
+    let engine = manager
+        .active_engine()
+        .expect("An active engine should be available after updating");
+
+    assert!(
+        engine
+            .should_block(
+                "https://new-ads.example/ad.js",
+                "https://site.example/",
+                "script",
+            )
+            .unwrap(),
+        "The updated engine should block the new rule"
+    );
+
+    assert!(
+        !engine
+            .should_block(
+                "https://old-ads.example/ad.js",
+                "https://site.example/",
+                "script",
+            )
+            .unwrap(),
+        "The updated engine should no longer block the removed rule"
+    );
+
+    let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
+fn failed_update_preserves_active_engine_rules() {
+    let directory = unique_test_directory("active-engine-failed-update");
+
+    let mut manager = manager_with_fake_downloader(
+        directory.clone(),
+        "||current-ads.example^",
+        Err("simulated network failure".to_string()),
+    );
+
+    let result = manager.update_list("test-list");
+
+    assert!(result.is_err(), "The download should fail");
+
+    let engine = manager
+        .active_engine()
+        .expect("The previous engine should remain active");
+
+    assert!(
+        engine
+            .should_block(
+                "https://current-ads.example/ad.js",
+                "https://site.example/",
+                "script",
+            )
+            .unwrap(),
+        "The existing engine should continue blocking its original rule"
+    );
+
+    let _ = fs::remove_dir_all(directory);
+}

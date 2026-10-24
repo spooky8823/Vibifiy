@@ -57,7 +57,7 @@ impl FilterList {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct FilterListCollection {
     lists: Vec<FilterList>,
 }

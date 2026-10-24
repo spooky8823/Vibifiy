@@ -10,9 +10,10 @@ name = "vibrium_adblock"
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
+url = "2"
 adblock = { path = "../adblock-rust" }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 [dev-dependencies]
 tiny_http = "0.12"
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] } 
