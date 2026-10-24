@@ -15,9 +15,7 @@ pub extern "C" fn vibrium_adblock_create() -> *mut c_void {
 /// # Safety
 /// `handle` must be null or a valid, live handle returned by
 /// `vibrium_adblock_create` that has not already been destroyed.
-pub unsafe extern "C" fn vibrium_adblock_destroy(
-    handle: *mut c_void,
-) {
+pub unsafe extern "C" fn vibrium_adblock_destroy(handle: *mut c_void) {
     if !handle.is_null() {
         unsafe {
             drop(Box::from_raw(handle.cast::<VibriumAdblock>()));
@@ -38,11 +36,7 @@ pub unsafe extern "C" fn vibrium_adblock_check(
     source_url: *const c_char,
     request_type: *const c_char,
 ) -> i32 {
-    if handle.is_null()
-        || url.is_null()
-        || source_url.is_null()
-        || request_type.is_null()
-    {
+    if handle.is_null() || url.is_null() || source_url.is_null() || request_type.is_null() {
         return -1;
     }
 
@@ -54,17 +48,15 @@ pub unsafe extern "C" fn vibrium_adblock_check(
             Err(_) => return -1,
         };
 
-        let source_url =
-            match std::ffi::CStr::from_ptr(source_url).to_str() {
-                Ok(value) => value,
-                Err(_) => return -1,
-            };
+        let source_url = match std::ffi::CStr::from_ptr(source_url).to_str() {
+            Ok(value) => value,
+            Err(_) => return -1,
+        };
 
-        let request_type =
-            match std::ffi::CStr::from_ptr(request_type).to_str() {
-                Ok(value) => value,
-                Err(_) => return -1,
-            };
+        let request_type = match std::ffi::CStr::from_ptr(request_type).to_str() {
+            Ok(value) => value,
+            Err(_) => return -1,
+        };
 
         match engine.should_block(url, source_url, request_type) {
             Ok(true) => 1,

@@ -11,10 +11,7 @@ pub struct FilterList {
 }
 
 impl FilterList {
-    pub fn new(
-        name: impl Into<String>,
-        source_url: impl Into<String>,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, source_url: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             source_url: source_url.into(),
@@ -50,9 +47,10 @@ impl FilterList {
         }
 
         if self.rules.trim().is_empty() {
-            return Err(VibriumAdblockError::FilterListError(
-                format!("Filter list '{}' contains no rules", self.name),
-            ));
+            return Err(VibriumAdblockError::FilterListError(format!(
+                "Filter list '{}' contains no rules",
+                self.name
+            )));
         }
 
         Ok(())
@@ -69,39 +67,27 @@ impl FilterListCollection {
         Self::default()
     }
 
-    pub fn add(
-        &mut self,
-        list: FilterList,
-    ) -> Result<(), VibriumAdblockError> {
+    pub fn add(&mut self, list: FilterList) -> Result<(), VibriumAdblockError> {
         list.validate()?;
 
-        if self
-            .lists
-            .iter()
-            .any(|existing| existing.name == list.name)
-        {
-            return Err(VibriumAdblockError::InvalidConfiguration(
-                format!("Filter list '{}' already exists", list.name),
-            ));
+        if self.lists.iter().any(|existing| existing.name == list.name) {
+            return Err(VibriumAdblockError::InvalidConfiguration(format!(
+                "Filter list '{}' already exists",
+                list.name
+            )));
         }
 
         self.lists.push(list);
         Ok(())
     }
 
-    pub fn set_enabled(
-        &mut self,
-        name: &str,
-        enabled: bool,
-    ) -> Result<(), VibriumAdblockError> {
+    pub fn set_enabled(&mut self, name: &str, enabled: bool) -> Result<(), VibriumAdblockError> {
         let list = self
             .lists
             .iter_mut()
             .find(|list| list.name == name)
             .ok_or_else(|| {
-                VibriumAdblockError::InvalidConfiguration(
-                    format!("Unknown filter list '{name}'"),
-                )
+                VibriumAdblockError::InvalidConfiguration(format!("Unknown filter list '{name}'"))
             })?;
 
         list.enabled = enabled;
@@ -124,10 +110,7 @@ impl FilterListCollection {
             for line in list.rules.lines() {
                 let rule = line.trim();
 
-                if rule.is_empty()
-                    || rule.starts_with('!')
-                    || rule.starts_with('[')
-                {
+                if rule.is_empty() || rule.starts_with('!') || rule.starts_with('[') {
                     continue;
                 }
 

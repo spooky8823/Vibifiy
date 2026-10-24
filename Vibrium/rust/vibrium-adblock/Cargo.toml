@@ -11,3 +11,4 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 adblock = { path = "../adblock-rust" }
+ureq = { version = "3", default-features = false, features = ["rustls"] }

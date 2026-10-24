@@ -1,7 +1,4 @@
-use vibrium_adblock::filter_lists::{
-    FilterList,
-    FilterListCollection,
-};
+use vibrium_adblock::filter_lists::{FilterList, FilterListCollection};
 
 #[test]
 fn adds_filter_list() {
@@ -63,10 +60,7 @@ fn combines_enabled_lists_and_removes_duplicate_rules() {
     assert!(combined.contains("||shared.example.com^"));
     assert!(combined.contains("||tracker.example.com^"));
 
-    assert_eq!(
-        combined.matches("||shared.example.com^").count(),
-        1
-    );
+    assert_eq!(combined.matches("||shared.example.com^").count(), 1);
 }
 
 #[test]
@@ -90,11 +84,7 @@ fn disabled_lists_are_not_combined() {
 fn rejects_empty_filter_list() {
     let mut lists = FilterListCollection::new();
 
-    let list = FilterList::from_text(
-        "Empty",
-        "https://example.org/empty.txt",
-        "",
-    );
+    let list = FilterList::from_text("Empty", "https://example.org/empty.txt", "");
 
     assert!(lists.add(list).is_err());
 }
