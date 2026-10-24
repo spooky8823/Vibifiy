@@ -28,6 +28,7 @@ impl<D: FilterListDownloader> FilterManager<D> {
             })?
             .clone();
 
+        // Download first. A failed download must not modify existing rules.
         let downloaded_rules = self.updater.download(&list)?;
 
         let validated_list = FilterList::from_text(
@@ -36,9 +37,18 @@ impl<D: FilterListDownloader> FilterManager<D> {
             downloaded_rules.clone(),
         );
 
+        // Validate list metadata and ensure there is usable rule content.
         validated_list.validate()?;
 
+        // Ask the existing engine to parse the downloaded rules before saving.
+        // This constructor does not return parse errors, so this is a parsing
+        // step rather than a strict guarantee that every rule is valid.
+        let _validated_engine = VibriumAdblock::from_filter_list(&downloaded_rules);
+
+        // Save before changing in-memory state. If saving fails, the current
+        // list remains unchanged in memory.
         self.storage.save(name, &downloaded_rules)?;
+
         self.lists.update_rules(name, downloaded_rules)?;
 
         Ok(())
@@ -66,6 +76,7 @@ impl<D: FilterListDownloader> FilterManager<D> {
             }
         }
 
+        // Load all files successfully before mutating the in-memory collection.
         for (name, contents) in stored_lists {
             self.lists.update_rules(&name, contents)?;
         }
