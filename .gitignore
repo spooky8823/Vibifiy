@@ -1,0 +1,17 @@
+# Rust build output
+**/target/
+
+# Rust generated files
+**/*.rs.bk
+
+# Chromium build output
+**/out/
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+
+# Windows files
+Thumbs.db
+Desktop.ini
