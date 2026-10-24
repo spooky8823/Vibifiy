@@ -5,6 +5,7 @@ pub mod error;
 pub mod ffi;
 pub mod filter_list_updater;
 pub mod filter_lists;
+pub mod filter_manager;
 pub mod filter_storage;
 pub mod network_filter;
 pub mod resource_replacement;

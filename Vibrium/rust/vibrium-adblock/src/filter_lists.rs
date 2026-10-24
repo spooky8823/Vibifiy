@@ -102,6 +102,25 @@ impl FilterListCollection {
         self.lists.iter()
     }
 
+    pub fn update_rules(&mut self, name: &str, rules: String) -> Result<(), VibriumAdblockError> {
+        let list = self
+            .lists
+            .iter_mut()
+            .find(|list| list.name == name)
+            .ok_or_else(|| {
+                VibriumAdblockError::InvalidConfiguration(format!("Unknown filter list '{name}'"))
+            })?;
+
+        if rules.trim().is_empty() {
+            return Err(VibriumAdblockError::FilterListError(format!(
+                "Filter list '{name}' contains no rules"
+            )));
+        }
+
+        list.rules = rules;
+        Ok(())
+    }
+
     pub fn combined_rules(&self) -> String {
         let mut seen = HashSet::new();
         let mut combined = String::new();
