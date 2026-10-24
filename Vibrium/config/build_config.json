@@ -1,0 +1,7 @@
+﻿{
+  "project": "Vibrium",
+  "source": "Chromium",
+  "build_os": "windows",
+  "build_unmodified_baseline_first": true,
+  "upload_artifact_on_success": true
+}

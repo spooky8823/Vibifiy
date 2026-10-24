@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - Page Not Found | Vibifiy</title>
+    <style>
+        /* (Keep your existing styles here, they are fine) */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+        .error-container { text-align: center; max-width: 600px; }
+        .error-code { font-size: 8rem; font-weight: 900; background: linear-gradient(135deg, #a020f0 0%, #d946ef 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 1rem; }
+        .error-title { font-size: 2rem; font-weight: 600; color: #fff; margin-bottom: 1rem; }
+        .error-message { font-size: 1.1rem; color: #888; margin-bottom: 2rem; }
+        .redirect-notice { background: rgba(160, 32, 240, 0.1); border: 1px solid rgba(160, 32, 240, 0.3); border-radius: 8px; padding: 1rem; margin-bottom: 2rem; color: #a020f0; }
+        .home-link { display: inline-block; padding: 0.75rem 2rem; background: linear-gradient(135deg, #a020f0 0%, #d946ef 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: 600; }
+    </style>
+    
+    <script>
+        // 1. Save the path the user actually wanted (e.g., /vibifiy-website/discussions)
+        sessionStorage.setItem('vibifiy_redirect', window.location.pathname + window.location.search);
+        
+        // 2. Redirect to the ACTUAL root of your repository
+        // Since you are on github.io/vibifiy-website, we must redirect there, not just /
+        window.location.href = '/vibifiy-website/';
+    </script>
+</head>
+<body>
+    <div class="error-container">
+        <h1 class="error-code">404</h1>
+        <h2 class="error-title">Page Not Found</h2>
+        <p class="error-message">Oops! The page you're looking for doesn't exist.</p>
+        <div class="redirect-notice">⏳ Redirecting you to Vibifiy homepage...</div>
+        <a href="/vibifiy-website/" class="home-link">Go to Homepage</a>
+    </div>
+</body>
+</html>

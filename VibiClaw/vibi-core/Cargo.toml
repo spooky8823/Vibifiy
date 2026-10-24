@@ -1,0 +1,40 @@
+[package]
+name = "VibiClaw"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "VibiClaw"
+path = "src/main.rs"
+
+[dependencies]
+gtk = "0.18"
+gio = "0.18"
+gdk = "0.18"
+glib = "0.18"
+pango = "0.18"
+pulldown-cmark = "0.11"
+dark-light = "1.1"
+uuid = { version = "1", features = ["v4"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+dirs = "5"
+regex = "1"
+rand = "0.8"
+ring = "0.17"
+gdk-pixbuf = "0.18"
+tungstenite = "0.21"
+async-channel = "2"
+sysinfo = "0.30"
+reqwest = { version = "0.11", features = ["blocking", "json"] }
+
+# Linux-only: WebKitGTK embedded browser and inotify file watching.
+# Windows/macOS use the stub bridge and a polling file watcher instead.
+[target.'cfg(target_os = "windows")'.dependencies]
+wry = "0.53"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
+webkit2gtk-sys = "2.0"
+inotify = "0.10"

@@ -1,0 +1,175 @@
+name: VibiClaw Build
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  MANIFEST: VibiClaw/vibi-core/Cargo.toml
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config build-essential libssl-dev \
+            libglib2.0-dev libcairo2-dev libpango1.0-dev \
+            libgdk-pixbuf-2.0-dev libatk1.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: VibiClaw/vibi-core
+
+      - name: Build (release)
+        run: cargo build --release --manifest-path "$MANIFEST"
+
+      - name: Collect binary + icons
+        run: |
+          mkdir -p dist
+          find VibiClaw/vibi-core/target/release -maxdepth 1 -type f -perm -u+x \
+            ! -name '*.so' ! -name '*.d' ! -name 'build-script-*' \
+            -exec cp {} dist/ \;
+          cp -r VibiClaw/vibi-core/src/icons dist/icons
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VibiClaw-linux
+          path: dist/**
+          if-no-files-found: error
+  windows:
+    name: Windows exe build
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-rust
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-gtk3
+
+      - name: Build (release)
+        run: cargo build --release --manifest-path "$MANIFEST"
+
+      - name: Bundle exe + GTK runtime DLLs
+        run: |
+          mkdir -p dist
+          cp VibiClaw/vibi-core/target/release/*.exe dist/
+          # Copy MinGW DLLs recursively: scan the exe and every DLL copied so far,
+          # repeat until a pass finds nothing new.
+          for pass in 1 2 3 4 5 6 7 8; do
+            before=$(find dist -maxdepth 1 -name '*.dll' | wc -l)
+            for f in dist/*.exe dist/*.dll; do
+              [ -f "$f" ] || continue
+              { ldd "$f" 2>/dev/null | grep -i '/mingw64/' | awk '{print $3}' | xargs -r -I{} cp -n {} dist/; } || true
+            done
+            after=$(find dist -maxdepth 1 -name '*.dll' | wc -l)
+            echo "pass $pass: $before -> $after DLLs"
+            if [ "$before" -eq "$after" ]; then break; fi
+          done
+          echo "--- unresolved dependencies (should be empty) ---"
+          ldd dist/*.exe | grep -i 'not found' || true
+          cargo_home="${CARGO_HOME:-$(cygpath -u "$USERPROFILE")/.cargo}"
+          loader=$(find "$cargo_home/registry/src" VibiClaw/vibi-core/target -name WebView2Loader.dll 2>/dev/null | grep -i x64 | head -n 1)
+          test -n "$loader" || { echo "WebView2Loader.dll not found"; exit 1; }
+          cp "$loader" dist/
+          mkdir -p dist/share dist/lib
+          cp -r VibiClaw/vibi-core/src/icons dist/icons
+          cp -r /mingw64/share/glib-2.0 dist/share/ || true
+          cp -r /mingw64/share/icons dist/share/ || true
+          cp -r /mingw64/lib/gdk-pixbuf-2.0 dist/lib/ || true
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VibiClaw-windows
+          path: dist/**
+          if-no-files-found: error
+  release:
+    name: Publish release
+    needs: [linux, windows]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: ver
+        run: |
+          v=$(grep -m1 '^version' VibiClaw/vibi-core/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=VibiClaw-v$v" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this version is already released
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.ver.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release ${{ steps.ver.outputs.tag }} already exists. Bump version in Cargo.toml to publish a new one."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download build artifacts
+        if: steps.exists.outputs.exists != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package
+        if: steps.exists.outputs.exists != 'true'
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          mkdir -p out
+          mv artifacts/VibiClaw-linux   "VibiClaw-v$v-linux-x64"
+          mv artifacts/VibiClaw-windows "VibiClaw-v$v-windows-x64"
+          chmod +x "VibiClaw-v$v-linux-x64/VibiClaw"
+          tar czf "out/VibiClaw-v$v-linux-x64.tar.gz" "VibiClaw-v$v-linux-x64"
+          zip -qr "out/VibiClaw-v$v-windows-x64.zip" "VibiClaw-v$v-windows-x64"
+          ls -la out
+
+      - name: Create GitHub release
+        if: steps.exists.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: VibiClaw v${{ steps.ver.outputs.version }}
+          make_latest: false  
+          files: |
+            out/*.tar.gz
+            out/*.zip
+          body: |
+            ## VibiClaw v${{ steps.ver.outputs.version }}
+
+            **Windows:** download the `.zip`, extract the whole folder, run `VibiClaw.exe`.
+            Keep the DLLs and `icons` folder next to the exe.
+
+            **Linux:** download the `.tar.gz`, extract it, run `./VibiClaw`.
+            Requires GTK 3 and WebKitGTK 4.1 (`sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0`).
+
+            WebView models (ChatGPT / Gemini in the embedded browser) currently work on Linux only;
+            API models work on both.

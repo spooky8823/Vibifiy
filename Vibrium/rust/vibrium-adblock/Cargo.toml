@@ -1,0 +1,13 @@
+﻿[package]
+name = "vibrium-adblock"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+description = "Privacy-focused content blocking engine for the Vibrium browser"
+
+[lib]
+name = "vibrium_adblock"
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+adblock = { path = "../adblock-rust" }
