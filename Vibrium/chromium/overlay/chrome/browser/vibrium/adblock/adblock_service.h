@@ -9,14 +9,14 @@
 
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/vibrium/adblock/adblock_ffi.h"
+#include "components/keyed_service/core/keyed_service.h"
 
 namespace vibrium::adblock {
 
-// Owns the Rust-backed ad-blocking engine.
-class AdblockService {
+class AdblockService : public KeyedService {
  public:
   AdblockService();
-  ~AdblockService();
+  ~AdblockService() override;
 
   AdblockService(const AdblockService&) = delete;
   AdblockService& operator=(const AdblockService&) = delete;

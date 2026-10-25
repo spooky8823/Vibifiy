@@ -57,6 +57,12 @@ source_set("adblock_bridge") {
     "adblock_ffi.h",
     "adblock_service.cc",
     "adblock_service.h",
+    "adblock_url_loader_throttle.cc",
+    "adblock_url_loader_throttle.h",
+    "adblock_url_loader_throttle_factory.cc",
+    "adblock_url_loader_throttle_factory.h",
+    "adblock_service_factory.cc",
+    "adblock_service_factory.h",
   ]
 
   public_configs = [
@@ -67,6 +73,9 @@ source_set("adblock_bridge") {
   deps = [
     ":build_rust_adblock",
     "//base",
+    "//chrome/browser/profiles:profile",
+    "//components/keyed_service/content",
+    "//content/public/browser",
   ]
 }
 

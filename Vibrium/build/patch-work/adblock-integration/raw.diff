@@ -1,0 +1,40 @@
+﻿diff --git "a/C:\\Users\\kjaga\\Downloads\\chatresh\\code\\Vibifiy\\Vibrium\\chromium\\reference\\pinned\\chrome_content_browser_client.cc" "b/C:\\Users\\kjaga\\Downloads\\chatresh\\code\\Vibifiy\\Vibrium\\build\\patch-work\\adblock-integration\\chrome\\browser\\chrome_content_browser_client.cc"
+index 6b3e858..25792ae 100644
+--- "a/C:\\Users\\kjaga\\Downloads\\chatresh\\code\\Vibifiy\\Vibrium\\chromium\\reference\\pinned\\chrome_content_browser_client.cc"
++++ "b/C:\\Users\\kjaga\\Downloads\\chatresh\\code\\Vibifiy\\Vibrium\\build\\patch-work\\adblock-integration\\chrome\\browser\\chrome_content_browser_client.cc"
+@@ -1,8 +1,10 @@
+-// Copyright 2012 The Chromium Authors
++∩╗┐// Copyright 2012 The Chromium Authors
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/chrome_content_browser_client.h"
++#include "chrome/browser/vibrium/adblock/adblock_service_factory.h"
++#include "chrome/browser/vibrium/adblock/adblock_url_loader_throttle_factory.h"
+ 
+ #include <algorithm>
+ #include <iterator>
+@@ -6021,6 +6023,18 @@ ChromeContentBrowserClient::CreateURLLoaderThrottles(
+ 
+   DCHECK(browser_context);
+   Profile* profile = Profile::FromBrowserContext(browser_context);
++  // Vibrium: register the profile's Rust-backed content blocker.
++  if (profile && !profile->IsOffTheRecord()) {
++    auto* adblock_service =
++        vibrium::adblock::AdblockServiceFactory::GetForProfile(profile);
++    if (adblock_service && adblock_service->is_initialized()) {
++      auto throttle =
++          vibrium::adblock::CreateAdblockURLLoaderThrottle(adblock_service);
++      if (throttle) {
++        result.push_back(std::move(throttle));
++      }
++    }
++  }
+   DCHECK(profile);
+ 
+   ChromeNavigationUIData* chrome_navigation_ui_data =
+@@ -9707,3 +9721,4 @@ bool ChromeContentBrowserClient::ShouldAllowSystemUiPopups(
+   return !(tab_interface && actor_service->IsActiveOnTab(*tab_interface));
+ }
+ #endif
++
