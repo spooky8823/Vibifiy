@@ -1,0 +1,8 @@
+# Copyright 2026 The Vibrium Authors
+# SPDX-License-Identifier: MPL-2.0
+
+group("vibrium") {
+  deps = [
+    "adblock:adblock_bridge",
+  ]
+}

@@ -2,6 +2,7 @@ use adblock::engine::Engine;
 use adblock::lists::{FilterSet, ParseOptions};
 use adblock::request::Request;
 
+use crate::cosmetic_filter::is_valid_css_selector;
 use crate::error::VibriumAdblockError;
 use crate::filter_lists::FilterListCollection;
 
@@ -22,7 +23,6 @@ pub struct CosmeticResources {
 impl VibriumAdblock {
     pub fn new(rules: &[&str]) -> Self {
         let mut filters = FilterSet::new(false);
-
         filters.add_filter_list(rules.join("\n"), ParseOptions::default());
 
         Self {
@@ -44,10 +44,16 @@ impl VibriumAdblock {
             ));
         }
 
-        let resources = self.engine.url_cosmetic_resources(url);
+        let resources = self.engine.url_cosmetic_resources(parsed_url.as_str());
+
+        let hide_selectors = resources
+            .hide_selectors
+            .into_iter()
+            .filter(|selector| is_valid_css_selector(selector))
+            .collect();
 
         Ok(CosmeticResources {
-            hide_selectors: resources.hide_selectors,
+            hide_selectors,
             procedural_actions: resources.procedural_actions,
             exceptions: resources.exceptions,
             injected_script: resources.injected_script,
@@ -55,23 +61,30 @@ impl VibriumAdblock {
         })
     }
 
-    /// Returns generic CSS selectors relevant to the classes and IDs
+    /// Returns validated generic CSS selectors relevant to the classes and IDs
     /// found on a page.
     ///
-    /// Pass the exceptions returned by `cosmetic_resources` unchanged.
+    /// If `$generichide` disables generic cosmetic filtering for this page,
+    /// no generic selectors are returned.
     pub fn hidden_class_id_selectors(
         &self,
         classes: &[String],
         ids: &[String],
-        exceptions: &std::collections::HashSet<String>,
+        resources: &CosmeticResources,
     ) -> Vec<String> {
+        if resources.generichide {
+            return Vec::new();
+        }
+
         self.engine
-            .hidden_class_id_selectors(classes.iter(), ids.iter(), exceptions)
+            .hidden_class_id_selectors(classes.iter(), ids.iter(), &resources.exceptions)
+            .into_iter()
+            .filter(|selector| is_valid_css_selector(selector))
+            .collect()
     }
 
     pub fn from_filter_list(list: &str) -> Self {
         let mut filters = FilterSet::new(false);
-
         filters.add_filter_list(list.to_owned(), ParseOptions::default());
 
         Self {
@@ -127,7 +140,7 @@ mod tests {
 
         assert!(
             !engine
-                .should_block("https://cdn.example.org/app.js", SOURCE_URL, "script",)
+                .should_block("https://cdn.example.org/app.js", SOURCE_URL, "script")
                 .unwrap()
         );
     }
@@ -182,5 +195,73 @@ mod tests {
         lists.set_enabled("Test Ads", false).unwrap();
 
         assert!(VibriumAdblock::from_filter_lists(&lists).is_err());
+    }
+
+    #[test]
+    fn generichide_disables_generic_class_and_id_selectors() {
+        let engine = VibriumAdblock::new(&[
+            "##.generic-ad",
+            "###generic-ad",
+            "@@||example.com^$generichide",
+        ]);
+
+        let resources = engine.cosmetic_resources("https://example.com/").unwrap();
+
+        assert!(
+            resources.generichide,
+            "The exception rule should disable generic cosmetic filtering"
+        );
+
+        let classes = vec!["generic-ad".to_string()];
+        let ids = vec!["generic-ad".to_string()];
+
+        let selectors = engine.hidden_class_id_selectors(&classes, &ids, &resources);
+
+        assert!(
+            selectors.is_empty(),
+            "Generic selectors must be suppressed when $generichide applies"
+        );
+    }
+
+    #[test]
+    fn generic_class_and_id_selectors_remain_available_without_generichide() {
+        let engine = VibriumAdblock::new(&["##.generic-ad", "###generic-ad"]);
+
+        let resources = engine.cosmetic_resources("https://example.com/").unwrap();
+
+        assert!(
+            !resources.generichide,
+            "Generic cosmetic filtering should remain enabled"
+        );
+
+        let classes = vec!["generic-ad".to_string()];
+        let ids = vec!["generic-ad".to_string()];
+
+        let selectors = engine.hidden_class_id_selectors(&classes, &ids, &resources);
+
+        assert!(
+            !selectors.is_empty(),
+            "Generic selectors should remain available when $generichide does not apply"
+        );
+    }
+
+    #[test]
+    fn cosmetic_resources_reject_malformed_css_selectors() {
+        let engine = VibriumAdblock::new(&["example.com##.valid-ad", "example.com##.broken-ad{"]);
+
+        let resources = engine.cosmetic_resources("https://example.com/").unwrap();
+
+        assert!(
+            resources.hide_selectors.contains(".valid-ad"),
+            "Valid cosmetic selectors should be preserved"
+        );
+
+        assert!(
+            !resources
+                .hide_selectors
+                .iter()
+                .any(|selector| { !is_valid_css_selector(selector) }),
+            "Malformed CSS selectors must not be returned for injection"
+        );
     }
 }

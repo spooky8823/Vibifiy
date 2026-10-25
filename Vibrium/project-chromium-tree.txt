@@ -1,0 +1,142 @@
+Folder PATH listing for volume Acer
+Volume serial number is E665-CD3C
+C:\USERS\KJAGA\DOWNLOADS\CHATRESH\CODE\VIBIFIY\VIBRIUM\CHROMIUM\OVERLAY
++---app
+¦   +---theme
+¦       +---vibrium
+¦               vibrium_icon.ico
+¦               vibrium_icon.png
+¦               vibrium_logo.png
+¦               vibrium_logo.svg
+¦               
++---chrome
+    +---browser
+    ¦   +---vibrium
+    ¦       ¦   BUILD.gn
+    ¦       ¦   OWNERS
+    ¦       ¦   README.md
+    ¦       ¦   vibrium_constants.h
+    ¦       ¦   vibrium_features.cc
+    ¦       ¦   vibrium_features.h
+    ¦       ¦   vibrium_prefs.cc
+    ¦       ¦   vibrium_prefs.h
+    ¦       ¦   
+    ¦       +---adblock
+    ¦       ¦       adblock_browsertest.cc
+    ¦       ¦       adblock_engine.cc
+    ¦       ¦       adblock_engine.h
+    ¦       ¦       adblock_engine_unittest.cc
+    ¦       ¦       adblock_ffi.cc
+    ¦       ¦       adblock_ffi.h
+    ¦       ¦       adblock_service.cc
+    ¦       ¦       adblock_service.h
+    ¦       ¦       adblock_service_factory.cc
+    ¦       ¦       adblock_service_factory.h
+    ¦       ¦       adblock_service_unittest.cc
+    ¦       ¦       adblock_url_loader_throttle.cc
+    ¦       ¦       adblock_url_loader_throttle.h
+    ¦       ¦       adblock_url_loader_throttle_factory.cc
+    ¦       ¦       adblock_url_loader_throttle_factory.h
+    ¦       ¦       BUILD.gn
+    ¦       ¦       OWNERS
+    ¦       ¦       
+    ¦       +---filter_lists
+    ¦       ¦       BUILD.gn
+    ¦       ¦       filter_list_config.cc
+    ¦       ¦       filter_list_config.h
+    ¦       ¦       filter_list_manager.cc
+    ¦       ¦       filter_list_manager.h
+    ¦       ¦       filter_list_manager_unittest.cc
+    ¦       ¦       filter_list_updater.cc
+    ¦       ¦       filter_list_updater.h
+    ¦       ¦       
+    ¦       +---privacy
+    ¦               BUILD.gn
+    ¦               privacy_settings.cc
+    ¦               privacy_settings.h
+    ¦               privacy_settings_unittest.cc
+    ¦               tracking_protection_service.cc
+    ¦               tracking_protection_service.h
+    ¦               
+    +---resources
+    ¦   +---vibrium
+    ¦       ¦   adblock_page.css
+    ¦       ¦   adblock_page.html
+    ¦       ¦   adblock_page.ts
+    ¦       ¦   appearance_page.css
+    ¦       ¦   appearance_page.html
+    ¦       ¦   appearance_page.ts
+    ¦       ¦   BUILD.gn
+    ¦       ¦   general_page.css
+    ¦       ¦   general_page.html
+    ¦       ¦   general_page.ts
+    ¦       ¦   new_tab_page.css
+    ¦       ¦   new_tab_page.html
+    ¦       ¦   new_tab_page.ts
+    ¦       ¦   new_tab_page_browser_proxy.ts
+    ¦       ¦   OWNERS
+    ¦       ¦   privacy_page.css
+    ¦       ¦   privacy_page.html
+    ¦       ¦   privacy_page.ts
+    ¦       ¦   README.md
+    ¦       ¦   settings_browser_proxy.ts
+    ¦       ¦   settings_page.css
+    ¦       ¦   settings_page.html
+    ¦       ¦   settings_page.ts
+    ¦       ¦   vibrium.mojom
+    ¦       ¦   vibrium_browser_proxy.ts
+    ¦       ¦   vibrium_strings.grdp
+    ¦       ¦   
+    ¦       +---components
+    ¦       ¦       filter_list_row.css
+    ¦       ¦       filter_list_row.ts
+    ¦       ¦       privacy_badge.css
+    ¦       ¦       privacy_badge.ts
+    ¦       ¦       theme_picker.css
+    ¦       ¦       theme_picker.ts
+    ¦       ¦       toggle_row.css
+    ¦       ¦       toggle_row.ts
+    ¦       ¦       
+    ¦       +---icons
+    ¦       ¦       back.svg
+    ¦       ¦       refresh.svg
+    ¦       ¦       settings.svg
+    ¦       ¦       shield.svg
+    ¦       ¦       shield_check.svg
+    ¦       ¦       shield_disabled.svg
+    ¦       ¦       vibrium.svg
+    ¦       ¦       
+    ¦       +---tests
+    ¦               adblock_page_test.ts
+    ¦               new_tab_page_test.ts
+    ¦               privacy_page_test.ts
+    ¦               settings_page_test.ts
+    ¦               
+    +---ui
+        +---views
+        ¦   +---toolbar
+        ¦           README.md
+        ¦           vibrium_privacy_button.cc
+        ¦           vibrium_privacy_button.h
+        ¦           vibrium_privacy_button_unittest.cc
+        ¦           
+        +---webui
+            +---vibrium
+                    BUILD.gn
+                    OWNERS
+                    README.md
+                    vibrium_adblock_page_handler.cc
+                    vibrium_adblock_page_handler.h
+                    vibrium_new_tab_ui.cc
+                    vibrium_new_tab_ui.h
+                    vibrium_page_handler.cc
+                    vibrium_page_handler.h
+                    vibrium_privacy_page_handler.cc
+                    vibrium_privacy_page_handler.h
+                    vibrium_settings_ui.cc
+                    vibrium_settings_ui.h
+                    vibrium_ui.cc
+                    vibrium_ui.h
+                    vibrium_ui_config.cc
+                    vibrium_ui_config.h
+                    

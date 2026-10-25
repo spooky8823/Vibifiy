@@ -1,0 +1,20 @@
+# Copyright 2026 The Vibrium Authors
+# SPDX-License-Identifier: MPL-2.0
+
+import("//build/config/compiler/compiler.gni")
+
+source_set("adblock_bridge") {
+  sources = [
+    "adblock_ffi.cc",
+    "adblock_ffi.h",
+    "adblock_service.cc",
+    "adblock_service.h",
+  ]
+
+  deps = [
+    "//base",
+  ]
+
+  # Rust linkage will be added after the Rust crate and its third-party
+  # dependencies are represented by Chromium GN targets.
+}

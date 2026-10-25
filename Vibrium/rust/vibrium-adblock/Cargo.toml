@@ -12,7 +12,7 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 url = "2"
 adblock = { path = "../adblock-rust" }
-ureq = { version = "3", default-features = false, features = ["rustls"] }
+
 [dev-dependencies]
 tiny_http = "0.12"
 [target.'cfg(windows)'.dependencies]

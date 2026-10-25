@@ -3,113 +3,111 @@ use std::time::Duration;
 use crate::error::VibriumAdblockError;
 use crate::filter_lists::FilterList;
 
-const MAX_FILTER_LIST_SIZE: usize = 10 * 1024 * 1024;
+pub const MAX_FILTER_LIST_SIZE: usize = 10 * 1024 * 1024;
+
+/// Result returned by the host browser's network layer.
+#[derive(Debug)]
+pub struct DownloadResponse {
+    pub status: u16,
+    pub content_length: Option<usize>,
+    pub body: Vec<u8>,
+}
+
+/// Supplies downloaded filter-list data to the Rust validator.
+///
+/// Chromium should implement this boundary using its own network stack.
+/// The Rust crate does not perform network requests itself.
+pub trait FilterListTransport {
+    fn get(&self, url: &str, timeout: Duration) -> Result<DownloadResponse, String>;
+}
 
 pub trait FilterListDownloader {
     fn download(&self, list: &FilterList) -> Result<String, VibriumAdblockError>;
 }
 
-#[derive(Debug)]
-struct DownloadResponse {
-    status: u16,
-    content_length: Option<usize>,
-    body: Vec<u8>,
-}
-
-trait FilterListTransport {
-    fn get(&self, url: &str, timeout: Duration) -> Result<DownloadResponse, String>;
-}
-
-struct UreqTransport;
-
-impl FilterListTransport for UreqTransport {
-    fn get(&self, url: &str, timeout: Duration) -> Result<DownloadResponse, String> {
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(timeout))
-            .max_redirects(0)
-            .build();
-
-        let agent: ureq::Agent = config.into();
-
-        let response = agent.get(url).call().map_err(|error| error.to_string())?;
-
-        let status = response.status().as_u16();
-
-        let content_length = response
-            .headers()
-            .get("content-length")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<usize>().ok());
-
-        if content_length.is_some_and(|length| length > MAX_FILTER_LIST_SIZE) {
-            return Err("Filter list exceeds the 10 MiB size limit".into());
-        }
-
-        let body = response
-            .into_body()
-            .with_config()
-            .limit(MAX_FILTER_LIST_SIZE as u64)
-            .read_to_vec()
-            .map_err(|error| error.to_string())?;
-
-        Ok(DownloadResponse {
-            status,
-            content_length,
-            body,
-        })
-    }
-}
-
-pub struct FilterListUpdater {
+pub struct FilterListUpdater<T> {
     timeout: Duration,
+    transport: T,
 }
 
-impl Default for FilterListUpdater {
-    fn default() -> Self {
-        Self {
-            timeout: Duration::from_secs(30),
-        }
+impl<T> FilterListUpdater<T> {
+    pub fn with_transport(timeout: Duration, transport: T) -> Self {
+        Self { timeout, transport }
+    }
+
+    pub fn download(&self, list: &FilterList) -> Result<String, VibriumAdblockError>
+    where
+        T: FilterListTransport,
+    {
+        let response = {
+            validate_list_metadata(list)?;
+
+            let url = url::Url::parse(&list.source_url).map_err(|error| {
+                VibriumAdblockError::FilterListError(format!("Invalid filter list URL: {error}"))
+            })?;
+
+            if url.scheme() != "https" || url.host_str().is_none() {
+                return Err(VibriumAdblockError::FilterListError(
+                    "Filter lists must use a valid HTTPS URL".into(),
+                ));
+            }
+
+            self.transport
+                .get(&list.source_url, self.timeout)
+                .map_err(|error| {
+                    VibriumAdblockError::FilterListError(format!(
+                        "Failed to download '{}': {error}",
+                        list.name
+                    ))
+                })?
+        };
+
+        validate_downloaded_response(
+            list,
+            response.status,
+            response.content_length,
+            response.body,
+        )
     }
 }
 
-impl FilterListUpdater {
-    pub fn new(timeout: Duration) -> Self {
-        Self { timeout }
-    }
-
-    pub fn download(&self, list: &FilterList) -> Result<String, VibriumAdblockError> {
-        download_with_transport(list, self.timeout, &UreqTransport)
-    }
-}
-
-impl FilterListDownloader for FilterListUpdater {
+impl<T> FilterListDownloader for FilterListUpdater<T>
+where
+    T: FilterListTransport,
+{
     fn download(&self, list: &FilterList) -> Result<String, VibriumAdblockError> {
         FilterListUpdater::download(self, list)
     }
 }
 
-fn download_with_transport<T: FilterListTransport>(
+/// Validates a filter-list response already downloaded by the host browser.
+///
+/// This is the entry point for Chromium integration. The caller is responsible
+/// for performing the network request, enforcing its timeout, and limiting
+/// memory use while reading the response body.
+pub fn validate_downloaded_response(
     list: &FilterList,
-    timeout: Duration,
-    transport: &T,
+    status: u16,
+    content_length: Option<usize>,
+    body: Vec<u8>,
 ) -> Result<String, VibriumAdblockError> {
     validate_list_metadata(list)?;
 
-    let url = ureq::http::Uri::try_from(list.source_url.as_str()).map_err(|error| {
+    let url = url::Url::parse(&list.source_url).map_err(|error| {
         VibriumAdblockError::FilterListError(format!("Invalid filter list URL: {error}"))
     })?;
 
-    if url.scheme_str() != Some("https") || url.authority().is_none() {
+    if url.scheme() != "https" || url.host_str().is_none() {
         return Err(VibriumAdblockError::FilterListError(
             "Filter lists must use a valid HTTPS URL".into(),
         ));
     }
 
-    let response = transport.get(&list.source_url, timeout).map_err(|error| {
-        VibriumAdblockError::FilterListError(format!("Failed to download '{}': {error}", list.name))
-    })?;
-
-    validate_response(response)
+    validate_response(DownloadResponse {
+        status,
+        content_length,
+        body,
+    })
 }
 
 fn validate_response(response: DownloadResponse) -> Result<String, VibriumAdblockError> {
@@ -134,12 +132,13 @@ fn validate_response(response: DownloadResponse) -> Result<String, VibriumAdbloc
         VibriumAdblockError::FilterListError("Filter list is not valid UTF-8".into())
     })?;
 
-    if !text.lines().any(|line| {
-        let line = line.trim();
-        !line.is_empty() && !line.starts_with('!') && !line.starts_with('[')
-    }) {
+    // Perform full rule validation, rather than accepting arbitrary text
+    // merely because it contains a non-comment line.
+    let (cleaned_rules, _) = crate::filter_validation::validate_and_clean_filter_list(&text)?;
+
+    if cleaned_rules.trim().is_empty() {
         return Err(VibriumAdblockError::FilterListError(
-            "Downloaded file contains no filter rules".into(),
+            "Downloaded file contains no usable filter rules".into(),
         ));
     }
 
@@ -199,13 +198,10 @@ mod tests {
 
     #[test]
     fn accepts_valid_filter_rules() {
-        let transport = fake_response(200, b"||ads.example^\n");
-        let result = download_with_transport(&list(), Duration::from_secs(5), &transport);
+        let result =
+            validate_downloaded_response(&list(), 200, Some(16), b"||ads.example^\n".to_vec());
 
-        assert_eq!(
-            result.expect("Valid filter rules should be accepted"),
-            "||ads.example^\n"
-        );
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -214,9 +210,12 @@ mod tests {
         invalid_list.source_url = "http://example.com/filters.txt".into();
 
         let transport = fake_response(200, b"||ads.example^\n");
-        let result = download_with_transport(&invalid_list, Duration::from_secs(5), &transport);
 
-        assert!(result.is_err());
+        assert!(
+            FilterListUpdater::with_transport(Duration::from_secs(5), transport)
+                .download(&invalid_list)
+                .is_err()
+        );
     }
 
     #[test]
@@ -224,77 +223,68 @@ mod tests {
         let mut invalid_list = list();
         invalid_list.source_url = "not a URL".into();
 
-        let transport = fake_response(200, b"||ads.example^\n");
-        let result = download_with_transport(&invalid_list, Duration::from_secs(5), &transport);
-
-        assert!(result.is_err());
+        assert!(
+            validate_downloaded_response(&invalid_list, 200, None, b"||ads.example^\n".to_vec())
+                .is_err()
+        );
     }
 
     #[test]
     fn rejects_redirect_responses() {
-        let transport = fake_response(302, b"");
-        let result = download_with_transport(&list(), Duration::from_secs(5), &transport);
-
-        assert!(result.is_err());
+        assert!(validate_downloaded_response(&list(), 302, Some(0), vec![]).is_err());
     }
 
     #[test]
     fn rejects_server_errors() {
-        let transport = fake_response(500, b"Internal server error");
-        let result = download_with_transport(&list(), Duration::from_secs(5), &transport);
-
-        assert!(result.is_err());
+        assert!(
+            validate_downloaded_response(&list(), 500, Some(21), b"Internal server error".to_vec())
+                .is_err()
+        );
     }
 
     #[test]
     fn rejects_invalid_utf8() {
-        let transport = fake_response(200, &[0xff, 0xfe]);
-        let result = download_with_transport(&list(), Duration::from_secs(5), &transport);
-
-        assert!(result.is_err());
+        assert!(validate_downloaded_response(&list(), 200, Some(2), vec![0xff, 0xfe]).is_err());
     }
 
     #[test]
     fn rejects_content_without_filter_rules() {
-        let transport = fake_response(200, b"! comment\n[Adblock Plus 2.0]\n");
-        let result = download_with_transport(&list(), Duration::from_secs(5), &transport);
-
-        assert!(result.is_err());
+        assert!(
+            validate_downloaded_response(
+                &list(),
+                200,
+                None,
+                b"! comment\n[Adblock Plus 2.0]\n".to_vec()
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn rejects_oversized_content() {
         let bytes = vec![b'a'; MAX_FILTER_LIST_SIZE + 1];
-        let response = DownloadResponse {
-            status: 200,
-            content_length: Some(bytes.len()),
-            body: bytes,
-        };
-        let transport = FakeTransport {
-            response: Ok(response),
-        };
 
-        let result = download_with_transport(&list(), Duration::from_secs(5), &transport);
-
-        assert!(result.is_err());
+        assert!(validate_downloaded_response(&list(), 200, Some(bytes.len()), bytes).is_err());
     }
 
     #[test]
     fn rejects_empty_list_names() {
         let invalid_list = FilterList::new("", "https://example.com/filters.txt");
-        let transport = fake_response(200, b"||ads.example^\n");
-        let result = download_with_transport(&invalid_list, Duration::from_secs(5), &transport);
 
-        assert!(result.is_err());
+        assert!(
+            validate_downloaded_response(&invalid_list, 200, None, b"||ads.example^\n".to_vec())
+                .is_err()
+        );
     }
 
     #[test]
     fn rejects_empty_source_urls() {
         let invalid_list = FilterList::new("Test filters", "");
-        let transport = fake_response(200, b"||ads.example^\n");
-        let result = download_with_transport(&invalid_list, Duration::from_secs(5), &transport);
 
-        assert!(result.is_err());
+        assert!(
+            validate_downloaded_response(&invalid_list, 200, None, b"||ads.example^\n".to_vec())
+                .is_err()
+        );
     }
 
     #[test]
@@ -303,14 +293,10 @@ mod tests {
             response: Err("simulated connection failure".into()),
         };
 
-        let result = download_with_transport(&list(), Duration::from_secs(5), &transport);
+        let error = FilterListUpdater::with_transport(Duration::from_secs(5), transport)
+            .download(&list())
+            .unwrap_err();
 
-        assert!(result.is_err());
-        assert!(
-            result
-                .expect_err("Transport errors should be returned")
-                .to_string()
-                .contains("simulated connection failure")
-        );
+        assert!(error.to_string().contains("simulated connection failure"));
     }
 }

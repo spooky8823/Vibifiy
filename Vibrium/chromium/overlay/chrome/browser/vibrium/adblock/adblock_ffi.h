@@ -1,23 +1,23 @@
+// Copyright 2026 The Vibrium Authors
+// SPDX-License-Identifier: MPL-2.0
+
 #ifndef CHROME_BROWSER_VIBRIUM_ADBLOCK_ADBLOCK_FFI_H_
 #define CHROME_BROWSER_VIBRIUM_ADBLOCK_ADBLOCK_FFI_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
-#include "base/functional/callback_forward.h"
+#include "base/types/expected.h"
 
-namespace vibrium::adblock {
+namespace vibrium {
 
-// Represents the result of checking a network request.
 enum class BlockingResult {
   kError = -1,
   kAllowed = 0,
   kBlocked = 1,
 };
 
-// Owns a Rust-backed ad-blocking engine.
-//
-// This class is non-copyable. Its implementation must be linked against
-// the vibrium_adblock Rust static library.
 class AdblockFfi {
  public:
   AdblockFfi();
@@ -26,14 +26,22 @@ class AdblockFfi {
   AdblockFfi(const AdblockFfi&) = delete;
   AdblockFfi& operator=(const AdblockFfi&) = delete;
 
-  // Creates an engine from validated filter rules.
-  // Returns false if engine creation fails.
   bool Initialize(const std::string& rules);
 
-  // Checks a request. The strings are UTF-8.
-  BlockingResult CheckRequest(const std::string& url,
-                              const std::string& source_url,
-                              const std::string& request_type);
+  BlockingResult CheckRequest(
+      const std::string& url,
+      const std::string& source_url,
+      const std::string& request_type);
+
+  // Validates a response downloaded by the browser.
+  // Returns true if the response is valid. This does not install rules.
+  bool ValidateFilterResponse(
+      const std::string& name,
+      const std::string& source_url,
+      uint16_t status,
+      size_t content_length,
+      const uint8_t* body,
+      size_t body_len);
 
   bool is_initialized() const;
 
@@ -41,6 +49,6 @@ class AdblockFfi {
   void* handle_ = nullptr;
 };
 
-}  // namespace vibrium::adblock
+}  // namespace vibrium
 
 #endif  // CHROME_BROWSER_VIBRIUM_ADBLOCK_ADBLOCK_FFI_H_

@@ -1,11 +1,11 @@
 use crate::engine::VibriumAdblock;
 use crate::error::VibriumAdblockError;
-use crate::filter_list_updater::{FilterListDownloader, FilterListUpdater};
+use crate::filter_list_updater::FilterListDownloader;
 use crate::filter_lists::{FilterList, FilterListCollection};
 use crate::filter_storage::FilterStorage;
 use crate::filter_validation::validate_and_clean_filter_list;
 
-pub struct FilterManager<D: FilterListDownloader = FilterListUpdater> {
+pub struct FilterManager<D: FilterListDownloader> {
     lists: FilterListCollection,
     updater: D,
     storage: FilterStorage,

@@ -3,15 +3,14 @@ use std::os::raw::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use crate::engine::VibriumAdblock;
+use crate::filter_list_updater::validate_downloaded_response;
+use crate::filter_lists::FilterList;
 use crate::filter_validation::validate_and_clean_filter_list;
 
 const ABI_VERSION: u32 = 1;
 const ERROR: i32 = -1;
 
 /// Creates an engine with no custom filter rules.
-///
-/// Use `vibrium_adblock_create_with_rules` to create an engine with
-/// validated filter rules.
 ///
 /// # Safety
 ///
@@ -108,6 +107,62 @@ pub unsafe extern "C" fn vibrium_adblock_check(
             Ok(false) => 0,
             Err(_) => ERROR,
         })
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(ERROR)
+}
+
+/// Validates a filter-list response downloaded by the host browser.
+///
+/// Returns 0 on success and -1 on failure. This validates the downloaded
+/// text only; it does not install the rules into an engine or persist them.
+///
+/// Use `usize::MAX` for `content_length` when the server did not report it.
+///
+/// # Safety
+///
+/// `name` and `source_url` must point to valid, readable, null-terminated
+/// C strings. If `body_len` is nonzero, `body` must point to at least
+/// `body_len` readable bytes. All pointers must remain valid for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vibrium_adblock_validate_filter_response(
+    name: *const c_char,
+    source_url: *const c_char,
+    status: u16,
+    content_length: usize,
+    body: *const u8,
+    body_len: usize,
+) -> i32 {
+    if name.is_null()
+        || source_url.is_null()
+        || (body.is_null() && body_len != 0)
+        || body_len > crate::filter_list_updater::MAX_FILTER_LIST_SIZE
+    {
+        return ERROR;
+    }
+
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        let name = CStr::from_ptr(name).to_str().ok()?;
+        let source_url = CStr::from_ptr(source_url).to_str().ok()?;
+
+        let bytes = if body_len == 0 {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(body, body_len).to_vec()
+        };
+
+        let reported_length = if content_length == usize::MAX {
+            None
+        } else {
+            Some(content_length)
+        };
+
+        let list = FilterList::new(name, source_url);
+
+        validate_downloaded_response(&list, status, reported_length, bytes).ok()?;
+
+        Some(0)
     }))
     .ok()
     .flatten()

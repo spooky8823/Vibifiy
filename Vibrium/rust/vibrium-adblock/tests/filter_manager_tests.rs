@@ -447,3 +447,103 @@ fn failed_update_preserves_active_engine_rules() {
 
     let _ = fs::remove_dir_all(directory);
 }
+
+#[test]
+fn html_download_preserves_existing_rules_and_saved_file() {
+    let directory = unique_test_directory("html-download");
+
+    let storage = FilterStorage::new(directory.clone());
+    storage
+        .save("test-list", "||previously-saved-ads.example^")
+        .expect("Existing valid rules should be saved");
+
+    let mut manager = manager_with_fake_downloader(
+        directory.clone(),
+        "||current-ads.example^",
+        Ok("<!DOCTYPE html>\n<html><body>Access denied</body></html>".to_string()),
+    );
+
+    let result = manager.update_list("test-list");
+
+    assert!(
+        result.is_err(),
+        "HTML error pages must not be accepted as filter lists"
+    );
+
+    assert_eq!(
+        manager.lists().get("test-list").unwrap().rules,
+        "||current-ads.example^",
+        "An invalid download must not replace in-memory rules"
+    );
+
+    assert_eq!(
+        storage.load("test-list").unwrap(),
+        "||previously-saved-ads.example^",
+        "An invalid download must not overwrite saved rules"
+    );
+
+    let engine = manager.active_engine().unwrap();
+
+    assert!(
+        engine
+            .should_block(
+                "https://current-ads.example/ad.js",
+                "https://site.example/",
+                "script",
+            )
+            .unwrap(),
+        "The old active engine must continue blocking"
+    );
+
+    let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
+fn prose_download_preserves_existing_rules_and_saved_file() {
+    let directory = unique_test_directory("prose-download");
+
+    let storage = FilterStorage::new(directory.clone());
+    storage
+        .save("test-list", "||previously-saved-ads.example^")
+        .expect("Existing valid rules should be saved");
+
+    let prose = [
+        "Access to this resource has been denied",
+        "Please contact your network administrator",
+        "Your request cannot be completed today",
+        "Try signing in to continue using this service",
+    ]
+    .join("\n");
+
+    let mut manager =
+        manager_with_fake_downloader(directory.clone(), "||current-ads.example^", Ok(prose));
+
+    assert!(
+        manager.update_list("test-list").is_err(),
+        "Prose must not be accepted as a replacement filter list"
+    );
+
+    assert_eq!(
+        manager.lists().get("test-list").unwrap().rules,
+        "||current-ads.example^"
+    );
+
+    assert_eq!(
+        storage.load("test-list").unwrap(),
+        "||previously-saved-ads.example^"
+    );
+
+    assert!(
+        manager
+            .active_engine()
+            .unwrap()
+            .should_block(
+                "https://current-ads.example/ad.js",
+                "https://site.example/",
+                "script",
+            )
+            .unwrap()
+    );
+
+    let _ = fs::remove_dir_all(directory);
+}
