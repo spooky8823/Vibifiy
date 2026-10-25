@@ -8,8 +8,6 @@
 #include <cstdint>
 #include <string>
 
-#include "base/types/expected.h"
-
 namespace vibrium {
 
 enum class BlockingResult {
@@ -33,8 +31,6 @@ class AdblockFfi {
       const std::string& source_url,
       const std::string& request_type);
 
-  // Validates a response downloaded by the browser.
-  // Returns true if the response is valid. This does not install rules.
   bool ValidateFilterResponse(
       const std::string& name,
       const std::string& source_url,

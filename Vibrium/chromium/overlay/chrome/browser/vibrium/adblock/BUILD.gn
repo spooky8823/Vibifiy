@@ -1,7 +1,55 @@
-# Copyright 2026 The Vibrium Authors
+﻿# Copyright 2026 The Vibrium Authors
 # SPDX-License-Identifier: MPL-2.0
 
-import("//build/config/compiler/compiler.gni")
+action("build_rust_adblock") {
+  script = "//scripts/build_rust_adblock.py"
+
+  inputs = [
+    "//scripts/build_rust_adblock.py",
+    "//rust/Cargo.toml",
+    "//rust/Cargo.lock",
+    "//rust/vibrium-adblock/Cargo.toml",
+    "//rust/vibrium-adblock/build.rs",
+    "//rust/vibrium-adblock/include/vibrium_adblock.h",
+    "//rust/vibrium-adblock/src/lib.rs",
+    "//rust/vibrium-adblock/src/engine.rs",
+    "//rust/vibrium-adblock/src/ffi.rs",
+    "//rust/vibrium-adblock/src/filter_lists.rs",
+    "//rust/vibrium-adblock/src/network_filter.rs",
+    "//rust/vibrium-adblock/src/cosmetic_filter.rs",
+    "//rust/vibrium-adblock/src/resource_replacement.rs",
+    "//rust/vibrium-adblock/src/error.rs",
+    "//rust/vibrium-adblock/src/config.rs",
+    "//rust/vibrium-adblock/src/filter_validation.rs",
+  ]
+
+  outputs = [
+    "$target_gen_dir/rust-adblock/vibrium_adblock.lib",
+  ]
+
+  args = [
+    "--release",
+    "--out-dir",
+    rebase_path("$target_gen_dir/rust-adblock", root_build_dir),
+  ]
+}
+
+config("rust_adblock_include") {
+  include_dirs = [
+    "//rust/vibrium-adblock/include",
+  ]
+}
+
+config("rust_adblock_link") {
+  lib_dirs = [ "$target_gen_dir/rust-adblock" ]
+
+  libs = [
+    "vibrium_adblock.lib",
+    "ntdll.lib",
+    "Ws2_32.lib",
+    "Userenv.lib",
+  ]
+}
 
 source_set("adblock_bridge") {
   sources = [
@@ -11,10 +59,16 @@ source_set("adblock_bridge") {
     "adblock_service.h",
   ]
 
-  deps = [
-    "//base",
+  public_configs = [
+    ":rust_adblock_include",
+    ":rust_adblock_link",
   ]
 
-  # Rust linkage will be added after the Rust crate and its third-party
-  # dependencies are represented by Chromium GN targets.
+  deps = [
+    ":build_rust_adblock",
+    "//base",
+  ]
 }
+
+
+

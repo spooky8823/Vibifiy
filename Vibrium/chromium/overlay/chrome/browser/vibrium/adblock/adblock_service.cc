@@ -1,3 +1,6 @@
+// Copyright 2026 The Vibrium Authors
+// SPDX-License-Identifier: MPL-2.0
+
 #include "chrome/browser/vibrium/adblock/adblock_service.h"
 
 #include <memory>
@@ -11,7 +14,7 @@ AdblockService::AdblockService() = default;
 AdblockService::~AdblockService() = default;
 
 bool AdblockService::Initialize(const std::string& rules) {
-  auto engine = std::make_unique<AdblockFfi>();
+  auto engine = std::make_unique<::vibrium::AdblockFfi>();
 
   if (!engine->Initialize(rules)) {
     return false;
@@ -21,12 +24,12 @@ bool AdblockService::Initialize(const std::string& rules) {
   return true;
 }
 
-BlockingResult AdblockService::CheckRequest(
+::vibrium::BlockingResult AdblockService::CheckRequest(
     const std::string& url,
     const std::string& source_url,
     const std::string& request_type) {
   if (!engine_ || !engine_->is_initialized()) {
-    return BlockingResult::kError;
+    return ::vibrium::BlockingResult::kError;
   }
 
   return engine_->CheckRequest(url, source_url, request_type);

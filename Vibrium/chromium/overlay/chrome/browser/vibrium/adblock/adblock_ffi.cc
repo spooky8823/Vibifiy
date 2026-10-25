@@ -4,11 +4,16 @@
 #include "chrome/browser/vibrium/adblock/adblock_ffi.h"
 
 #include <limits>
-#include <string>
 
 #include "vibrium_adblock.h"
 
 namespace vibrium {
+
+namespace {
+
+constexpr size_t kMaxFilterListSize = 10U * 1024U * 1024U;
+
+}  // namespace
 
 AdblockFfi::AdblockFfi() = default;
 
@@ -61,7 +66,12 @@ bool AdblockFfi::ValidateFilterResponse(
     const uint8_t* body,
     size_t body_len) {
   if ((body == nullptr && body_len != 0) ||
-      body_len > 10U * 1024U * 1024U) {
+      body_len > kMaxFilterListSize) {
+    return false;
+  }
+
+  if (content_length != std::numeric_limits<size_t>::max() &&
+      content_length != body_len) {
     return false;
   }
 
