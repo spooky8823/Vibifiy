@@ -4,6 +4,7 @@
 #include "chrome/browser/vibrium/adblock/adblock_service_factory.h"
 
 #include <memory>
+#include <string>
 
 #include "base/no_destructor.h"
 #include "chrome/browser/profiles/profile.h"
@@ -11,6 +12,24 @@
 #include "content/public/browser/browser_context.h"
 
 namespace vibrium::adblock {
+namespace {
+
+// Temporary bootstrap rules. A proper filter-list manager will replace these
+// with validated, updateable lists.
+constexpr char kBootstrapFilterRules[] = R"FILTER(
+! Vibrium bootstrap rules
+||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||adservice.google.com^
+||adnxs.com^
+||adform.net^
+||ads.yahoo.com^
+||taboola.com^
+||outbrain.com^
+)FILTER";
+
+}  // namespace
 
 AdblockServiceFactory* AdblockServiceFactory::GetInstance() {
   static base::NoDestructor<AdblockServiceFactory> instance;
@@ -18,6 +37,10 @@ AdblockServiceFactory* AdblockServiceFactory::GetInstance() {
 }
 
 AdblockService* AdblockServiceFactory::GetForProfile(Profile* profile) {
+  if (!profile) {
+    return nullptr;
+  }
+
   return static_cast<AdblockService*>(
       GetInstance()->GetServiceForBrowserContext(profile, true));
 }
@@ -31,8 +54,6 @@ AdblockServiceFactory::~AdblockServiceFactory() = default;
 
 content::BrowserContext* AdblockServiceFactory::GetBrowserContextToUse(
     content::BrowserContext* context) const {
-  // Keep filtering state separate for each regular profile and avoid sharing
-  // it accidentally with unrelated browser contexts.
   return context;
 }
 
@@ -41,9 +62,7 @@ AdblockServiceFactory::BuildServiceInstanceForBrowserContext(
     content::BrowserContext* context) const {
   auto service = std::make_unique<AdblockService>();
 
-  // Initialize the engine with an empty rule set for now. The filter-list
-  // manager will supply downloaded and validated rules in a later step.
-  if (!service->Initialize("")) {
+  if (!service->Initialize(kBootstrapFilterRules)) {
     return nullptr;
   }
 

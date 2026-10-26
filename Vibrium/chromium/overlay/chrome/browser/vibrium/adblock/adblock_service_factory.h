@@ -4,11 +4,20 @@
 #ifndef CHROME_BROWSER_VIBRIUM_ADBLOCK_ADBLOCK_SERVICE_FACTORY_H_
 #define CHROME_BROWSER_VIBRIUM_ADBLOCK_ADBLOCK_SERVICE_FACTORY_H_
 
+#include <memory>
+
+#include "base/no_destructor.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
 class Profile;
 
+namespace content {
+class BrowserContext;
+}
+
 namespace vibrium::adblock {
+
+class AdblockService;
 
 class AdblockServiceFactory final
     : public BrowserContextKeyedServiceFactory {
@@ -20,7 +29,7 @@ class AdblockServiceFactory final
   AdblockServiceFactory& operator=(const AdblockServiceFactory&) = delete;
 
  private:
-  friend base::NoDestructor<AdblockServiceFactory>;
+  friend class base::NoDestructor<AdblockServiceFactory>;
 
   AdblockServiceFactory();
   ~AdblockServiceFactory() override;

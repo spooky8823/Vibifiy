@@ -60,6 +60,27 @@ impl<D: FilterListDownloader> FilterManager<D> {
         Ok(())
     }
 
+    
+    /// Enables or disables a list and rebuilds the active engine atomically.
+    ///
+    /// If rebuilding fails, the previous list configuration and engine remain
+    /// unchanged.
+    pub fn set_list_enabled(
+        &mut self,
+        name: &str,
+        enabled: bool,
+    ) -> Result<(), VibriumAdblockError> {
+        let mut candidate_lists = self.lists.clone();
+        candidate_lists.set_enabled(name, enabled)?;
+
+        let candidate_engine = VibriumAdblock::from_filter_lists(&candidate_lists)?;
+
+        self.lists = candidate_lists;
+        self.active_engine = Some(candidate_engine);
+
+        Ok(())
+    }
+
     pub fn rebuild_engine(&self) -> Result<VibriumAdblock, VibriumAdblockError> {
         VibriumAdblock::from_filter_lists(&self.lists)
     }
