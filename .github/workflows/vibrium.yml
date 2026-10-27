@@ -1,141 +1,127 @@
-name: Build Vibrium
+name: Validate Vibrium
 
 on:
   workflow_call:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: vibrium-validation-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-linux:
+  rust-tests:
+    name: Rust ad-blocker tests
     runs-on: ubuntu-22.04
-    timeout-minutes: 360
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: Vibrium/rust
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4.2.2
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost
-          df -h
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+      - name: Run workspace tests
+        run: cargo test --workspace --locked
 
-      - name: Install system deps (Linux)
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            build-essential python3 python3-pip python3-venv \
-            mercurial libgtk-3-dev libdbus-glib-1-dev \
-            libpulse-dev libasound2-dev libxt-dev \
-            libx11-xcb-dev libgl1-mesa-dev libegl1-mesa-dev \
-            yasm nasm zip unzip dpkg-dev fakeroot curl
-
-      - name: Bundle uBlock Origin
-        working-directory: Vibrium
-        run: |
-          mkdir -p extensions
-          UBO_VERSION="1.75.0"
-          UBO_URL="https://github.com/gorhill/uBlock/releases/download/${UBO_VERSION}/uBlock0_${UBO_VERSION}.firefox.signed.xpi"
-          echo "Downloading uBO from: $UBO_URL"
-          curl -L -f -o "extensions/uBlock0@raymondhill.net.xpi" "$UBO_URL"
-          ls -la extensions/
-
-      - name: Install GeckoKit
-        working-directory: Vibrium
-        run: npm install
-
-      - name: GeckoKit setup
-        working-directory: Vibrium
-        run: npx geckokit setup
-        env:
-          GECKOKIT_ACCEPT_LICENSE: "1"
-
-      - name: Build Vibrium
-        working-directory: Vibrium
-        run: npx geckokit build
-
-      - name: Package (Linux)
-        working-directory: Vibrium
-        run: |
-          npx geckokit package
-          mkdir -p dist
-          cp -r .geckokit/firefox/obj-geckokit-*/dist/* dist/ || true
-
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Vibrium-linux
-          path: Vibrium/dist/
-          retention-days: 30
-
-  build-windows:
-    runs-on: windows-latest
-    timeout-minutes: 360
+  chromium-metadata:
+    name: Validate Chromium baseline and patches
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4.2.2
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install MozillaBuild
-        shell: powershell
-        run: |
-          $url = "https://ftp.mozilla.org/pub/mozilla.org/mozilla/libraries/win32/MozillaBuildSetup-Latest.exe"
-          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\MozillaBuildSetup.exe"
-          Start-Process -FilePath "$env:TEMP\MozillaBuildSetup.exe" -ArgumentList "/S" -Wait
-          echo "C:\mozilla-build" >> $env:GITHUB_PATH
-
-      - name: Bundle uBlock Origin
-        working-directory: Vibrium
+      - name: Validate pinned Chromium revision
         shell: bash
         run: |
-          mkdir -p extensions
-          UBO_VERSION="1.75.0"
-          UBO_URL="https://github.com/gorhill/uBlock/releases/download/${UBO_VERSION}/uBlock0_${UBO_VERSION}.firefox.signed.xpi"
-          echo "Downloading uBO from: $UBO_URL"
-          curl -L -f -o "extensions/uBlock0@raymondhill.net.xpi" "$UBO_URL"
-          ls -la extensions/
+          set -euo pipefail
 
-      - name: Install GeckoKit
-        working-directory: Vibrium
-        run: npm install
+          revision_file="Vibrium/chromium/revision.txt"
+          test -s "$revision_file"
 
-      - name: GeckoKit setup (Windows)
-        working-directory: Vibrium
-        shell: cmd
+          revision="$(sed -n 's/^REVISION=//p' "$revision_file" | tr -d '\r')"
+          version="$(sed -n 's/^VERSION=//p' "$revision_file" | tr -d '\r')"
+          status="$(sed -n 's/^STATUS=//p' "$revision_file" | tr -d '\r')"
+
+          if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Chromium revision must be a full 40-character Git commit hash."
+            exit 1
+          fi
+
+          if [[ -z "$version" || "$status" != "PINNED" ]]; then
+            echo "::error::Chromium version is missing or the baseline is not pinned."
+            exit 1
+          fi
+
+          {
+            echo "## Chromium baseline"
+            echo "- Version: $version"
+            echo "- Revision: $revision"
+            echo "- Status: $status"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate patch series
+        shell: bash
         run: |
-          call C:\mozilla-build\start-shell.bat -c "cd /c/actions-runner/_work/Vibifiy/Vibifiy/Vibrium && npx geckokit setup"
-        env:
-          GECKOKIT_ACCEPT_LICENSE: "1"
+          set -euo pipefail
 
-      - name: Build Vibrium (Windows)
-        working-directory: Vibrium
-        shell: cmd
-        run: |
-          call C:\mozilla-build\start-shell.bat -c "cd /c/actions-runner/_work/Vibifiy/Vibifiy/Vibrium && npx geckokit build"
+          patch_dir="Vibrium/chromium/patches"
+          series="$patch_dir/series"
 
-      - name: Package (Windows)
-        working-directory: Vibrium
-        shell: cmd
-        run: |
-          call C:\mozilla-build\start-shell.bat -c "cd /c/actions-runner/_work/Vibifiy/Vibifiy/Vibrium && npx geckokit package"
-          mkdir dist
-          xcopy /E /I /Y ".geckokit\firefox\obj-geckokit-*\dist" "dist"
+          test -s "$series"
 
-      - name: Upload Windows artifact
+          count=0
+
+          while IFS= read -r patch || [[ -n "$patch" ]]; do
+            patch="${patch%$'\r'}"
+
+            [[ -z "$patch" || "$patch" == \#* ]] && continue
+
+            if [[ "$patch" == */* || "$patch" == *..* ]]; then
+              echo "::error::Invalid patch filename in series: $patch"
+              exit 1
+            fi
+
+            file="$patch_dir/$patch"
+
+            if [[ ! -f "$file" ]]; then
+              echo "::error::Patch listed in series is missing: $patch"
+              exit 1
+            fi
+
+            if [[ ! -s "$file" ]]; then
+              echo "::error::Patch listed in series is empty: $patch"
+              exit 1
+            fi
+
+            count=$((count + 1))
+            echo "Found patch: $patch"
+          done < "$series"
+
+          if [[ "$count" -eq 0 ]]; then
+            echo "::error::Patch series contains no patches."
+            exit 1
+          fi
+
+          echo "Validated $count patch file(s)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload validation report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Vibrium-windows
-          path: Vibrium/dist/
-          retention-days: 30
+          name: vibrium-validation-report
+          path: |
+            Vibrium/chromium/revision.txt
+            Vibrium/chromium/patches/series
+            Vibrium/chromium/patches/*.patch
+          if-no-files-found: warn
+          retention-days: 7
