@@ -114,6 +114,64 @@ jobs:
 
           echo "Validated $count patch file(s)." >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Upload metadata validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibrium-metadata-report
+          path: |
+            Vibrium/chromium/revision.txt
+            Vibrium/chromium/patches/series
+            Vibrium/chromium/patches/*.patch
+          if-no-files-found: warn
+          retention-days: 7
+
+  chromium-patch-check:
+    name: Check patches against pinned Chromium
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    needs: chromium-metadata
+
+    steps:
+      - name: Checkout Vibrium repository
+        uses: actions/checkout@v4
+
+      - name: Read pinned Chromium revision
+        id: chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$(sed -n 's/^REVISION=//p' Vibrium/chromium/revision.txt | tr -d '\r')"
+          if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid Chromium revision."
+            exit 1
+          fi
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch pinned Chromium source
+        shell: bash
+        env:
+          CHROMIUM_REVISION: ${{ steps.chromium.outputs.revision }}
+        run: |
+          set -euo pipefail
+          git init chromium-src
+          git -C chromium-src remote add origin https://chromium.googlesource.com/chromium/src.git
+          git -C chromium-src fetch --depth=1 origin "$CHROMIUM_REVISION"
+          git -C chromium-src checkout --detach FETCH_HEAD
+
+          actual="$(git -C chromium-src rev-parse HEAD)"
+          if [[ "$actual" != "$CHROMIUM_REVISION" ]]; then
+            echo "::error::Fetched Chromium revision does not match the pin."
+            exit 1
+          fi
+
+      - name: Validate and apply Vibrium patch series
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 Vibrium/scripts/apply_patches.py \
+            --chromium "$GITHUB_WORKSPACE/chromium-src" \
+            --dry-run
       - name: Upload validation report
         if: always()
         uses: actions/upload-artifact@v4
