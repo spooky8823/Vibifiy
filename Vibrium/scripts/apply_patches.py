@@ -17,16 +17,20 @@ def load_revision() -> str:
         raise RuntimeError(f"Missing revision file: {REVISION_FILE}")
 
     values: dict[str, str] = {}
+
     for raw_line in REVISION_FILE.read_text(encoding="utf-8-sig").splitlines():
         line = raw_line.strip()
+
         if not line or line.startswith("#") or "=" not in line:
             continue
+
         key, value = line.split("=", 1)
         values[key.strip()] = value.strip()
 
     revision = values.get("REVISION", "").lower()
+
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
-        raise RuntimeError("chromium/revision.txt needs a full 40-character REVISION.")
+        raise RuntimeError("REVISION must be a full 40-character Git commit hash.")
 
     if values.get("STATUS") != "PINNED":
         raise RuntimeError("Chromium revision STATUS must be PINNED.")
@@ -34,10 +38,21 @@ def load_revision() -> str:
     return revision
 
 
-def run(command: list[str], cwd: Path, dry_run: bool = False) -> None:
+def run(
+    command: list[str],
+    *,
+    cwd: Path,
+    capture_output: bool = False,
+) -> subprocess.CompletedProcess[str]:
     print("+", subprocess.list2cmdline(command), flush=True)
-    if not dry_run:
-        subprocess.run(command, cwd=cwd, check=True)
+
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        check=True,
+        text=True,
+        capture_output=capture_output,
+    )
 
 
 def main() -> int:
@@ -55,11 +70,10 @@ def main() -> int:
         if not (chromium / ".git").exists():
             raise RuntimeError(f"Not a Git checkout: {chromium}")
 
-        actual_revision = subprocess.run(
-            ["git", "-C", str(chromium), "rev-parse", "HEAD"],
-            check=True,
+        actual_revision = run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=chromium,
             capture_output=True,
-            text=True,
         ).stdout.strip().lower()
 
         if actual_revision != expected_revision:
@@ -67,66 +81,75 @@ def main() -> int:
                 f"Chromium HEAD is {actual_revision}, expected {expected_revision}."
             )
 
+        status = run(
+            ["git", "status", "--porcelain"],
+            cwd=chromium,
+            capture_output=True,
+        ).stdout.strip()
+
+        if status:
+            raise RuntimeError(
+                "Chromium checkout has local changes. Use a clean, dedicated checkout."
+            )
+
         if not PATCH_SERIES.is_file():
             raise RuntimeError(f"Missing patch series: {PATCH_SERIES}")
 
-        patch_names = [
+        names = [
             line.strip()
             for line in PATCH_SERIES.read_text(encoding="utf-8-sig").splitlines()
             if line.strip() and not line.lstrip().startswith("#")
         ]
 
-        if not patch_names:
-            print("Patch series is empty; nothing to apply.")
-            return 0
+        if not names:
+            raise RuntimeError("Patch series contains no patches.")
 
         patches: list[Path] = []
-        for name in patch_names:
+
+        for name in names:
             if Path(name).name != name or not name.endswith(".patch"):
-                raise RuntimeError(f"Invalid patch entry in series: {name}")
+                raise RuntimeError(f"Invalid patch filename: {name}")
 
             patch = PATCH_DIR / name
-            if not patch.is_file():
-                raise RuntimeError(f"Patch listed in series is missing: {patch}")
+
+            if not patch.is_file() or patch.stat().st_size == 0:
+                raise RuntimeError(f"Missing or empty patch: {patch}")
 
             patches.append(patch)
 
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=chromium,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-
-        if status:
-            raise RuntimeError(
-                "Chromium checkout has local changes. Refusing to apply patches "
-                "to avoid mixing with unrelated work. Use a clean, dedicated checkout."
+        # Validate every patch against the same pristine checkout.
+        # Do not mutate Chromium until the complete series has passed.
+        for patch in patches:
+            run(
+                [
+                    "git",
+                    "apply",
+                    "--check",
+                    "--",
+                    str(patch),
+                ],
+                cwd=chromium,
             )
 
+        print(f"All {len(patches)} patch(es) pass the initial applicability check.")
+
+        if args.dry_run:
+            print("Dry run complete. No files were modified.")
+            return 0
+
+        # Apply sequentially only after the initial checks pass.
         for patch in patches:
-            check = [
-                "git",
-                "apply",
-                "--check",
-                "--",
-                str(patch),
-            ]
-            run(check, chromium, args.dry_run)
+            run(
+                [
+                    "git",
+                    "apply",
+                    "--",
+                    str(patch),
+                ],
+                cwd=chromium,
+            )
 
-            apply = [
-                "git",
-                "apply",
-                "--",
-                str(patch),
-            ]
-            run(apply, chromium, args.dry_run)
-
-        print(
-            f"{'Dry run validated' if args.dry_run else 'Applied'} "
-            f"{len(patches)} patch(es) against {expected_revision}."
-        )
+        print(f"Successfully applied {len(patches)} patch(es).")
         return 0
 
     except (RuntimeError, subprocess.CalledProcessError) as exc:
