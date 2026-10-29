@@ -1,4 +1,0 @@
-# Vibrium Chromium baseline
-VERSION=156.0.8064.2
-REVISION=ffeb229d5ef4c3868324bc3cb3f98b792a19c1f3
-STATUS=PINNED

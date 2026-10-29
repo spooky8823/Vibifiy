@@ -1,0 +1,4 @@
+﻿# CEF baseline used by Vibrium.
+# Update only after verifying the matching official binary distribution.
+CEF_VERSION=REPLACE_WITH_VERIFIED_VERSION
+CEF_PLATFORM=windows64
