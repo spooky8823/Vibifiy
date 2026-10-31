@@ -42,10 +42,7 @@ jobs:
 
             vibrium:
               - 'Vibrium/**'
-
-            website:
-              - 'Vibifiy Website/**'
-
+              
             vibiclaw:
               - 'VibiClaw/**'
 
@@ -72,13 +69,3 @@ jobs:
     uses: ./.github/workflows/vibiclaw.yml
     permissions:
       contents: write
-
-  deploy-website:
-    name: Deploy Vibifiy Website
-    needs: detect-changes
-    if: needs.detect-changes.outputs.website == 'true'
-    uses: ./.github/workflows/website.yml
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
