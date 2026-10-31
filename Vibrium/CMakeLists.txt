@@ -14,7 +14,7 @@ endif()
 add_subdirectory("${CEF_ROOT}" "${CMAKE_BINARY_DIR}/cef")
 
 add_executable(vibrium WIN32
-    src/main.cc
+    c++/main.cc
 
     c++/ui/tabbar.cc
     c++/ui/tabbar.h
