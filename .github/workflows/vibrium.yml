@@ -80,14 +80,16 @@ jobs:
             throw "CMake configuration failed."
           }
 
+
       - name: Compile Vibrium
         shell: pwsh
         run: |
-          cmake --build Vibrium/build --config Release --parallel
+          cmake --build Vibrium/build --config Release --target vibrium --parallel
 
           if ($LASTEXITCODE -ne 0) {
             throw "Vibrium compilation failed."
           }
+
 
       - name: Package snapshot
         shell: pwsh
