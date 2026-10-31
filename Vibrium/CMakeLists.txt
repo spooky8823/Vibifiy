@@ -23,6 +23,13 @@ add_executable(vibrium WIN32
     c++/ui/searchengine.h
 )
 
+target_compile_definitions(vibrium PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    UNICODE
+    _UNICODE
+)
+
 target_include_directories(vibrium PRIVATE
     "${CEF_ROOT}"
 )

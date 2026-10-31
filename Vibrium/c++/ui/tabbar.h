@@ -66,7 +66,7 @@ private:
     static constexpr int TAB_MAX_WIDTH = 220;
     static constexpr int NEW_TAB_WIDTH = 42;
 
-    static constexpr COLORREF COLOR_BACKGROUND = RGB(15, 15, 20);
+    static constexpr COLORREF COLOR_WINDOW_BG = RGB(15, 15, 20);
     static constexpr COLORREF COLOR_TAB = RGB(25, 25, 33);
     static constexpr COLORREF COLOR_ACTIVE = RGB(42, 39, 55);
     static constexpr COLORREF COLOR_HOVER = RGB(55, 50, 70);

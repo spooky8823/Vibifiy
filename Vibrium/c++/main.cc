@@ -1,4 +1,12 @@
 ﻿
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
 #include <windows.h>
 
 #include <algorithm>
@@ -17,7 +25,8 @@
 #include "include/cef_life_span_handler.h"
 #include "include/cef_request_context.h"
 
-#include "../ui/tabbar.h"
+#include "ui/tabbar.h"
+#include "ui/searchengine.h"
 #include "../ui/searchengine.h"
 
 namespace vibrium {

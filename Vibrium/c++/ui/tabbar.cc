@@ -1,5 +1,6 @@
 
 #include "tabbar.h"
+#include <windowsx.h>
 
 #include <algorithm>
 #include <string>
@@ -24,8 +25,8 @@ bool TabBar::Create(
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = instance_;
     wc.lpszClassName = TABBAR_CLASS_NAME;
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = CreateSolidBrush(COLOR_BACKGROUND);
+    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512))
+    wc.hbrBackground = CreateSolidBrush(COLOR_WINDOW_BG);
 
     RegisterClassExW(&wc);
 
@@ -239,7 +240,7 @@ void TabBar::Paint(HDC hdc) {
     RECT client{};
     GetClientRect(hwnd_, &client);
 
-    HBRUSH backgroundBrush = CreateSolidBrush(COLOR_BACKGROUND);
+    HBRUSH backgroundBrush = CreateSolidBrush(COLOR_WINDOW_BG);
     FillRect(hdc, &client, backgroundBrush);
     DeleteObject(backgroundBrush);
 
