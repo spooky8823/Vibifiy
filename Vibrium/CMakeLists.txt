@@ -34,6 +34,7 @@ target_include_directories(vibrium PRIVATE
 target_link_libraries(vibrium PRIVATE
     "${CEF_ROOT}/Release/libcef.lib"
     libcef_dll_wrapper
+
     user32
     gdi32
     comctl32
