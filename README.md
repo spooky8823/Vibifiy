@@ -103,7 +103,7 @@ VibiClaw is being developed as a desktop application with a focus on permission-
 
 **Status:** Active development
 
-**Source:** [`VibiClaw/`](./VibiClaw/)
+**Source:** [![VibiClaw](https://alive-readme-buttons.spookyminecraftgamer.workers.dev/btn.svg?text=VibiClaw&bg=9c57bc&fg=ffffff&icon=github&style=pill&fill=gradient&anim=pulse)](./VibiClaw/)
 
 ---
 
@@ -115,7 +115,7 @@ VibiPass is built around the idea that sensitive information should remain under
 
 **Status:** Active development
 
-**Source:** [`VibiPass/`](./VibiPass/)
+**Source:** [![VibiPass](https://alive-readme-buttons.spookyminecraftgamer.workers.dev/btn.svg?text=VibiPass&bg=9c57bc&fg=ffffff&icon=github&style=pill&fill=gradient&anim=pulse)](./VibiPass/)
 
 VibiPass currently has automated builds for:
 
@@ -135,21 +135,10 @@ Vibrium explores what a modern, open desktop browser experience can look like wh
 
 **Status:** Active development
 
-**Source:** [`Vibrium/`](./Vibrium/)
+**Source:** [![Vibrium](https://alive-readme-buttons.spookyminecraftgamer.workers.dev/btn.svg?text=Vibrium&bg=9c57bc&fg=ffffff&icon=github&style=pill&fill=gradient&anim=pulse)](./Vibrium/)
 
 ---
 
-### Vibifiy Website
-
-The public website for the Vibifiy ecosystem.
-
-The website provides information about Vibifiy and its projects and is automatically deployed through GitHub Actions whenever changes are made to the website source.
-
-**Source:** [`Vibifiy Website/`](./Vibifiy%20Website/)
-
-**Website:** https://spooky8823.github.io/vibifiy-website/
-
----
 
 ## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Open Source First
 
@@ -272,9 +261,9 @@ Every contribution helps make the ecosystem better.
 
 ## <img src="https://github.com/spooky8823/Vibifiy/blob/main/vibifiy.jpeg?raw=true" width="22" align="center"> Connect
 
-- **Website:** https://spooky8823.github.io/vibifiy-website/
-- **GitHub:** https://github.com/Vibifiy-c
-- **Email:** vibifiyy@gmail.com
+- **Website:** [![Vibifiy Website](https://alive-readme-buttons.spookyminecraftgamer.workers.dev/btn.svg?text=Vibifiy+Website&bg=9c57bc&fg=ffffff&icon=link&style=pill&fill=gradient&anim=pulse)](https://spooky8823.github.io/Vibifiy)
+- **GitHub:** [![Vibifiy  on Github](https://alive-readme-buttons.spookyminecraftgamer.workers.dev/btn.svg?text=Vibifiy++on+Github&bg=9c57bc&fg=ffffff&icon=github&style=pill&fill=gradient&anim=pulse)](https://github.com/spooky8823/Vibifiy)
+- **Email:** [![Contact](https://alive-readme-buttons.spookyminecraftgamer.workers.dev/btn.svg?text=Contact&bg=9c57bc&fg=ffffff&icon=mail&style=pill&fill=gradient&anim=pulse)](mailto:vibifiyy@gmail.com)
 
 ---
 
