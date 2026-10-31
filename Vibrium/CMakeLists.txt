@@ -1,4 +1,5 @@
-﻿cmake_minimum_required(VERSION 3.21)
+﻿
+cmake_minimum_required(VERSION 3.21)
 project(Vibrium LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -14,6 +15,12 @@ add_subdirectory("${CEF_ROOT}" "${CMAKE_BINARY_DIR}/cef")
 
 add_executable(vibrium WIN32
     src/main.cc
+
+    c++/ui/tabbar.cc
+    c++/ui/tabbar.h
+
+    c++/ui/searchengine.cc
+    c++/ui/searchengine.h
 )
 
 target_include_directories(vibrium PRIVATE
@@ -24,6 +31,13 @@ target_link_libraries(vibrium PRIVATE
     libcef_lib
     libcef_dll_wrapper
 )
+
+if(WIN32)
+    target_link_libraries(vibrium PRIVATE
+        user32
+        gdi32
+    )
+endif()
 
 if(TARGET libcef_dll_wrapper)
     set_target_properties(libcef_dll_wrapper PROPERTIES

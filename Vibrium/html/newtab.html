@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>New Tab</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+
+
+<link rel="stylesheet" href="../css/newtab.css">
+
+</head>
+<body>
+
+<div class="float-btns">
+  <button class="float-btn" onclick="toggleDark()" id="themeBtn" title="Toggle theme">
+    <img src="../icons/darkmode.png" alt="Dark mode" class="toolbar-icon">
+  </button>
+</div>
+
+<div class="bg-upload-btns">
+
+  <!-- System Stats Gauges -->
+  <div class="stats-panel">
+
+    <div class="stat-gauge" id="ramGauge">
+      <svg viewBox="0 0 36 36" class="gauge-svg">
+        <path class="gauge-bg"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+        <path class="gauge-fill"
+              stroke-dasharray="0, 100"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+      </svg>
+
+      <div class="gauge-text">
+        <span class="gauge-val">0%</span>
+        <span class="gauge-lbl">RAM</span>
+      </div>
+    </div>
+
+    <div class="stat-gauge" id="cpuGauge">
+      <svg viewBox="0 0 36 36" class="gauge-svg">
+        <path class="gauge-bg"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+        <path class="gauge-fill"
+              stroke-dasharray="0, 100"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+      </svg>
+
+      <div class="gauge-text">
+        <span class="gauge-val">0%</span>
+        <span class="gauge-lbl">CPU</span>
+      </div>
+    </div>
+
+  </div>
+
+
+ <!-- Background image button -->
+<button class="bg-upload-btn"
+        onclick="openBackgroundPicker()"
+        title="Change Background">
+  <img src="../icons/pencil.png"
+       alt="Change background"
+       class="toolbar-icon">
+</button>
+
+</div>
+
+<input
+  type="file"
+  id="bgImageInput"
+  accept="image/*"
+  onchange="uploadBackground(event)"
+/>
+
+<div class="nt-inner">
+  <div class="nt-greet" id="greeting">Welcome</div>
+  <div class="clock-wrapper" title="Click to change style, Drag to move">
+  <div class="nt-clock" id="clockText"></div>
+  <div class="analog-clock" id="clockAnalog" style="display:none;">
+    <div class="hand hour" id="hourHand"></div>
+    <div class="hand minute" id="minuteHand"></div>
+    <div class="hand second" id="secondHand"></div>
+    <div class="center-dot"></div>
+  </div>
+</div>
+</div>
+  
+  <div class="se-logo" id="seLogoText" style="display:none;">Google</div>
+  <img class="se-logo-img" id="seLogo" src="https://www.google.com/s2/favicons?domain=google.com&sz=128" alt="Search Engine Logo"/>
+  
+  <div class="nt-search-wrap">
+    <div class="nt-search-bar">
+      <input type="text" id="ntSearch" placeholder="Search the web..." onkeydown="ntKey(event)" autofocus/>
+      <button class="nt-srch-btn" onclick="ntGo()">→</button>
+    </div>
+    <select class="se-select" id="seSelect" onchange="saveSE()">
+      <option value="google">Google</option>
+      <option value="ddg">DuckDuckGo</option>
+      <option value="bing">Bing</option>
+      <option value="brave">Brave Search</option>
+      <option value="yahoo">Yahoo</option>
+    </select>
+  </div>
+  
+  <div class="apps-grid" id="appsGrid"></div>
+</div>
+
+<!-- Folder overlay -->
+<div class="folder-overlay" id="folderOverlay">
+  <div class="folder-exp" onclick="event.stopPropagation()">
+    <div class="folder-exp-hdr">
+      <input class="folder-title" id="folderTitle" type="text" oninput="saveFolderName()"/>
+      <button class="folder-close" onclick="closeFolder()">✕</button>
+    </div>
+    <div class="folder-grid" id="folderGrid"></div>
+    <div class="folder-drop-zone" id="folderDropZone">⬖ Drag here to remove from folder</div>
+    <div class="folder-hint">or double-click an app to remove it</div>
+  </div>
+</div>
+
+<!-- Add Shortcut Modal -->
+<div class="modal" id="addModal">
+  <div class="modal-box shortcut-editor">
+
+    <div class="shortcut-editor-header">
+      <div>
+        <div class="modal-ttl">Create Shortcut</div>
+        <p class="shortcut-subtitle">
+          Add your favourite website to Vibrium.
+        </p>
+      </div>
+
+      <div class="shortcut-header-icon">✦</div>
+    </div>
+
+    <!-- App details -->
+    <div class="shortcut-fields">
+
+      <label class="shortcut-label" for="appName">
+        Shortcut name
+      </label>
+
+      <input
+        class="modal-inp"
+        id="appName"
+        placeholder="e.g. YouTube, GitHub, Spotify"
+      />
+
+      <label class="shortcut-label" for="appUrl">
+        Website address
+      </label>
+
+      <input
+        class="modal-inp"
+        id="appUrl"
+        placeholder="https://example.com"
+      />
+
+    </div>
+
+    <!-- Custom Icon -->
+    <div class="custom-icon-section">
+
+      <div class="custom-icon-heading">
+        <div>
+          <h3>Custom Icon</h3>
+          <p>Give your shortcut its own identity.</p>
+        </div>
+
+        <div class="icon-live-preview" id="iconLivePreview">
+          <span>🌐</span>
+        </div>
+      </div>
+
+      <!-- Icon selection -->
+      <div class="icon-option-list">
+
+        <label class="icon-option">
+          <input
+            type="radio"
+            name="iconMode"
+            value="website"
+            checked
+            onchange="setIconMode('website')"
+          />
+
+          <div class="icon-option-content">
+            <span class="icon-option-symbol">🌐</span>
+            <div>
+              <strong>Default website icon</strong>
+              <small>Automatically use the website's favicon.</small>
+            </div>
+          </div>
+
+          <span class="icon-option-check">✓</span>
+        </label>
+
+        <label class="icon-option">
+          <input
+            type="radio"
+            name="iconMode"
+            value="upload"
+            onchange="setIconMode('upload')"
+          />
+
+          <div class="icon-option-content">
+            <span class="icon-option-symbol">↑</span>
+            <div>
+              <strong>Upload from device</strong>
+              <small>Choose an image from your computer.</small>
+            </div>
+          </div>
+
+          <span class="icon-option-check">✓</span>
+        </label>
+
+        <label class="icon-option">
+          <input
+            type="radio"
+            name="iconMode"
+            value="url"
+            onchange="setIconMode('url')"
+          />
+
+          <div class="icon-option-content">
+            <span class="icon-option-symbol">↗</span>
+            <div>
+              <strong>Image address</strong>
+              <small>Use an image hosted online.</small>
+            </div>
+          </div>
+
+          <span class="icon-option-check">✓</span>
+        </label>
+
+      </div>
+
+      <!-- Upload option -->
+      <div class="icon-option-panel" id="uploadIconPanel">
+
+        <button
+          type="button"
+          class="icon-upload-button"
+          onclick="document.getElementById('customIconInput').click()">
+
+          <span class="upload-button-symbol">↑</span>
+          <span>Upload from device</span>
+
+        </button>
+
+        <span class="icon-file-name" id="iconFileName">
+          No image selected
+        </span>
+
+        <input
+          type="file"
+          id="customIconInput"
+          accept="image/*"
+          hidden
+          onchange="handleCustomIconUpload(event)"
+        />
+
+      </div>
+
+      <!-- Image URL option -->
+      <div class="icon-option-panel" id="urlIconPanel">
+
+        <input
+          type="url"
+          class="modal-inp icon-url-input"
+          id="customIconUrl"
+          placeholder="https://example.com/icon.png"
+          oninput="previewCustomIconUrl()"
+        />
+
+      </div>
+
+    </div>
+
+    <!-- Buttons -->
+    <div class="modal-btns shortcut-editor-buttons">
+
+      <button
+        class="btn-cancel"
+        onclick="closeAddModal()">
+        Cancel
+      </button>
+
+      <button
+        class="btn-ok shortcut-create-button"
+        onclick="saveApp()">
+        <span>＋</span> Create Shortcut
+      </button>
+
+    </div>
+
+  </div>
+</div>
+
+<!-- Context menu -->
+<div class="ctx-menu" id="ctxMenu">
+  <div class="ctx-item" onclick="ctxOpen()"> Open </div>
+  <div class="ctx-item" onclick="ctxEdit()"> Modify </div>
+  <div class="ctx-item danger" onclick="ctxDelete()"> Remove </div>
+</div>
+
+<!-- Background Picker -->
+<div class="background-overlay" id="backgroundOverlay">
+
+  <div class="background-picker" onclick="event.stopPropagation()">
+
+    <!-- Sidebar -->
+    <aside class="background-sidebar">
+
+      <div class="background-sidebar-title">
+        Backgrounds
+      </div>
+
+      <button
+        class="background-nav-item active"
+        id="defaultBackgroundTab"
+        onclick="showBackgroundSection('default')">
+        Default Vibrium Backgrounds
+      </button>
+
+      <button
+        class="background-nav-item"
+        id="customBackgroundTab"
+        onclick="showBackgroundSection('custom')">
+        Custom Background
+      </button>
+
+    </aside>
+
+    <!-- Main Content -->
+    <main class="background-main">
+
+      <div class="background-header">
+        <div>
+          <h2 id="backgroundSectionTitle">
+            Default Vibrium Backgrounds
+          </h2>
+
+          <p id="backgroundSectionDescription">
+            Choose a background for your Vibrium New Tab page.
+          </p>
+        </div>
+
+        <button
+          class="background-close"
+          onclick="closeBackgroundPicker()"
+          title="Close">
+          &times;
+        </button>
+      </div>
+
+      <!-- Default Backgrounds -->
+      <section
+        class="background-section active"
+        id="defaultBackgroundSection">
+
+        <div class="default-background-grid">
+
+          <button
+            class="default-background-card bg-default-1"
+            onclick="selectDefaultBackground('default-1')">
+            <span>Midnight Purple</span>
+          </button>
+
+          <button
+            class="default-background-card bg-default-2"
+            onclick="selectDefaultBackground('default-2')">
+            <span>Ocean Blue</span>
+          </button>
+
+          <button
+            class="default-background-card bg-default-3"
+            onclick="selectDefaultBackground('default-3')">
+            <span>Forest Green</span>
+          </button>
+
+          <button
+            class="default-background-card bg-default-4"
+            onclick="selectDefaultBackground('default-4')">
+            <span>Sunset</span>
+          </button>
+
+          <button
+            class="default-background-card bg-default-5"
+            onclick="selectDefaultBackground('default-5')">
+            <span>Dark Nebula</span>
+          </button>
+
+          <button
+            class="default-background-card bg-default-6"
+            onclick="selectDefaultBackground('default-6')">
+            <span>Minimal Light</span>
+          </button>
+
+        </div>
+
+      </section>
+
+      <!-- Custom Backgrounds -->
+      <section
+        class="background-section"
+        id="customBackgroundSection">
+
+        <div class="custom-background-grid">
+
+          <button
+            class="background-upload-card"
+            onclick="document.getElementById('bgImageInput').click()">
+
+            <span class="upload-plus">+</span>
+            <span class="upload-title">Upload</span>
+            <span class="upload-description">
+              Choose an image from your device
+            </span>
+
+          </button>
+
+          <div
+            class="saved-backgrounds"
+            id="savedBackgrounds">
+          </div>
+
+        </div>
+
+      </section>
+
+    </main>
+
+  </div>
+
+</div>
+  <script src="../js/newtab.js"></script>
+
+</body>
+</html>

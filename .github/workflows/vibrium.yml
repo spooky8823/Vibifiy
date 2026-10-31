@@ -1,4 +1,4 @@
-name: Validate Vibrium
+name: Build Vibrium Snapshot
 
 on:
   workflow_call:
@@ -7,179 +7,122 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: vibrium-validation-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  rust-tests:
-    name: Rust ad-blocker tests
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
+  build:
+    name: Build Vibrium Snapshot
+    runs-on: windows-latest
 
-    defaults:
-      run:
-        working-directory: Vibrium/rust
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Run workspace tests
-        run: cargo test --workspace --locked
-
-  chromium-metadata:
-    name: Validate Chromium baseline and patches
-    runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    env:
+      CEF_ARCHIVE: cef_binary_154.0.34+g14c5a08+chromium-154.0.8037.98_windows64.tar.bz2
+      CEF_ROOT: ${{ github.workspace }}/Vibrium/third_party/cef
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate pinned Chromium revision
-        shell: bash
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Download CEF
+        shell: pwsh
         run: |
-          set -euo pipefail
+          $url = "https://cef-builds.spotifycdn.com/$env:CEF_ARCHIVE"
+          $archive = Join-Path $env:RUNNER_TEMP $env:CEF_ARCHIVE
 
-          revision_file="Vibrium/chromium/revision.txt"
-          test -s "$revision_file"
+          curl.exe -L --fail --retry 3 "$url" -o "$archive"
 
-          revision="$(sed -n 's/^REVISION=//p' "$revision_file" | tr -d '\r')"
-          version="$(sed -n 's/^VERSION=//p' "$revision_file" | tr -d '\r')"
-          status="$(sed -n 's/^STATUS=//p' "$revision_file" | tr -d '\r')"
+          if ($LASTEXITCODE -ne 0) {
+            throw "CEF download failed."
+          }
 
-          if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Chromium revision must be a full 40-character Git commit hash."
-            exit 1
-          fi
-
-          if [[ -z "$version" || "$status" != "PINNED" ]]; then
-            echo "::error::Chromium version is missing or the baseline is not pinned."
-            exit 1
-          fi
-
-          {
-            echo "## Chromium baseline"
-            echo "- Version: $version"
-            echo "- Revision: $revision"
-            echo "- Status: $status"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Validate patch series
-        shell: bash
+      - name: Extract CEF
+        shell: pwsh
         run: |
-          set -euo pipefail
+          $archive = Join-Path $env:RUNNER_TEMP $env:CEF_ARCHIVE
+          $temp = Join-Path $env:RUNNER_TEMP "cef-extracted"
 
-          patch_dir="Vibrium/chromium/patches"
-          series="$patch_dir/series"
+          New-Item -ItemType Directory -Force -Path $temp | Out-Null
+          tar.exe -xjf "$archive" -C "$temp"
 
-          test -s "$series"
+          if ($LASTEXITCODE -ne 0) {
+            throw "CEF extraction failed."
+          }
 
-          count=0
+          $cef = Get-ChildItem $temp -Directory |
+            Where-Object { Test-Path (Join-Path $_.FullName "CMakeLists.txt") } |
+            Select-Object -First 1
 
-          while IFS= read -r patch || [[ -n "$patch" ]]; do
-            patch="${patch%$'\r'}"
+          if (!$cef) {
+            throw "CEF CMakeLists.txt was not found."
+          }
 
-            [[ -z "$patch" || "$patch" == \#* ]] && continue
+          New-Item -ItemType Directory -Force `
+            -Path "Vibrium/third_party" | Out-Null
 
-            if [[ "$patch" == */* || "$patch" == *..* ]]; then
-              echo "::error::Invalid patch filename in series: $patch"
-              exit 1
-            fi
+          if (Test-Path $env:CEF_ROOT) {
+            Remove-Item $env:CEF_ROOT -Recurse -Force
+          }
 
-            file="$patch_dir/$patch"
+          Move-Item $cef.FullName $env:CEF_ROOT
 
-            if [[ ! -f "$file" ]]; then
-              echo "::error::Patch listed in series is missing: $patch"
-              exit 1
-            fi
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          cmake -S Vibrium -B Vibrium/build -A x64 `
+            "-DCEF_ROOT=$env:CEF_ROOT"
 
-            if [[ ! -s "$file" ]]; then
-              echo "::error::Patch listed in series is empty: $patch"
-              exit 1
-            fi
+          if ($LASTEXITCODE -ne 0) {
+            throw "CMake configuration failed."
+          }
 
-            count=$((count + 1))
-            echo "Found patch: $patch"
-          done < "$series"
+      - name: Compile Vibrium
+        shell: pwsh
+        run: |
+          cmake --build Vibrium/build --config Release --parallel
 
-          if [[ "$count" -eq 0 ]]; then
-            echo "::error::Patch series contains no patches."
-            exit 1
-          fi
+          if ($LASTEXITCODE -ne 0) {
+            throw "Vibrium compilation failed."
+          }
 
-          echo "Validated $count patch file(s)." >> "$GITHUB_STEP_SUMMARY"
+      - name: Package snapshot
+        shell: pwsh
+        run: |
+          $package = "Vibrium_snapshot2026-10-31"
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
 
-      - name: Upload metadata validation report
-        if: always()
+          $exe = Get-ChildItem "Vibrium/build" -Filter "vibrium.exe" -Recurse |
+            Select-Object -First 1
+
+          if (!$exe) {
+            throw "vibrium.exe was not found."
+          }
+
+          Copy-Item $exe.FullName $package
+
+          foreach ($directory in @("Release", "Resources")) {
+            $source = Join-Path $env:CEF_ROOT $directory
+
+            if (!(Test-Path $source)) {
+              throw "CEF runtime directory missing: $source"
+            }
+
+            Copy-Item "$source/*" $package -Recurse -Force
+          }
+
+          Compress-Archive `
+            -Path "$package/*" `
+            -DestinationPath "$package.zip" `
+            -Force
+
+      - name: Upload snapshot artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vibrium-metadata-report
-          path: |
-            Vibrium/chromium/revision.txt
-            Vibrium/chromium/patches/series
-            Vibrium/chromium/patches/*.patch
-          if-no-files-found: warn
-          retention-days: 7
-
-  chromium-patch-check:
-    name: Check patches against pinned Chromium
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    needs: chromium-metadata
-
-    steps:
-      - name: Checkout Vibrium repository
-        uses: actions/checkout@v4
-
-      - name: Read pinned Chromium revision
-        id: chromium
-        shell: bash
-        run: |
-          set -euo pipefail
-          revision="$(sed -n 's/^REVISION=//p' Vibrium/chromium/revision.txt | tr -d '\r')"
-          if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Invalid Chromium revision."
-            exit 1
-          fi
-          echo "revision=$revision" >> "$GITHUB_OUTPUT"
-
-      - name: Fetch pinned Chromium source
-        shell: bash
-        env:
-          CHROMIUM_REVISION: ${{ steps.chromium.outputs.revision }}
-        run: |
-          set -euo pipefail
-          git init chromium-src
-          git -C chromium-src remote add origin https://chromium.googlesource.com/chromium/src.git
-          git -C chromium-src fetch --depth=1 origin "$CHROMIUM_REVISION"
-          git -C chromium-src checkout --detach FETCH_HEAD
-
-          actual="$(git -C chromium-src rev-parse HEAD)"
-          if [[ "$actual" != "$CHROMIUM_REVISION" ]]; then
-            echo "::error::Fetched Chromium revision does not match the pin."
-            exit 1
-          fi
-
-      - name: Validate and apply Vibrium patch series
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 Vibrium/scripts/apply_patches.py \
-            --chromium "$GITHUB_WORKSPACE/chromium-src" \
-            --dry-run
-      - name: Upload validation report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vibrium-validation-report
-          path: |
-            Vibrium/chromium/revision.txt
-            Vibrium/chromium/patches/series
-            Vibrium/chromium/patches/*.patch
-          if-no-files-found: warn
-          retention-days: 7
+          name: Vibrium_snapshot2026-10-31
+          path: Vibrium_snapshot2026-10-31.zip
+          if-no-files-found: error
+          retention-days: 30

@@ -23,7 +23,6 @@ jobs:
     outputs:
       vibipass: ${{ steps.filter.outputs.vibipass }}
       vibrium: ${{ steps.filter.outputs.vibrium }}
-      website: ${{ steps.filter.outputs.website }}
       vibiclaw: ${{ steps.filter.outputs.vibiclaw }}
 
     steps:
