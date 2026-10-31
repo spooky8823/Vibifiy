@@ -97,6 +97,10 @@ jobs:
       - name: Configure CMake
         shell: pwsh
         run: |
+          if (Test-Path "Vibrium/build") {
+            Remove-Item "Vibrium/build" -Recurse -Force
+          }
+
           cmake -S Vibrium -B Vibrium/build -A x64 `
             "-DCEF_ROOT=$env:CEF_ROOT"
 

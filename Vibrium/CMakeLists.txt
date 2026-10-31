@@ -10,6 +10,11 @@ if(NOT DEFINED CEF_ROOT OR NOT EXISTS "${CEF_ROOT}/CMakeLists.txt")
         "CEF_ROOT must point to an extracted CEF binary distribution.")
 endif()
 
+# Match the CEF DLL wrapper's static MSVC runtime (/MT).
+set(CMAKE_MSVC_RUNTIME_LIBRARY
+    "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+
 add_subdirectory("${CEF_ROOT}" "${CMAKE_BINARY_DIR}/cef")
 
 add_executable(vibrium WIN32
