@@ -47,19 +47,24 @@ jobs:
           $temp = Join-Path $env:RUNNER_TEMP "cef-extracted"
 
           New-Item -ItemType Directory -Force -Path $temp | Out-Null
+
           tar.exe -xjf "$archive" -C "$temp"
 
           if ($LASTEXITCODE -ne 0) {
             throw "CEF extraction failed."
           }
 
-          $cef = Get-ChildItem $temp -Directory |
-            Where-Object { Test-Path (Join-Path $_.FullName "CMakeLists.txt") } |
+          $cefCmake = Get-ChildItem $temp `
+            -Filter "CMakeLists.txt" `
+            -File `
+            -Recurse |
             Select-Object -First 1
 
-          if (!$cef) {
+          if (!$cefCmake) {
             throw "CEF CMakeLists.txt was not found."
           }
+
+          $cef = $cefCmake.Directory.FullName
 
           New-Item -ItemType Directory -Force `
             -Path "Vibrium/third_party" | Out-Null
@@ -68,7 +73,26 @@ jobs:
             Remove-Item $env:CEF_ROOT -Recurse -Force
           }
 
-          Move-Item $cef.FullName $env:CEF_ROOT
+          Move-Item $cef $env:CEF_ROOT
+
+      - name: Verify CEF libraries
+        shell: pwsh
+        run: |
+          $required = @(
+            "$env:CEF_ROOT/CMakeLists.txt",
+            "$env:CEF_ROOT/Release/libcef.lib",
+            "$env:CEF_ROOT/Release/libcef.dll",
+            "$env:CEF_ROOT/libcef_dll/CMakeLists.txt",
+            "$env:CEF_ROOT/Resources/icudtl.dat"
+          )
+
+          foreach ($file in $required) {
+            if (!(Test-Path $file)) {
+              throw "Required CEF file missing: $file"
+            }
+
+            Write-Host "Found: $file"
+          }
 
       - name: Configure CMake
         shell: pwsh
@@ -80,24 +104,29 @@ jobs:
             throw "CMake configuration failed."
           }
 
-
       - name: Compile Vibrium
         shell: pwsh
         run: |
-          cmake --build Vibrium/build --config Release --target vibrium --parallel
+          cmake --build Vibrium/build `
+            --config Release `
+            --target vibrium `
+            --parallel
 
           if ($LASTEXITCODE -ne 0) {
             throw "Vibrium compilation failed."
           }
 
-
       - name: Package snapshot
         shell: pwsh
         run: |
           $package = "Vibrium_snapshot2026-10-31"
-          New-Item -ItemType Directory -Force -Path $package | Out-Null
 
-          $exe = Get-ChildItem "Vibrium/build" -Filter "vibrium.exe" -Recurse |
+          New-Item -ItemType Directory -Force `
+            -Path $package | Out-Null
+
+          $exe = Get-ChildItem "Vibrium/build" `
+            -Filter "vibrium.exe" `
+            -Recurse |
             Select-Object -First 1
 
           if (!$exe) {
@@ -106,14 +135,26 @@ jobs:
 
           Copy-Item $exe.FullName $package
 
-          foreach ($directory in @("Release", "Resources")) {
-            $source = Join-Path $env:CEF_ROOT $directory
+          $release = Join-Path $env:CEF_ROOT "Release"
+          $resources = Join-Path $env:CEF_ROOT "Resources"
 
-            if (!(Test-Path $source)) {
-              throw "CEF runtime directory missing: $source"
-            }
+          if (!(Test-Path $release)) {
+            throw "CEF Release directory missing."
+          }
 
-            Copy-Item "$source/*" $package -Recurse -Force
+          if (!(Test-Path $resources)) {
+            throw "CEF Resources directory missing."
+          }
+
+          Copy-Item "$release/*" $package -Recurse -Force
+          Copy-Item "$resources/*" $package -Recurse -Force
+
+          if (!(Test-Path "$package/libcef.dll")) {
+            throw "libcef.dll missing from package."
+          }
+
+          if (!(Test-Path "$package/icudtl.dat")) {
+            throw "icudtl.dat missing from package."
           }
 
           Compress-Archive `
