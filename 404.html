@@ -17,13 +17,9 @@
     </style>
     
     <script>
-        // 1. Save the path the user actually wanted (e.g., /vibifiy-website/discussions)
-        sessionStorage.setItem('vibifiy_redirect', window.location.pathname + window.location.search);
-        
-        // 2. Redirect to the ACTUAL root of your repository
-        // Since you are on github.io/vibifiy-website, we must redirect there, not just /
-        window.location.href = '/vibifiy-website/';
-    </script>
+         sessionStorage.setItem('vibifiy_redirect', window.location.pathname + window.location.search);
+        window.location.href = '/Vibifiy/';
+    </script>  
 </head>
 <body>
     <div class="error-container">
@@ -31,7 +27,7 @@
         <h2 class="error-title">Page Not Found</h2>
         <p class="error-message">Oops! The page you're looking for doesn't exist.</p>
         <div class="redirect-notice">⏳ Redirecting you to Vibifiy homepage...</div>
-        <a href="/vibifiy-website/" class="home-link">Go to Homepage</a>
+        <a href="/Vibifiy/" class="home-link">Go to Homepage</a>
     </div>
 </body>
 </html>

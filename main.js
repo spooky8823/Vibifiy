@@ -143,9 +143,8 @@ themeToggle.addEventListener('click', () => {
 const navLinks = document.querySelectorAll('.nav-link');
 const pages = document.querySelectorAll('.page');
 
-// Define the base path for the repository
-// When you move to vibifiy.js.org, change this to '/'
-const BASE_PATH = window.location.hostname.includes('github.io') ? '/vibifiy-website/' : '/';
+
+const BASE_PATH = window.location.hostname.includes('github.io') ? '/Vibifiy/' : '/';
 
 
 
