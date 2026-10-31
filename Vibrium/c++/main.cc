@@ -1,4 +1,4 @@
-﻿
+
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -114,6 +114,16 @@ public:
 
     void OnAudioStreamStopped(
         CefRefPtr<CefBrowser> browser) override;
+
+    void OnAudioStreamPacket(
+        CefRefPtr<CefBrowser> browser,
+        const float** data,
+        int frames,
+        int64_t pts) override;
+
+    void OnAudioStreamError(
+        CefRefPtr<CefBrowser> browser,
+        const CefString& message) override;
 
 private:
     MainWindow* owner_;
@@ -369,7 +379,15 @@ public:
         GetBrowserBounds(rect);
 
         CefWindowInfo windowInfo;
-        windowInfo.SetAsChild(hwnd_, rect);
+        windowInfo.SetAsChild(
+            hwnd_,
+            CefRect(
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top
+            )
+        );
 
         CefBrowserSettings browserSettings{};
 
@@ -943,6 +961,20 @@ void BrowserClient::OnAudioStreamStopped(
     CefRefPtr<CefBrowser> browser) {
 
     owner_->OnAudioStopped(tabId_);
+}
+
+void BrowserClient::OnAudioStreamPacket(
+    CefRefPtr<CefBrowser> browser,
+    const float** data,
+    int frames,
+    int64_t pts) {
+    // Audio packet processing is intentionally not implemented yet.
+}
+
+void BrowserClient::OnAudioStreamError(
+    CefRefPtr<CefBrowser> browser,
+    const CefString& message) {
+    // Audio error reporting can be added here later.
 }
 
 } // namespace vibrium
