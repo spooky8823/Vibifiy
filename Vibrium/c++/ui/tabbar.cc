@@ -25,7 +25,7 @@ bool TabBar::Create(
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = instance_;
     wc.lpszClassName = TABBAR_CLASS_NAME;
-    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512))
+    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     wc.hbrBackground = CreateSolidBrush(COLOR_WINDOW_BG);
 
     RegisterClassExW(&wc);

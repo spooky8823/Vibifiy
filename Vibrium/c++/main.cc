@@ -27,7 +27,7 @@
 
 #include "ui/tabbar.h"
 #include "ui/searchengine.h"
-#include "../ui/searchengine.h"
+
 
 namespace vibrium {
 
