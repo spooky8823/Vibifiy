@@ -55,7 +55,7 @@ Vibifiy is intentionally broad. We build software that solves problems, explores
 
 <p align="center">
   <a href="https://skillicons.dev">
-    <img src="https://skillicons.dev/icons?i=rust,cpp,python,bash,nodejs,electron,js,html,css,supabase,gtk,github" />
+    <img src="https://skillicons.dev/icons?i=rust,cpp,c,python,bash,nodejs,electron,js,html,css,supabase,gtk,github" />
   </a>
 </p>
 
