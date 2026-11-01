@@ -1,12 +1,18 @@
-
 #include "tabbar.h"
+
 #include <windowsx.h>
 
 #include <algorithm>
 #include <string>
 
 namespace {
-    constexpr wchar_t TABBAR_CLASS_NAME[] = L"VibriumTabBar";
+    constexpr wchar_t TABBAR_CLASS_NAME[] =
+        L"VibriumTabBar";
+
+    constexpr int TAB_GAP = 7;
+    constexpr int TAB_TOP = 5;
+    constexpr int TAB_BOTTOM = 5;
+    constexpr int TAB_CORNER = 12;
 }
 
 bool TabBar::Create(
@@ -15,20 +21,23 @@ bool TabBar::Create(
     int x,
     int y,
     int width,
-    int height
-) {
+    int height) {
+
     parent_ = parent;
     instance_ = instance;
 
     WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(WNDCLASSEXW);
+    wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = instance_;
     wc.lpszClassName = TABBAR_CLASS_NAME;
-    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-    wc.hbrBackground = CreateSolidBrush(COLOR_WINDOW_BG);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hbrBackground = nullptr;
 
-    RegisterClassExW(&wc);
+    if (!RegisterClassExW(&wc) &&
+        GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        return false;
+    }
 
     hwnd_ = CreateWindowExW(
         0,
@@ -42,18 +51,23 @@ bool TabBar::Create(
         parent_,
         nullptr,
         instance_,
-        this
-    );
+        this);
 
     return hwnd_ != nullptr;
 }
 
-void TabBar::Resize(int x, int y, int width, int height) {
+void TabBar::Resize(
+    int x,
+    int y,
+    int width,
+    int height) {
+
     if (!hwnd_) {
         return;
     }
 
     MoveWindow(hwnd_, x, y, width, height, TRUE);
+    InvalidateRect(hwnd_, nullptr, TRUE);
 }
 
 int TabBar::AddTab(const std::wstring& title) {
@@ -73,7 +87,8 @@ int TabBar::AddTab(const std::wstring& title) {
 }
 
 void TabBar::RemoveTab(int index) {
-    if (index < 0 || index >= static_cast<int>(tabs_.size())) {
+    if (index < 0 ||
+        index >= static_cast<int>(tabs_.size())) {
         return;
     }
 
@@ -86,8 +101,7 @@ void TabBar::RemoveTab(int index) {
     } else if (activeTab_ == index) {
         activeTab_ = std::min(
             index,
-            static_cast<int>(tabs_.size()) - 1
-        );
+            static_cast<int>(tabs_.size()) - 1);
     }
 
     if (hwnd_) {
@@ -96,7 +110,8 @@ void TabBar::RemoveTab(int index) {
 }
 
 void TabBar::SetActiveTab(int index) {
-    if (index < 0 || index >= static_cast<int>(tabs_.size())) {
+    if (index < 0 ||
+        index >= static_cast<int>(tabs_.size())) {
         return;
     }
 
@@ -140,7 +155,7 @@ int TabBar::GetTabWidth() const {
     GetClientRect(hwnd_, &client);
 
     const int availableWidth =
-        client.right - client.left - NEW_TAB_WIDTH;
+        client.right - client.left - NEW_TAB_WIDTH - 12;
 
     const int calculatedWidth =
         availableWidth / static_cast<int>(tabs_.size());
@@ -148,18 +163,18 @@ int TabBar::GetTabWidth() const {
     return std::clamp(
         calculatedWidth,
         TAB_MIN_WIDTH,
-        TAB_MAX_WIDTH
-    );
+        TAB_MAX_WIDTH);
 }
 
 RECT TabBar::GetTabRect(int index) const {
     const int tabWidth = GetTabWidth();
 
     RECT rect{};
-    rect.left = index * tabWidth;
-    rect.top = 0;
+
+    rect.left = 5 + index * (tabWidth + TAB_GAP);
+    rect.top = TAB_TOP;
     rect.right = rect.left + tabWidth;
-    rect.bottom = TAB_HEIGHT;
+    rect.bottom = TAB_HEIGHT - TAB_BOTTOM;
 
     return rect;
 }
@@ -168,23 +183,22 @@ LRESULT CALLBACK TabBar::WindowProc(
     HWND hwnd,
     UINT message,
     WPARAM wParam,
-    LPARAM lParam
-) {
+    LPARAM lParam) {
+
     TabBar* self = reinterpret_cast<TabBar*>(
-        GetWindowLongPtrW(hwnd, GWLP_USERDATA)
-    );
+        GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
     if (message == WM_NCCREATE) {
         auto* createData =
             reinterpret_cast<CREATESTRUCTW*>(lParam);
 
-        self = static_cast<TabBar*>(createData->lpCreateParams);
+        self = static_cast<TabBar*>(
+            createData->lpCreateParams);
 
         SetWindowLongPtrW(
             hwnd,
             GWLP_USERDATA,
-            reinterpret_cast<LONG_PTR>(self)
-        );
+            reinterpret_cast<LONG_PTR>(self));
 
         self->hwnd_ = hwnd;
     }
@@ -199,8 +213,8 @@ LRESULT CALLBACK TabBar::WindowProc(
 LRESULT TabBar::HandleMessage(
     UINT message,
     WPARAM wParam,
-    LPARAM lParam
-) {
+    LPARAM lParam) {
+
     switch (message) {
     case WM_PAINT: {
         PAINTSTRUCT ps{};
@@ -212,13 +226,11 @@ LRESULT TabBar::HandleMessage(
         return 0;
     }
 
-    case WM_LBUTTONDOWN: {
-        const int x = GET_X_LPARAM(lParam);
-        const int y = GET_Y_LPARAM(lParam);
-
-        HandleClick(x, y);
+    case WM_LBUTTONDOWN:
+        HandleClick(
+            GET_X_LPARAM(lParam),
+            GET_Y_LPARAM(lParam));
         return 0;
-    }
 
     case WM_ERASEBKGND:
         return 1;
@@ -227,10 +239,18 @@ LRESULT TabBar::HandleMessage(
         InvalidateRect(hwnd_, nullptr, TRUE);
         return 0;
 
-    case WM_NCDESTROY:
-        SetWindowLongPtrW(hwnd_, GWLP_USERDATA, 0);
+    case WM_NCDESTROY: {
+        HWND oldWindow = hwnd_;
+
+        SetWindowLongPtrW(oldWindow, GWLP_USERDATA, 0);
         hwnd_ = nullptr;
-        return DefWindowProcW(hwnd_, message, wParam, lParam);
+
+        return DefWindowProcW(
+            oldWindow,
+            message,
+            wParam,
+            lParam);
+    }
     }
 
     return DefWindowProcW(hwnd_, message, wParam, lParam);
@@ -240,14 +260,16 @@ void TabBar::Paint(HDC hdc) {
     RECT client{};
     GetClientRect(hwnd_, &client);
 
-    HBRUSH backgroundBrush = CreateSolidBrush(COLOR_WINDOW_BG);
+    HBRUSH backgroundBrush =
+        CreateSolidBrush(COLOR_WINDOW_BG);
+
     FillRect(hdc, &client, backgroundBrush);
     DeleteObject(backgroundBrush);
 
     SetBkMode(hdc, TRANSPARENT);
 
     HFONT font = CreateFontW(
-        15, 0, 0, 0,
+        14, 0, 0, 0,
         FW_MEDIUM,
         FALSE, FALSE, FALSE,
         DEFAULT_CHARSET,
@@ -255,68 +277,88 @@ void TabBar::Paint(HDC hdc) {
         CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE,
-        L"Segoe UI"
-    );
+        L"Segoe UI");
 
     HFONT oldFont = static_cast<HFONT>(
-        SelectObject(hdc, font)
-    );
-
-    const int tabWidth = GetTabWidth();
+        SelectObject(hdc, font));
 
     for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
         RECT rect = GetTabRect(i);
 
+        const bool active = (i == activeTab_);
+
         const COLORREF tabColor =
-            (i == activeTab_) ? COLOR_ACTIVE : COLOR_TAB;
+            active ? COLOR_ACTIVE : COLOR_TAB;
 
         HBRUSH tabBrush = CreateSolidBrush(tabColor);
-        FillRect(hdc, &rect, tabBrush);
-        DeleteObject(tabBrush);
 
-        if (i == activeTab_) {
-            RECT accentRect{
-                rect.left,
+        HPEN tabPen = CreatePen(
+            PS_SOLID,
+            1,
+            active ? COLOR_ACCENT : COLOR_TAB);
+
+        HGDIOBJ oldBrush = SelectObject(hdc, tabBrush);
+        HGDIOBJ oldPen = SelectObject(hdc, tabPen);
+
+        RoundRect(
+            hdc,
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            TAB_CORNER,
+            TAB_CORNER);
+
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+
+        DeleteObject(tabBrush);
+        DeleteObject(tabPen);
+
+        // Small violet active indicator.
+        if (active) {
+            RECT accent{
+                rect.left + 13,
                 rect.bottom - 3,
-                rect.right,
-                rect.bottom
+                rect.right - 13,
+                rect.bottom - 1
             };
 
-            HBRUSH accentBrush = CreateSolidBrush(COLOR_ACCENT);
-            FillRect(hdc, &accentRect, accentBrush);
+            HBRUSH accentBrush =
+                CreateSolidBrush(COLOR_ACCENT);
+
+            FillRect(hdc, &accent, accentBrush);
             DeleteObject(accentBrush);
         }
 
         SetTextColor(
             hdc,
-            i == activeTab_ ? COLOR_TEXT : COLOR_MUTED
-        );
+            active ? COLOR_TEXT : COLOR_MUTED);
 
         RECT titleRect = rect;
-        titleRect.left += 14;
-        titleRect.right -= 38;
+        titleRect.left += 13;
+        titleRect.right -= 35;
 
         DrawTextW(
             hdc,
             tabs_[i].title.c_str(),
             -1,
             &titleRect,
-            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS
-        );
+            DT_SINGLELINE |
+            DT_VCENTER |
+            DT_END_ELLIPSIS);
 
-        // Close button
-        const int closeX = rect.right - 20;
-        const int closeY = rect.top + 21;
+        // Close button.
+        const int closeX = rect.right - 18;
+        const int closeY = (rect.top + rect.bottom) / 2;
 
         HPEN closePen = CreatePen(
             PS_SOLID,
             1,
-            COLOR_MUTED
-        );
+            active ? COLOR_TEXT : COLOR_MUTED);
 
-        HPEN oldPen = static_cast<HPEN>(
-            SelectObject(hdc, closePen)
-        );
+        HPEN oldClosePen = static_cast<HPEN>(
+            SelectObject(hdc, closePen));
 
         MoveToEx(hdc, closeX - 4, closeY - 4, nullptr);
         LineTo(hdc, closeX + 4, closeY + 4);
@@ -324,49 +366,58 @@ void TabBar::Paint(HDC hdc) {
         MoveToEx(hdc, closeX + 4, closeY - 4, nullptr);
         LineTo(hdc, closeX - 4, closeY + 4);
 
-        SelectObject(hdc, oldPen);
+        SelectObject(hdc, oldClosePen);
         DeleteObject(closePen);
-
-        // Tab separator
-        if (i != activeTab_) {
-            HPEN separatorPen = CreatePen(
-                PS_SOLID,
-                1,
-                RGB(48, 45, 58)
-            );
-
-            HPEN previousPen = static_cast<HPEN>(
-                SelectObject(hdc, separatorPen)
-            );
-
-            MoveToEx(hdc, rect.right, 9, nullptr);
-            LineTo(hdc, rect.right, 33);
-
-            SelectObject(hdc, previousPen);
-            DeleteObject(separatorPen);
-        }
     }
 
-    // New tab button
-    const int newTabX =
-        static_cast<int>(tabs_.size()) * tabWidth + 12;
+    // Rounded new-tab button.
+    const int tabWidth = GetTabWidth();
 
-    SetTextColor(hdc, COLOR_TEXT);
+    const int newTabX =
+        5 + static_cast<int>(tabs_.size()) *
+        (tabWidth + TAB_GAP) + 2;
 
     RECT newTabRect{
         newTabX,
-        0,
-        newTabX + NEW_TAB_WIDTH,
-        TAB_HEIGHT
+        6,
+        newTabX + 30,
+        TAB_HEIGHT - 6
     };
+
+    HBRUSH newTabBrush =
+        CreateSolidBrush(RGB(48, 37, 72));
+
+    HPEN newTabPen =
+        CreatePen(PS_SOLID, 1, COLOR_ACCENT);
+
+    HGDIOBJ oldNewBrush = SelectObject(hdc, newTabBrush);
+    HGDIOBJ oldNewPen = SelectObject(hdc, newTabPen);
+
+    RoundRect(
+        hdc,
+        newTabRect.left,
+        newTabRect.top,
+        newTabRect.right,
+        newTabRect.bottom,
+        13,
+        13);
+
+    SelectObject(hdc, oldNewBrush);
+    SelectObject(hdc, oldNewPen);
+
+    DeleteObject(newTabBrush);
+    DeleteObject(newTabPen);
+
+    SetTextColor(hdc, COLOR_TEXT);
 
     DrawTextW(
         hdc,
         L"+",
         -1,
         &newTabRect,
-        DT_SINGLELINE | DT_CENTER | DT_VCENTER
-    );
+        DT_SINGLELINE |
+        DT_CENTER |
+        DT_VCENTER);
 
     SelectObject(hdc, oldFont);
     DeleteObject(font);
@@ -377,16 +428,15 @@ void TabBar::HandleClick(int x, int y) {
         return;
     }
 
-    const int tabWidth = GetTabWidth();
-
     for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
         const RECT rect = GetTabRect(i);
 
-        if (x < rect.left || x >= rect.right) {
+        if (x < rect.left || x >= rect.right ||
+            y < rect.top || y >= rect.bottom) {
             continue;
         }
 
-        // Close button area
+        // Close button hit area.
         if (x >= rect.right - 32) {
             if (onTabClosed_) {
                 onTabClosed_(i);
@@ -395,7 +445,6 @@ void TabBar::HandleClick(int x, int y) {
             return;
         }
 
-        // Select tab
         activeTab_ = i;
 
         if (onTabSelected_) {
@@ -406,10 +455,13 @@ void TabBar::HandleClick(int x, int y) {
         return;
     }
 
-    const int newTabX =
-        static_cast<int>(tabs_.size()) * tabWidth;
+    const int tabWidth = GetTabWidth();
 
-    if (x >= newTabX && x <= newTabX + NEW_TAB_WIDTH) {
+    const int newTabX =
+        5 + static_cast<int>(tabs_.size()) *
+        (tabWidth + TAB_GAP) + 2;
+
+    if (x >= newTabX && x <= newTabX + 30) {
         if (onNewTab_) {
             onNewTab_();
         }

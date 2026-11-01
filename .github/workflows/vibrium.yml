@@ -1,3 +1,4 @@
+
 name: Build Vibrium Snapshot
 
 on:
@@ -139,6 +140,7 @@ jobs:
 
           Copy-Item $exe.FullName $package
 
+          # Copy CEF runtime files
           $release = Join-Path $env:CEF_ROOT "Release"
           $resources = Join-Path $env:CEF_ROOT "Resources"
 
@@ -153,14 +155,36 @@ jobs:
           Copy-Item "$release/*" $package -Recurse -Force
           Copy-Item "$resources/*" $package -Recurse -Force
 
-          if (!(Test-Path "$package/libcef.dll")) {
-            throw "libcef.dll missing from package."
+          # Copy Vibrium New Tab UI and sibling asset folders
+          foreach ($folder in @("html", "css", "js", "icons")) {
+            $source = "Vibrium/$folder"
+
+            if (!(Test-Path $source)) {
+              throw "Required UI folder missing: $source"
+            }
+
+            Copy-Item $source "$package/$folder" -Recurse -Force
+
+            Write-Host "Copied UI folder: $folder"
           }
 
-          if (!(Test-Path "$package/icudtl.dat")) {
-            throw "icudtl.dat missing from package."
+          # Verify packaged files
+          $required = @(
+            "$package/vibrium.exe",
+            "$package/libcef.dll",
+            "$package/icudtl.dat",
+            "$package/html/newtab.html"
+          )
+
+          foreach ($file in $required) {
+            if (!(Test-Path $file)) {
+              throw "Required packaged file missing: $file"
+            }
+
+            Write-Host "Verified: $file"
           }
 
+          # Create snapshot ZIP
           Compress-Archive `
             -Path "$package/*" `
             -DestinationPath "$package.zip" `

@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <windows.h>
@@ -29,7 +28,6 @@ public:
     std::wstring GetText() const;
 
     void SetOnNavigate(NavigateCallback callback);
-
     void SetSearchProvider(const std::wstring& provider);
 
     void Navigate();
@@ -49,25 +47,22 @@ private:
         WPARAM wParam,
         LPARAM lParam);
 
-    static std::wstring EncodeURL(
-        const std::wstring& value);
+    static std::wstring EncodeURL(const std::wstring& value);
+    static bool LooksLikeURL(const std::wstring& value);
+    static std::wstring NormalizeURL(const std::wstring& value);
 
-    static bool LooksLikeURL(
-        const std::wstring& value);
+    void Paint(HDC hdc);
+    void LayoutControls();
 
-    static std::wstring NormalizeURL(
-        const std::wstring& value);
-
-private:
     HWND parent_ = nullptr;
     HWND hwnd_ = nullptr;
-
     HWND addressEdit_ = nullptr;
-    HWND goButton_ = nullptr;
 
     HINSTANCE instance_ = nullptr;
-
     WNDPROC originalEditProc_ = nullptr;
+
+    HBRUSH editBrush_ = nullptr;
+    HFONT font_ = nullptr;
 
     NavigateCallback onNavigate_;
 
@@ -76,4 +71,6 @@ private:
 
     int width_ = 0;
     int height_ = 0;
+
+    bool editFocused_ = false;
 };
