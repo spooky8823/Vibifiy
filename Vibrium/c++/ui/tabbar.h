@@ -40,6 +40,7 @@ public:
     void SetOnTabSelected(TabCallback callback);
     void SetOnTabClosed(TabCallback callback);
     void SetOnNewTab(std::function<void()> callback);
+    void SetTabTitle(int index, const std::wstring& title);
 
     HWND GetHandle() const;
 

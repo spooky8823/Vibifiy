@@ -146,6 +146,23 @@ HWND TabBar::GetHandle() const {
     return hwnd_;
 }
 
+void TabBar::SetTabTitle(
+    int index,
+    const std::wstring& title) {
+
+    if (index < 0 ||
+        index >= static_cast<int>(tabs_.size())) {
+        return;
+    }
+
+    tabs_[index].title =
+        title.empty() ? L"New Tab" : title;
+
+    if (hwnd_) {
+        InvalidateRect(hwnd_, nullptr, TRUE);
+    }
+}
+
 int TabBar::GetTabWidth() const {
     if (!hwnd_ || tabs_.empty()) {
         return TAB_MIN_WIDTH;

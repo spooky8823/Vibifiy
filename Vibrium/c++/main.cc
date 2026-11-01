@@ -414,32 +414,39 @@ public:
     }
 
     void OnBrowserCreated(
-        int tabId,
-        CefRefPtr<CefBrowser> browser) {
+    int tabId,
+    CefRefPtr<CefBrowser> browser) {
 
-        TabRecord* tab = FindTab(tabId);
+    TabRecord* tab = FindTab(tabId);
 
-        if (!tab) {
-            browser->GetHost()->CloseBrowser(true);
-            return;
-        }
+    if (!tab) {
+        browser->GetHost()->CloseBrowser(true);
+        return;
+    }
 
-        tab->browser = browser;
-        tab->browserCreating = false;
+    tab->browser = browser;
+    tab->browserCreating = false;
 
-        if (tabId == GetActiveTabId()) {
-            ShowBrowser(*tab);
-        } else {
-            browser->GetHost()->WasHidden(true);
+    // If shutdown started while CEF was creating this browser,
+    // close it immediately instead of displaying it.
+    if (closeRequested_) {
+        tab->closingBrowser = true;
+        browser->GetHost()->CloseBrowser(true);
+        return;
+    }
 
-            HWND window =
-                browser->GetHost()->GetWindowHandle();
+    if (tabId == GetActiveTabId()) {
+        ShowBrowser(*tab);
+    } else {
+        browser->GetHost()->WasHidden(true);
 
-            if (window) {
-                ShowWindow(window, SW_HIDE);
-            }
+        HWND window = browser->GetHost()->GetWindowHandle();
+
+        if (window) {
+            ShowWindow(window, SW_HIDE);
         }
     }
+ }
 
     void ShowBrowser(TabRecord& tab) {
         if (!tab.browser) {
@@ -580,20 +587,23 @@ public:
     }
 
     void OnTitleChanged(
-        int tabId,
-        const std::wstring& title) {
+    int tabId,
+    const std::wstring& title) {
 
-        TabRecord* tab = FindTab(tabId);
+    TabRecord* tab = FindTab(tabId);
 
-        if (!tab) {
-            return;
-        }
-
-        tab->title = title;
-
-        // TabBar currently has no SetTitle() method.
-        // Add one there when you want live tab titles.
+    if (!tab) {
+        return;
     }
+
+    tab->title = title.empty() ? L"New Tab" : title;
+
+    const int index = FindTabIndex(tabId);
+
+    if (index >= 0 && tabBar_) {
+        tabBar_->SetTabTitle(index, tab->title);
+    }
+ }
 
     // --------------------------------------------------------
     // Activity protection
@@ -690,22 +700,19 @@ public:
     }
 
     void OnBrowserClosed(int tabId) {
-        TabRecord* tab = FindTab(tabId);
+    TabRecord* tab = FindTab(tabId);
 
-        if (!tab) {
-            return;
-        }
-
+    if (tab) {
         tab->browser = nullptr;
         tab->client = nullptr;
         tab->browserCreating = false;
         tab->closingBrowser = false;
-
-        // Do not recreate an unloaded tab until selected.
-        if (closeRequested_ && tabs_.empty()) {
-            DestroyWindow(hwnd_);
-        }
     }
+
+    if (closeRequested_) {
+        FinishShutdownIfReady();
+    }
+ }
 
     // --------------------------------------------------------
     // Window resizing
@@ -760,28 +767,23 @@ public:
     // --------------------------------------------------------
 
     void RequestClose() {
-        if (closeRequested_) {
-            return;
-        }
+    if (closeRequested_) {
+        return;
+    }
 
-        closeRequested_ = true;
+    closeRequested_ = true;
 
-        KillTimer(hwnd_, kMemoryTimer);
+    KillTimer(hwnd_, kMemoryTimer);
 
-        bool anyBrowser = false;
-
-        for (auto& tab : tabs_) {
-            if (tab.browser) {
-                anyBrowser = true;
-                tab.closingBrowser = true;
-                tab.browser->GetHost()->CloseBrowser(true);
-            }
-        }
-
-        if (!anyBrowser) {
-            DestroyWindow(hwnd_);
+    for (auto& tab : tabs_) {
+        if (tab.browser) {
+            tab.closingBrowser = true;
+            tab.browser->GetHost()->CloseBrowser(true);
         }
     }
+
+    FinishShutdownIfReady();
+ }
 
 private:
     std::wstring GetNewTabUrl() const {
@@ -869,7 +871,25 @@ private:
             return DefWindowProcW(
                 hwnd, message, wParam, lParam);
         }
+
+ }
+     void FinishShutdownIfReady() {
+    if (!closeRequested_ || !hwnd_) {
+        return;
     }
+
+    for (const auto& tab : tabs_) {
+        // Wait for existing browsers to close and pending
+        // browser creations to finish.
+        if (tab.browser || tab.browserCreating) {
+            return;
+        }
+    }
+
+    KillTimer(hwnd_, kMemoryTimer);
+    DestroyWindow(hwnd_);
+   }
+ }
 
 private:
     HINSTANCE instance_ = nullptr;
