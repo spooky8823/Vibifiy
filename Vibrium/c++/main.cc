@@ -872,24 +872,24 @@ private:
                 hwnd, message, wParam, lParam);
         }
 
- }
-     void FinishShutdownIfReady() {
-    if (!closeRequested_ || !hwnd_) {
-        return;
     }
 
-    for (const auto& tab : tabs_) {
-        // Wait for existing browsers to close and pending
-        // browser creations to finish.
-        if (tab.browser || tab.browserCreating) {
+    void FinishShutdownIfReady() {
+        if (!closeRequested_ || !hwnd_) {
             return;
         }
-    }
 
-    KillTimer(hwnd_, kMemoryTimer);
-    DestroyWindow(hwnd_);
-   }
- }
+        for (const auto& tab : tabs_) {
+            // Wait for existing browsers to close and pending
+            // browser creations to finish.
+            if (tab.browser || tab.browserCreating) {
+                return;
+            }
+        }
+
+        KillTimer(hwnd_, kMemoryTimer);
+        DestroyWindow(hwnd_);
+    }
 
 private:
     HINSTANCE instance_ = nullptr;
