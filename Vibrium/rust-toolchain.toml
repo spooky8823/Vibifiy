@@ -1,4 +1,8 @@
+# 1.99.1 (released 2026-10-15) is the first 1.99.x with the fix for C callers
+# of Rust FFI functions reading wrong return values on some x86-64 targets, which
+# matters for this C-ABI crate. It must match RUST_TOOLCHAIN in
+# .github/workflows/vibrium.yml; CI fails if the two disagree.
 [toolchain]
-channel = "stable"
+channel = "1.99.1"
 profile = "minimal"
 components = ["rustfmt", "clippy"]

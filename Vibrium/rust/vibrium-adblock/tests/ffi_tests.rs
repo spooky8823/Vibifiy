@@ -7,7 +7,7 @@ use vibrium_adblock::ffi::{
 
 #[test]
 fn abi_version_is_supported() {
-    assert_eq!(vibrium_adblock_abi_version(), 1);
+    assert_eq!(vibrium_adblock_abi_version(), 3);
 }
 
 #[test]

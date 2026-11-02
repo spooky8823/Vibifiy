@@ -1,0 +1,7 @@
+{
+  "name": "vibrium-content-script-tests",
+  "private": true,
+  "description": "Tests for c++/adblock/cosmetic_content.js (dev only; never shipped)",
+  "scripts": { "test": "node --test" },
+  "devDependencies": { "jsdom": "26.1.0" }
+}

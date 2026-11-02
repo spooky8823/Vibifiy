@@ -27,6 +27,9 @@
 
 #include "ui/tabbar.h"
 #include "ui/searchengine.h"
+#include "adblock/adblock_service.h"
+#include "selftest.h"
+#include "include/cef_load_handler.h"
 
 
 namespace vibrium {
@@ -35,6 +38,7 @@ constexpr wchar_t kWindowClass[] = L"VibriumMainWindow";
 constexpr wchar_t kWindowTitle[] = L"Vibrium";
 
 constexpr UINT_PTR kMemoryTimer = 1;
+constexpr UINT_PTR kSelfTestTimer = 2;
 constexpr UINT kMemoryCheckInterval = 15000;
 constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
 
@@ -48,8 +52,54 @@ class MainWindow;
 // CEF application
 // ------------------------------------------------------------
 
-class VibriumApp final : public CefApp {
+// Runs in the browser process and in every renderer. The renderer half
+// exposes window.cefQuery to page scripts so the cosmetic content script can
+// ask the browser for generic class/id selectors (see adblock/
+// adblock_cosmetic_router.h).
+class VibriumApp final
+    : public CefApp,
+      public CefRenderProcessHandler {
 public:
+    CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override {
+        return this;
+    }
+
+    void OnWebKitInitialized() override {
+        rendererRouter_ = CefMessageRouterRendererSide::Create(
+            vibrium::CosmeticRouterConfig());
+    }
+
+    void OnContextCreated(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        CefRefPtr<CefV8Context> context) override {
+        if (rendererRouter_) {
+            rendererRouter_->OnContextCreated(browser, frame, context);
+        }
+    }
+
+    void OnContextReleased(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        CefRefPtr<CefV8Context> context) override {
+        if (rendererRouter_) {
+            rendererRouter_->OnContextReleased(browser, frame, context);
+        }
+    }
+
+    bool OnProcessMessageReceived(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        CefProcessId source_process,
+        CefRefPtr<CefProcessMessage> message) override {
+        return rendererRouter_ &&
+               rendererRouter_->OnProcessMessageReceived(
+                   browser, frame, source_process, message);
+    }
+
+private:
+    CefRefPtr<CefMessageRouterRendererSide> rendererRouter_;
+
     IMPLEMENT_REFCOUNTING(VibriumApp);
 };
 
@@ -62,7 +112,8 @@ class BrowserClient final
       public CefLifeSpanHandler,
       public CefDisplayHandler,
       public CefDownloadHandler,
-      public CefAudioHandler {
+      public CefAudioHandler,
+      public CefLoadHandler {
 public:
     BrowserClient(MainWindow* owner, int tabId)
         : owner_(owner), tabId_(tabId) {}
@@ -82,6 +133,30 @@ public:
     CefRefPtr<CefAudioHandler> GetAudioHandler() override {
         return this;
     }
+
+    // Ad blocking: shared request handler + cosmetic filter injection.
+    CefRefPtr<CefRequestHandler> GetRequestHandler() override {
+        return AdblockService::Get().request_handler();
+    }
+
+    CefRefPtr<CefLoadHandler> GetLoadHandler() override {
+        return this;
+    }
+
+    // window.cefQuery calls from page scripts (generic cosmetic selectors).
+    bool OnProcessMessageReceived(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        CefProcessId source_process,
+        CefRefPtr<CefProcessMessage> message) override {
+        return AdblockService::Get().OnProcessMessageReceived(
+            browser, frame, source_process, message);
+    }
+
+    void OnLoadStart(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        TransitionType transition_type) override;
 
     void OnAfterCreated(CefRefPtr<CefBrowser> browser) override;
 
@@ -255,6 +330,10 @@ public:
             kMemoryTimer,
             kMemoryCheckInterval,
             nullptr);
+
+        if (SelfTest::Get().enabled()) {
+            SetTimer(hwnd_, kSelfTestTimer, SelfTest::kTimeoutMs, nullptr);
+        }
 
         CreateNewTab();
 
@@ -603,6 +682,10 @@ public:
     if (index >= 0 && tabBar_) {
         tabBar_->SetTabTitle(index, tab->title);
     }
+
+    if (SelfTest::Get().OnTitleChanged(tab->title)) {
+        RequestClose();
+    }
  }
 
     // --------------------------------------------------------
@@ -787,6 +870,10 @@ public:
 
 private:
     std::wstring GetNewTabUrl() const {
+        if (SelfTest::Get().enabled()) {
+            return SelfTest::Get().start_url();
+        }
+
         const auto path =
             std::filesystem::absolute(
                 std::filesystem::current_path() /
@@ -849,6 +936,10 @@ private:
         case WM_TIMER:
             if (wParam == kMemoryTimer) {
                 self->CheckInactiveTabs();
+            } else if (wParam == kSelfTestTimer) {
+                KillTimer(hwnd, kSelfTestTimer);
+                SelfTest::Get().OnTimeout();
+                self->RequestClose();
             }
             return 0;
 
@@ -921,7 +1012,16 @@ void BrowserClient::OnAfterCreated(
 void BrowserClient::OnBeforeClose(
     CefRefPtr<CefBrowser> browser) {
 
+    AdblockService::Get().OnBrowserClosed(browser);
     owner_->OnBrowserClosed(tabId_);
+}
+
+void BrowserClient::OnLoadStart(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefFrame> frame,
+    TransitionType transition_type) {
+
+    AdblockService::Get().ApplyCosmeticFilters(frame);
 }
 
 void BrowserClient::OnAddressChange(
@@ -1022,6 +1122,8 @@ int WINAPI wWinMain(
     }
 
     CefSettings settings;
+    // DEVELOPMENT ONLY: a release build must run sandboxed (see
+    // c++/adblock/README.md, "Sandbox").
     settings.no_sandbox = true;
     settings.multi_threaded_message_loop = false;
 
@@ -1033,6 +1135,10 @@ int WINAPI wWinMain(
         return 1;
     }
 
+    vibrium::SelfTest::Get().Configure(CefCommandLine::GetGlobalCommandLine());
+    vibrium::AdblockService::Get().Initialize(
+        CefCommandLine::GetGlobalCommandLine());
+
     vibrium::MainWindow mainWindow;
 
     if (!mainWindow.Create(instance)) {
@@ -1043,5 +1149,5 @@ int WINAPI wWinMain(
     CefRunMessageLoop();
     CefShutdown();
 
-    return 0;
+    return vibrium::SelfTest::Get().exit_code();
 }

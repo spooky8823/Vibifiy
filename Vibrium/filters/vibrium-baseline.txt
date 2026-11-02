@@ -1,0 +1,38 @@
+! Title: Vibrium baseline filters
+! Description: Small first-party list shipped with every Vibrium build so that
+!   ad blocking works out of the box. It is deliberately conservative: only
+!   dedicated advertising networks, never first-party site content.
+! Licence: MPL-2.0, same as Vibrium (original work; no third-party list text).
+!
+! Add richer lists (EasyList, uBlock filters, ...) as extra *.txt files in this
+! folder or in <vibrium.exe folder>\filters. Every *.txt is loaded; a broken
+! one is skipped without affecting the others. See README.md in this folder.
+
+! --- Advertising networks ---------------------------------------------------
+||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||adservice.google.com^
+||2mdn.net^
+||adnxs.com^
+||adsrvr.org^
+||amazon-adsystem.com^
+||criteo.com^
+||criteo.net^
+||moatads.com^
+||outbrain.com^$third-party
+||taboola.com^$third-party
+
+! --- Generic cosmetic rules --------------------------------------------------
+##.adsbygoogle
+##ins.adsbygoogle
+
+! --- Self-test sentinel (DO NOT REMOVE) --------------------------------------
+! `vibrium --selftest` run against the PACKAGED build (no --filter-dir) relies
+! on these rules to prove the shipped filters are found and active. They only
+! affect the reserved .test TLD and the localhost fixture page. A Rust test
+! keeps them identical to tests/fixtures/selftest-lists/selftest.txt.
+||ads.vibrium-selftest.test^
+localhost##.vibrium-ad
+##.vibrium-generic-ad
+localhost##.vibrium-proc:has-text(selftest sponsored)

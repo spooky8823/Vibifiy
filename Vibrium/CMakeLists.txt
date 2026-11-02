@@ -25,6 +25,8 @@ add_executable(vibrium WIN32
     c++/ui/searchengine.h
 )
 
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/vibrium_adblock.cmake")
+
 target_compile_definitions(vibrium PRIVATE
     NOMINMAX
     WIN32_LEAN_AND_MEAN

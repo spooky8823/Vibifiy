@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>pending</title>
+<!-- End-to-end page for `vibrium --selftest`. Hosts under .test never resolve,
+     so whether a request was blocked or allowed is judged by the browser's
+     request handler, not by whether the resource loads. -->
+</head>
+<body>
+<div class="vibrium-ad" id="ad">cosmetic target</div>
+<div class="vibrium-generic-ad" id="generic">generic class target</div>
+<div class="vibrium-proc" id="proc-hit">selftest sponsored</div>
+<div class="vibrium-proc" id="proc-keep">ordinary text</div>
+<div id="content">content</div>
+
+<!-- Must be blocked by ||ads.vibrium-selftest.test^ -->
+<script src="http://ads.vibrium-selftest.test/blocked.js"></script>
+<!-- Must be allowed (no matching rule) -->
+<img src="http://allowed.vibrium-selftest.test/pic.png" alt="">
+<!-- Same-origin URL that 302-redirects to a blocked host -->
+<script src="/redirect-to-ad.js"></script>
+
+<script>
+// The generic lookup is an asynchronous round trip to the browser process, so
+// poll until everything that should be hidden is, instead of guessing a delay.
+window.addEventListener('load', function () {
+  function gone(id) { return getComputedStyle(document.getElementById(id)).display === 'none'; }
+  function snapshot() {
+    return {
+      cosmetic: gone('ad'),
+      generic: gone('generic'),
+      procedural: gone('proc-hit'),
+      kept: !gone('proc-keep') && !gone('content')
+    };
+  }
+  var deadline = Date.now() + 5000;
+  (function poll() {
+    var s = snapshot();
+    if ((s.cosmetic && s.generic && s.procedural) || Date.now() > deadline) {
+      document.title = 'VIBRIUM_SELFTEST:' +
+        'cosmetic=' + (s.cosmetic ? 'hidden' : 'visible') +
+        ' generic=' + (s.generic ? 'hidden' : 'visible') +
+        ' procedural=' + (s.procedural ? 'hidden' : 'visible') +
+        ' kept=' + (s.kept ? 'visible' : 'hidden');
+    } else {
+      setTimeout(poll, 100);
+    }
+  })();
+});
+</script>
+</body>
+</html>

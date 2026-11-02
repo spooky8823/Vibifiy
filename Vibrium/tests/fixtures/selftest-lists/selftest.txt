@@ -1,0 +1,5 @@
+! Filter list used only by `vibrium --selftest`.
+||ads.vibrium-selftest.test^
+localhost##.vibrium-ad
+##.vibrium-generic-ad
+localhost##.vibrium-proc:has-text(selftest sponsored)

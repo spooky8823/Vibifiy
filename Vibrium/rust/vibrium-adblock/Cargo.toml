@@ -11,7 +11,10 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 url = "2"
-adblock = { path = "../adblock-rust" }
+serde_json = "1"
+# `single-thread` (an adblock default) removes Send + Sync from Engine. CEF calls the
+# filter from its IO thread while engines are swapped from others, so it must stay off.
+adblock = { path = "../adblock-rust", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling", "css-validation"] }
 
 [dev-dependencies]
 tiny_http = "0.12"

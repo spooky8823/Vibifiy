@@ -1,4 +1,4 @@
-use std::ffi::{CStr, c_void};
+use std::ffi::{CStr, CString, c_void};
 use std::os::raw::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -7,7 +7,10 @@ use crate::filter_list_updater::validate_downloaded_response;
 use crate::filter_lists::FilterList;
 use crate::filter_validation::validate_and_clean_filter_list;
 
-const ABI_VERSION: u32 = 1;
+const ABI_VERSION: u32 = 3;
+
+/// Largest JSON array of class names / ids accepted from a page.
+const MAX_NAMES_JSON_BYTES: usize = 256 * 1024;
 const ERROR: i32 = -1;
 
 /// Creates an engine with no custom filter rules.
@@ -167,6 +170,209 @@ pub unsafe extern "C" fn vibrium_adblock_validate_filter_response(
     .ok()
     .flatten()
     .unwrap_or(ERROR)
+}
+
+/// Creates an engine from every `<name>.txt` filter list in `directory`.
+///
+/// Unreadable or invalid lists are skipped. Returns null if `directory` is
+/// null, not valid UTF-8, unreadable, or yields no usable rules.
+///
+/// # Safety
+///
+/// If `directory` is non-null, it must point to a valid, readable,
+/// null-terminated C string that remains valid for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vibrium_adblock_create_from_directory(
+    directory: *const c_char,
+) -> *mut c_void {
+    if directory.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    catch_unwind(AssertUnwindSafe(|| {
+        let directory = unsafe { CStr::from_ptr(directory) }.to_str().ok()?;
+        let (engine, _skipped) =
+            VibriumAdblock::from_directory(std::path::Path::new(directory)).ok()?;
+        Some(Box::into_raw(Box::new(engine)).cast::<c_void>())
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Returns CSS hiding the elements that cosmetic filters target on `page_url`.
+///
+/// Returns null when there is nothing to hide, the URL is not http(s), or an
+/// error occurs. A non-null result must be released with
+/// `vibrium_adblock_string_free`.
+///
+/// # Safety
+///
+/// `handle` must be a valid, live engine. `page_url` must point to a valid,
+/// readable, null-terminated C string for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vibrium_adblock_cosmetic_css(
+    handle: *mut c_void,
+    page_url: *const c_char,
+) -> *mut c_char {
+    if handle.is_null() || page_url.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        let engine = &*handle.cast::<VibriumAdblock>();
+        let url = CStr::from_ptr(page_url).to_str().ok()?;
+        let css = engine.cosmetic_css(url).ok()??;
+        CString::new(css).ok().map(CString::into_raw)
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Releases a string returned by `vibrium_adblock_cosmetic_css`,
+/// `vibrium_adblock_cosmetic_payload`, `vibrium_adblock_cosmetic_script` or
+/// `vibrium_adblock_generic_css`.
+///
+/// # Safety
+///
+/// `string` must be null or a pointer returned by this library that has not
+/// already been freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vibrium_adblock_string_free(string: *mut c_char) {
+    if string.is_null() {
+        return;
+    }
+    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+        drop(CString::from_raw(string));
+    }));
+}
+
+/// Returns the page-specific cosmetic data for `page_url` as a JSON object:
+/// `{"css": string, "procedural": [string], "generichide": bool}`.
+///
+/// Returns null when the page has nothing to do (no hiding rules, no
+/// procedural filters and generic selectors disabled), the URL is not http(s),
+/// or an error occurs. A non-null result must be released with
+/// `vibrium_adblock_string_free`.
+///
+/// # Safety
+///
+/// `handle` must be a valid, live engine. `page_url` must point to a valid,
+/// readable, null-terminated C string for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vibrium_adblock_cosmetic_payload(
+    handle: *mut c_void,
+    page_url: *const c_char,
+) -> *mut c_char {
+    if handle.is_null() || page_url.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        let engine = &*handle.cast::<VibriumAdblock>();
+        let url = CStr::from_ptr(page_url).to_str().ok()?;
+        let payload = engine.cosmetic_payload(url).ok()?;
+
+        if payload.is_noop() {
+            return None;
+        }
+
+        CString::new(payload.to_json()).ok().map(CString::into_raw)
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Returns the scriptlet JavaScript that filter lists inject into `page_url`.
+///
+/// Returns null when there is none (no matching scriptlet rule, or no
+/// `resources.json` installed), the URL is not http(s), or an error occurs. A
+/// non-null result must be released with `vibrium_adblock_string_free`.
+///
+/// # Safety
+///
+/// `handle` must be a valid, live engine. `page_url` must point to a valid,
+/// readable, null-terminated C string for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vibrium_adblock_cosmetic_script(
+    handle: *mut c_void,
+    page_url: *const c_char,
+) -> *mut c_char {
+    if handle.is_null() || page_url.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        let engine = &*handle.cast::<VibriumAdblock>();
+        let url = CStr::from_ptr(page_url).to_str().ok()?;
+        let script = engine.injected_script(url).ok()?;
+
+        if script.is_empty() {
+            return None;
+        }
+
+        CString::new(script).ok().map(CString::into_raw)
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Returns CSS hiding the generic (`##.class` / `###id`) matches for the
+/// class names and ids found on `page_url`.
+///
+/// `classes_json` and `ids_json` are JSON arrays of strings (for example
+/// `["ad","banner"]`), each at most 256 KiB. They come from an untrusted page,
+/// so malformed or oversized input yields null rather than an error.
+///
+/// Returns null when nothing matches, `$generichide` applies to the page, the
+/// URL is not http(s), or on error. A non-null result must be released with
+/// `vibrium_adblock_string_free`.
+///
+/// # Safety
+///
+/// `handle` must be a valid, live engine. All three strings must be valid,
+/// readable, null-terminated C strings for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vibrium_adblock_generic_css(
+    handle: *mut c_void,
+    page_url: *const c_char,
+    classes_json: *const c_char,
+    ids_json: *const c_char,
+) -> *mut c_char {
+    if handle.is_null() || page_url.is_null() || classes_json.is_null() || ids_json.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        let engine = &*handle.cast::<VibriumAdblock>();
+        let url = CStr::from_ptr(page_url).to_str().ok()?;
+        let classes = parse_names(classes_json)?;
+        let ids = parse_names(ids_json)?;
+
+        let css = engine.generic_css(url, &classes, &ids).ok()??;
+        CString::new(css).ok().map(CString::into_raw)
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Parses a JSON array of strings supplied by a page.
+///
+/// # Safety
+///
+/// `json` must be a valid, readable, null-terminated C string.
+unsafe fn parse_names(json: *const c_char) -> Option<Vec<String>> {
+    let text = unsafe { CStr::from_ptr(json) }.to_str().ok()?;
+
+    if text.len() > MAX_NAMES_JSON_BYTES {
+        return None;
+    }
+
+    serde_json::from_str::<Vec<String>>(text).ok()
 }
 
 /// Returns the C ABI version supported by this library.

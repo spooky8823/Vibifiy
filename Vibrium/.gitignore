@@ -1,5 +1,14 @@
 # Python generated files
 __pycache__/
 *.py[cod]
+
+# Temporary adblock integration package
 vibrium-adblock-integration-v2-files/
 vibrium-adblock-integration-v2.patch
+
+# Build output and the CEF distribution downloaded by CI
+/build/
+/third_party/
+
+# Dev-only test dependencies
+node_modules/

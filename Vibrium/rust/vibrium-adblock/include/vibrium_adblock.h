@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define VIBRIUM_ADBLOCK_ABI_VERSION 1
+#define VIBRIUM_ADBLOCK_ABI_VERSION 3
 
 typedef void* VibriumAdblockHandle;
 
@@ -30,6 +30,75 @@ int32_t vibrium_adblock_check(
     const char* url,
     const char* source_url,
     const char* request_type);
+
+/*
+ * Thread safety: a live handle may be used by vibrium_adblock_check() and the
+ * vibrium_adblock_cosmetic_*() / vibrium_adblock_generic_css() functions from
+ * any number of threads concurrently.
+ * vibrium_adblock_destroy() must not run while another call on the same
+ * handle is in progress; the host must ensure that (e.g. reference counting).
+ */
+
+/*
+ * Creates an engine from every "<name>.txt" filter list in `directory`.
+ * Unreadable or invalid lists are skipped. Returns NULL if no usable rules
+ * could be loaded.
+ */
+VibriumAdblockHandle vibrium_adblock_create_from_directory(
+    const char* directory);
+
+/*
+ * Returns CSS that hides elements targeted by cosmetic filters on page_url,
+ * one rule per selector. Returns NULL when there is nothing to hide, the URL
+ * is not http(s), or on error. Free a non-NULL result with
+ * vibrium_adblock_string_free().
+ */
+char* vibrium_adblock_cosmetic_css(
+    VibriumAdblockHandle handle,
+    const char* page_url);
+
+/*
+ * Page-specific cosmetic data for page_url as a JSON object:
+ *   {"css": string, "procedural": [string], "generichide": bool}
+ * "css" hides plain selectors, "procedural" holds filters that need in-page
+ * logic (:has-text(), :upward(), :remove(), :style(), ...) and "generichide"
+ * is true when the page must not ask for generic class/id selectors.
+ * Returns NULL when the page has nothing to do, the URL is not http(s), or on
+ * error. Free a non-NULL result with vibrium_adblock_string_free().
+ */
+char* vibrium_adblock_cosmetic_payload(
+    VibriumAdblockHandle handle,
+    const char* page_url);
+
+/*
+ * Scriptlet JavaScript that filter lists inject into page_url. Needs a
+ * resources.json next to the filter lists; returns NULL otherwise, when no
+ * scriptlet rule matches, or on error. Free with vibrium_adblock_string_free().
+ */
+char* vibrium_adblock_cosmetic_script(
+    VibriumAdblockHandle handle,
+    const char* page_url);
+
+/*
+ * CSS hiding the generic (##.class / ###id) matches for the class names and
+ * ids a page reports. classes_json and ids_json are JSON arrays of strings,
+ * at most 256 KiB each; they come from an untrusted page, so malformed or
+ * oversized input returns NULL. Also returns NULL when nothing matches,
+ * $generichide applies, the URL is not http(s), or on error.
+ * Free a non-NULL result with vibrium_adblock_string_free().
+ */
+char* vibrium_adblock_generic_css(
+    VibriumAdblockHandle handle,
+    const char* page_url,
+    const char* classes_json,
+    const char* ids_json);
+
+/*
+ * Frees a string returned by vibrium_adblock_cosmetic_css(),
+ * vibrium_adblock_cosmetic_payload(), vibrium_adblock_cosmetic_script() or
+ * vibrium_adblock_generic_css(). NULL is a no-op.
+ */
+void vibrium_adblock_string_free(char* string);
 
 uint32_t vibrium_adblock_abi_version(void);
 

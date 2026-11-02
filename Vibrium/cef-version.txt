@@ -1,4 +1,13 @@
-﻿# CEF baseline used by Vibrium.
-# Update only after verifying the matching official binary distribution.
-CEF_VERSION=REPLACE_WITH_VERIFIED_VERSION
+﻿# CEF binary distribution used by Vibrium (official index:
+# https://cef-builds.spotifycdn.com/index.json, windows64).
+# CI downloads exactly this build and refuses it if it does not match the
+# SHA1 listed in the official index, or the SHA1 pinned below when set.
+# To upgrade: change CEF_VERSION (and CEF_SHA1), then re-verify the CEF APIs
+# used under c++/ against the new headers and update THIRD_PARTY_NOTICES.md.
+CEF_VERSION=154.0.34+g14c5a08+chromium-154.0.8037.98
 CEF_PLATFORM=windows64
+# "standard" archives have no suffix; "minimal" adds _minimal.
+CEF_DISTRIBUTION=standard
+# Pin these after the first CI run (it prints both in the job summary).
+CEF_SHA1=
+CEF_SHA256=

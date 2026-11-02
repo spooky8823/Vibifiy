@@ -1,6 +1,7 @@
-
 name: Build Vibrium Snapshot
 
+# Reusable workflow called by trigger.yml (`uses: ./.github/workflows/vibrium.yml`)
+# and runnable by hand. The workflow_call / workflow_dispatch interface is unchanged.
 on:
   workflow_call:
   workflow_dispatch:
@@ -8,73 +9,230 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: vibrium-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Must match Vibrium/rust-toolchain.toml.
+  RUST_TOOLCHAIN: 1.99.1
+
+# Third-party actions are pinned to full commit SHAs (tag in the comment).
 jobs:
+  # ---------------------------------------------------------------------------
+  # Rust: adblock engine wrapper + FFI tests.
+  # ---------------------------------------------------------------------------
+  rust-tests:
+    name: Rust ad-blocker tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: Vibrium/rust
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+
+      - name: Toolchain pin matches rust-toolchain.toml
+        working-directory: Vibrium
+        run: |
+          pinned=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
+          echo "rust-toolchain.toml: $pinned   workflow: $RUST_TOOLCHAIN"
+          test "$pinned" = "$RUST_TOOLCHAIN"
+
+      - name: Embedded content script is up to date
+        working-directory: Vibrium
+        run: python3 tools/embed_cosmetic_js.py --check
+
+      - name: Run workspace tests
+        run: cargo test --workspace --locked
+
+  # ---------------------------------------------------------------------------
+  # In-page cosmetic content script (procedural filters, generic selectors)
+  # against a simulated DOM. Dev-only dependency (jsdom), never shipped.
+  # ---------------------------------------------------------------------------
+  content-script-tests:
+    name: Cosmetic content script tests (jsdom)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: Vibrium/tests/js
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pinned test dependencies
+        run: |
+          node --version
+          npm ci --no-audit --no-fund
+
+      - name: Run tests
+        run: node --test --test-timeout=20000
+
+  # ---------------------------------------------------------------------------
+  # C++ engine owner + request policy against the real Rust library, under
+  # AddressSanitizer/UBSan and ThreadSanitizer. No CEF needed.
+  # ---------------------------------------------------------------------------
+  native-tests:
+    name: C++ wrapper tests (ASan/UBSan, TSan)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Build Rust static library
+        working-directory: Vibrium/rust
+        run: cargo build --locked --release -p vibrium-adblock --lib
+
+      - name: Build and run native tests
+        working-directory: Vibrium
+        run: |
+          set -euo pipefail
+          # ThreadSanitizer aborts on runners with high ASLR entropy.
+          sudo sysctl -w vm.mmap_rnd_bits=28
+          LIB=rust/target/release/libvibrium_adblock.a
+          FLAGS="-std=c++17 -Wall -Wextra -g -O1 -Ic++/adblock -Irust/vibrium-adblock/include"
+          SRC="c++/adblock/adblock_engine.cc c++/adblock/request_policy.cc"
+          for san in address,undefined thread; do
+            echo "::group::sanitizer $san"
+            g++ $FLAGS -fsanitize=$san $SRC tests/native/adblock_wrapper_tests.cc \
+                "$LIB" -lpthread -ldl -lm -o "wrapper_${san//,/_}"
+            "./wrapper_${san//,/_}"
+            echo "::endgroup::"
+          done
+          g++ $FLAGS tests/native/ffi_smoke_test.cc "$LIB" -lpthread -ldl -lm -o smoke
+          ./smoke
+
+  # ---------------------------------------------------------------------------
+  # Windows: build Vibrium against the pinned CEF, package it, and run the
+  # end-to-end ad-blocking selftest on the packaged build.
+  # ---------------------------------------------------------------------------
   build:
     name: Build Vibrium Snapshot
     runs-on: windows-latest
+    needs: rust-tests
+    timeout-minutes: 60
 
     env:
-      CEF_ARCHIVE: cef_binary_154.0.34+g14c5a08+chromium-154.0.8037.98_windows64.tar.bz2
       CEF_ROOT: ${{ github.workspace }}/Vibrium/third_party/cef
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Set up CMake
-        uses: lukka/get-cmake@latest
-
-      - name: Download CEF
+      - name: Read pinned CEF version
+        id: pin
         shell: pwsh
+        run: |
+          $pin = @{}
+          Get-Content Vibrium/cef-version.txt | ForEach-Object {
+            if ($_ -match '^\s*(CEF_[A-Z0-9_]+)=(.*)$') { $pin[$Matches[1]] = $Matches[2].Trim() }
+          }
+          foreach ($k in 'CEF_VERSION','CEF_PLATFORM','CEF_DISTRIBUTION') {
+            if (-not $pin[$k] -or $pin[$k] -match 'REPLACE') { throw "cef-version.txt: $k is not set" }
+          }
+          $suffix = if ($pin.CEF_DISTRIBUTION -eq 'standard') { '' } else { "_$($pin.CEF_DISTRIBUTION)" }
+          $archive = "cef_binary_$($pin.CEF_VERSION)_$($pin.CEF_PLATFORM)$suffix.tar.bz2"
+          "version=$($pin.CEF_VERSION)" >> $env:GITHUB_OUTPUT
+          "platform=$($pin.CEF_PLATFORM)" >> $env:GITHUB_OUTPUT
+          "archive=$archive"          >> $env:GITHUB_OUTPUT
+          "sha1=$($pin.CEF_SHA1)"     >> $env:GITHUB_OUTPUT
+          "sha256=$($pin.CEF_SHA256)" >> $env:GITHUB_OUTPUT
+
+      - name: Cache extracted CEF
+        id: cef-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: Vibrium/third_party/cef
+          key: cef-${{ steps.pin.outputs.archive }}-${{ steps.pin.outputs.sha1 }}
+
+      - name: Download CEF and verify integrity
+        if: steps.cef-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          CEF_ARCHIVE: ${{ steps.pin.outputs.archive }}
+          CEF_VERSION: ${{ steps.pin.outputs.version }}
+          CEF_PLATFORM: ${{ steps.pin.outputs.platform }}
+          PINNED_SHA1: ${{ steps.pin.outputs.sha1 }}
+          PINNED_SHA256: ${{ steps.pin.outputs.sha256 }}
         run: |
           $url = "https://cef-builds.spotifycdn.com/$env:CEF_ARCHIVE"
           $archive = Join-Path $env:RUNNER_TEMP $env:CEF_ARCHIVE
 
           curl.exe -L --fail --retry 3 "$url" -o "$archive"
+          if ($LASTEXITCODE -ne 0) { throw "CEF download failed." }
 
-          if ($LASTEXITCODE -ne 0) {
-            throw "CEF download failed."
+          $sha1   = (Get-FileHash $archive -Algorithm SHA1).Hash.ToLower()
+          $sha256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+
+          # Expected SHA1 according to CEF's official build index.
+          $index = Invoke-RestMethod https://cef-builds.spotifycdn.com/index.json
+          $entry = $index.($env:CEF_PLATFORM).versions |
+            Where-Object { $_.cef_version -eq $env:CEF_VERSION } | Select-Object -First 1
+          $file = $entry.files | Where-Object { $_.name -eq $env:CEF_ARCHIVE } | Select-Object -First 1
+          if (-not $file) { throw "$env:CEF_ARCHIVE is not listed in the official CEF index." }
+          $indexSha1 = $file.sha1.ToLower()
+
+          @(
+            "### CEF archive",
+            "- file: ``$env:CEF_ARCHIVE``",
+            "- SHA1: ``$sha1``",
+            "- SHA256: ``$sha256``",
+            "- Pin these as CEF_SHA1 / CEF_SHA256 in ``Vibrium/cef-version.txt``."
+          ) | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+          if ($sha1 -ne $indexSha1) { throw "SHA1 $sha1 does not match the official index ($indexSha1)." }
+          if ($env:PINNED_SHA1 -and $sha1 -ne $env:PINNED_SHA1.ToLower()) {
+            throw "SHA1 $sha1 does not match the pinned CEF_SHA1 ($env:PINNED_SHA1)."
           }
+          if ($env:PINNED_SHA256 -and $sha256 -ne $env:PINNED_SHA256.ToLower()) {
+            throw "SHA256 $sha256 does not match the pinned CEF_SHA256."
+          }
+          Write-Host "CEF archive verified (SHA1 $sha1)."
 
-      - name: Extract CEF
+          $temp = Join-Path $env:RUNNER_TEMP "cef-extracted"
+          New-Item -ItemType Directory -Force -Path $temp | Out-Null
+          tar.exe -xjf "$archive" -C "$temp"
+          if ($LASTEXITCODE -ne 0) { throw "CEF extraction failed." }
+
+          $cefCmake = Get-ChildItem $temp -Filter "CMakeLists.txt" -File -Recurse |
+            Select-Object -First 1
+          if (!$cefCmake) { throw "CEF CMakeLists.txt was not found." }
+
+          New-Item -ItemType Directory -Force -Path "Vibrium/third_party" | Out-Null
+          if (Test-Path $env:CEF_ROOT) { Remove-Item $env:CEF_ROOT -Recurse -Force }
+          Move-Item $cefCmake.Directory.FullName $env:CEF_ROOT
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: x64
+
+      - name: Install pinned Rust toolchain
         shell: pwsh
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP $env:CEF_ARCHIVE
-          $temp = Join-Path $env:RUNNER_TEMP "cef-extracted"
-
-          New-Item -ItemType Directory -Force -Path $temp | Out-Null
-
-          tar.exe -xjf "$archive" -C "$temp"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "CEF extraction failed."
-          }
-
-          $cefCmake = Get-ChildItem $temp `
-            -Filter "CMakeLists.txt" `
-            -File `
-            -Recurse |
-            Select-Object -First 1
-
-          if (!$cefCmake) {
-            throw "CEF CMakeLists.txt was not found."
-          }
-
-          $cef = $cefCmake.Directory.FullName
-
-          New-Item -ItemType Directory -Force `
-            -Path "Vibrium/third_party" | Out-Null
-
-          if (Test-Path $env:CEF_ROOT) {
-            Remove-Item $env:CEF_ROOT -Recurse -Force
-          }
-
-          Move-Item $cef $env:CEF_ROOT
+          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+          rustup default $env:RUST_TOOLCHAIN
+          rustc --version
+          cmake --version
 
       - name: Verify CEF libraries
         shell: pwsh
@@ -119,6 +277,20 @@ jobs:
 
           if ($LASTEXITCODE -ne 0) {
             throw "Vibrium compilation failed."
+          }
+
+      - name: Build and run native tests (MSVC, static CRT)
+        shell: pwsh
+        run: |
+          cmake --build Vibrium/build --config Release `
+            --target vibrium_native_tests vibrium_ffi_smoke_test
+          if ($LASTEXITCODE -ne 0) { throw "Native test build failed." }
+
+          foreach ($t in 'vibrium_native_tests','vibrium_ffi_smoke_test') {
+            $exe = Get-ChildItem Vibrium/build -Filter "$t.exe" -Recurse | Select-Object -First 1
+            if (!$exe) { throw "$t.exe was not found." }
+            & $exe.FullName
+            if ($LASTEXITCODE -ne 0) { throw "$t failed." }
           }
 
       - name: Package snapshot
@@ -168,6 +340,22 @@ jobs:
             Write-Host "Copied UI folder: $folder"
           }
 
+          # Ad-blocking filter lists (<name>.txt), loaded from <exe dir>/filters.
+          # Mandatory: without them the browser starts fine but blocks nothing,
+          # which a green build would never reveal.
+          if (!(Test-Path "Vibrium/filters")) {
+            throw "Vibrium/filters is missing: the snapshot would ship with ad blocking disabled."
+          }
+          Copy-Item "Vibrium/filters" "$package/filters" -Recurse -Force
+          $lists = @(Get-ChildItem "$package/filters" -Filter *.txt -File)
+          if ($lists.Count -eq 0) {
+            throw "No filter lists (*.txt) were packaged in $package/filters."
+          }
+          foreach ($list in $lists) {
+            if ($list.Length -lt 200) { throw "Filter list looks empty: $($list.Name)" }
+            Write-Host "Packaged filter list: $($list.Name) ($($list.Length) bytes)"
+          }
+
           # Verify packaged files
           $required = @(
             "$package/vibrium.exe",
@@ -184,16 +372,74 @@ jobs:
             Write-Host "Verified: $file"
           }
 
-          # Create snapshot ZIP
+      - name: Create snapshot ZIP
+        shell: pwsh
+        run: |
+          $package = "Vibrium_snapshot2026-10-31"
           Compress-Archive `
             -Path "$package/*" `
             -DestinationPath "$package.zip" `
             -Force
 
+      - name: End-to-end ad-blocking selftest (packaged build)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          $package = Join-Path $env:GITHUB_WORKSPACE "Vibrium_snapshot2026-10-31"
+          $server = Start-Process python -PassThru -WindowStyle Hidden `
+            -ArgumentList 'Vibrium/tests/native/selftest_server.py','8123' `
+            -RedirectStandardError diagnostics/selftest-server.log
+          Start-Sleep -Seconds 2
+
+          function Invoke-SelfTest([string]$Name, [string[]]$ExtraArgs) {
+            $report = Join-Path $env:GITHUB_WORKSPACE "diagnostics/selftest-$Name.txt"
+            Remove-Item $report -ErrorAction SilentlyContinue
+            $app = Start-Process -PassThru -WorkingDirectory $package `
+              -FilePath "$package/vibrium.exe" -ArgumentList (@(
+                '--selftest',
+                '--url=http://localhost:8123/selftest.html',
+                "--selftest-report=$report") + $ExtraArgs)
+            if (-not $app.WaitForExit(120000)) {
+              $app.Kill()
+              throw "Selftest '$Name' did not exit within 120 s (hung or failed to start)"
+            }
+            if (-not (Test-Path $report)) { throw "Selftest '$Name' produced no report" }
+            Write-Host "===== $Name ====="
+            Get-Content $report
+            "### Selftest: $Name" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            Get-Content $report | Select-Object -First 14 |
+              Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            if ($app.ExitCode -ne 0) { throw "Selftest '$Name' failed with exit code $($app.ExitCode)" }
+          }
+
+          try {
+            # 1) Fixture list: isolates the browser integration from list content.
+            Invoke-SelfTest 'fixture-list' @(
+              "--filter-dir=$env:GITHUB_WORKSPACE/Vibrium/tests/fixtures/selftest-lists")
+            # 2) No --filter-dir: proves the filters that were PACKAGED are found
+            #    in the default <exe dir>/filters and actually block.
+            Invoke-SelfTest 'packaged-default-filters' @()
+          } finally {
+            if (-not $server.HasExited) { $server.Kill() }
+            Copy-Item "$package/debug.log" diagnostics/ -ErrorAction SilentlyContinue
+          }
+
       - name: Upload snapshot artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Vibrium_snapshot2026-10-31
           path: Vibrium_snapshot2026-10-31.zip
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vibrium-diagnostics
+          path: |
+            diagnostics/
+            Vibrium/build/CMakeFiles/CMakeConfigureLog.yaml
+            Vibrium/build/CMakeFiles/CMakeError.log
+          if-no-files-found: warn
+          retention-days: 7
