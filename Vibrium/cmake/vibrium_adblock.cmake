@@ -45,11 +45,66 @@ else()
 endif()
 message(STATUS "Rust native libs: ${VIBRIUM_RUST_NATIVE_LIBS}")
 
+# Rust's native-static-libs output names the Windows import library but does
+# not include its Cargo registry directory. Resolve that directory through
+# Cargo metadata instead of assuming a user-specific Cargo home path.
+set(VIBRIUM_RUST_NATIVE_LINK_DIRS "")
+if(WIN32 AND MSVC)
+  execute_process(
+    COMMAND ${VIBRIUM_CARGO} metadata
+            --format-version 1 --locked
+            --manifest-path "${VIBRIUM_RUST_DIR}/Cargo.toml"
+    RESULT_VARIABLE _vibrium_metadata_rc
+    OUTPUT_VARIABLE _vibrium_metadata
+    ERROR_VARIABLE _vibrium_metadata_error)
+
+  if(NOT _vibrium_metadata_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Cargo metadata failed: ${_vibrium_metadata_error}")
+  endif()
+
+  string(JSON _vibrium_package_count LENGTH "${_vibrium_metadata}" packages)
+  set(_vibrium_windows_lib_found FALSE)
+
+  if(_vibrium_package_count GREATER 0)
+    math(EXPR _vibrium_package_last "${_vibrium_package_count} - 1")
+    foreach(_index RANGE 0 ${_vibrium_package_last})
+      string(JSON _package_name GET
+             "${_vibrium_metadata}" packages ${_index} name)
+
+      if(_package_name STREQUAL "windows_x86_64_msvc")
+        string(JSON _package_manifest GET
+               "${_vibrium_metadata}" packages ${_index} manifest_path)
+        get_filename_component(_package_dir "${_package_manifest}" DIRECTORY)
+        set(_windows_lib_dir "${_package_dir}/lib")
+
+        foreach(_native_lib IN LISTS VIBRIUM_RUST_NATIVE_LIBS)
+          if(_native_lib MATCHES "^windows\..*\.lib$")
+            if(EXISTS "${_windows_lib_dir}/${_native_lib}")
+              list(APPEND VIBRIUM_RUST_NATIVE_LINK_DIRS "${_windows_lib_dir}")
+              set(_vibrium_windows_lib_found TRUE)
+              message(STATUS
+                "Found Windows Rust import library: ${_windows_lib_dir}/${_native_lib}")
+            endif()
+          endif()
+        endforeach()
+      endif()
+    endforeach()
+  endif()
+
+  if(NOT _vibrium_windows_lib_found)
+    message(FATAL_ERROR
+      "Could not locate the Windows MSVC import library reported by "
+      "rustc in Cargo's windows_x86_64_msvc package.")
+  endif()
+endif()
+
 add_library(vibrium_adblock STATIC IMPORTED GLOBAL)
 set_target_properties(vibrium_adblock PROPERTIES
   IMPORTED_LOCATION "${VIBRIUM_RUST_LIB}"
   INTERFACE_INCLUDE_DIRECTORIES "${VIBRIUM_RUST_DIR}/vibrium-adblock/include"
-  INTERFACE_LINK_LIBRARIES "${VIBRIUM_RUST_NATIVE_LIBS}")
+  INTERFACE_LINK_LIBRARIES "${VIBRIUM_RUST_NATIVE_LIBS}"
+  INTERFACE_LINK_DIRECTORIES "${VIBRIUM_RUST_NATIVE_LINK_DIRS}")
 add_dependencies(vibrium_adblock vibrium_adblock_rust)
 
 target_sources(vibrium PRIVATE
