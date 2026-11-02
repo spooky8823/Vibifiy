@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - "feature/**"
 
   pull_request:
     branches:
@@ -41,7 +42,7 @@ jobs:
 
             vibrium:
               - 'Vibrium/**'
-              
+
             vibiclaw:
               - 'VibiClaw/**'
 
