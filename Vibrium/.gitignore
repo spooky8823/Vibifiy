@@ -1,3 +1,5 @@
 # Python generated files
 __pycache__/
 *.py[cod]
+vibrium-adblock-integration-v2-files/
+vibrium-adblock-integration-v2.patch
