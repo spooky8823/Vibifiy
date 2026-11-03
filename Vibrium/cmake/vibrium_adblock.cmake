@@ -25,6 +25,12 @@ add_custom_target(vibrium_adblock_rust
   COMMENT "Building Rust adblock static library")
 
 # Ask rustc which system libraries and linker options the static library needs.
+if(DEFINED ENV{RUSTFLAGS})
+  set(_vibrium_had_rustflags TRUE)
+  set(_vibrium_saved_rustflags "$ENV{RUSTFLAGS}")
+else()
+  set(_vibrium_had_rustflags FALSE)
+endif()
 set(ENV{RUSTFLAGS} "${VIBRIUM_RUSTFLAGS}")
 execute_process(
   COMMAND ${VIBRIUM_CARGO} rustc ${VIBRIUM_CARGO_ARGS} --crate-type staticlib
@@ -34,7 +40,7 @@ execute_process(
   OUTPUT_QUIET)
 
 # Preserve the environment that CMake inherited.
-if(DEFINED _vibrium_saved_rustflags)
+if(_vibrium_had_rustflags)
   set(ENV{RUSTFLAGS} "${_vibrium_saved_rustflags}")
 else()
   unset(ENV{RUSTFLAGS})
