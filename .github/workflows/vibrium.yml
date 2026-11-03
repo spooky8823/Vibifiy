@@ -385,6 +385,16 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force diagnostics | Out-Null
+
+          # Capture native crash details from Windows Error Reporting. A nonzero
+          # exit after a successful self-test can be a shutdown-time access violation.
+          $dumpFolder = Join-Path $env:GITHUB_WORKSPACE "diagnostics"
+          $werKey = 'HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\vibrium.exe'
+          New-Item -Path $werKey -Force | Out-Null
+          New-ItemProperty -Path $werKey -Name DumpFolder -PropertyType ExpandString -Value $dumpFolder -Force | Out-Null
+          New-ItemProperty -Path $werKey -Name DumpType -PropertyType DWord -Value 2 -Force | Out-Null
+          New-ItemProperty -Path $werKey -Name DumpCount -PropertyType DWord -Value 3 -Force | Out-Null
+
           $package = Join-Path $env:GITHUB_WORKSPACE "Vibrium_snapshot2026-10-31"
           $server = Start-Process python -PassThru -WindowStyle Hidden `
             -ArgumentList 'Vibrium/tests/native/selftest_server.py','8123' `
@@ -422,6 +432,21 @@ jobs:
           } finally {
             if (-not $server.HasExited) { $server.Kill() }
             Copy-Item "$package/debug.log" diagnostics/ -ErrorAction SilentlyContinue
+
+            # Preserve recent Application Error / Windows Error Reporting entries,
+            # including the faulting module and exception code when Windows records them.
+            try {
+              Get-WinEvent -FilterHashtable @{
+                LogName = 'Application'
+                StartTime = (Get-Date).AddMinutes(-15)
+              } -ErrorAction Stop |
+                Where-Object { $_.ProviderName -in @('Application Error', 'Windows Error Reporting') } |
+                Select-Object -First 30 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+                Format-List |
+                Out-File -FilePath diagnostics/windows-application-errors.txt -Encoding utf8
+            } catch {
+              $_ | Out-File -FilePath diagnostics/windows-application-errors.txt -Encoding utf8
+            }
           }
 
       - name: Upload snapshot artifact
