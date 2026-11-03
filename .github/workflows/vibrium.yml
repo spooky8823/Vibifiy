@@ -414,23 +414,26 @@ jobs:
             $report = Join-Path $env:GITHUB_WORKSPACE "diagnostics/selftest-$Name.txt"
             Remove-Item $report -ErrorAction SilentlyContinue
             $dumpLog = Join-Path $env:GITHUB_WORKSPACE "diagnostics/procdump-$Name.log"
+            $app = Start-Process -PassThru -WorkingDirectory $package `
+              -FilePath "$package/vibrium.exe" -ArgumentList (@(
+                '--selftest',
+                '--url=http://localhost:8123/selftest.html',
+                "--selftest-report=$report") + $ExtraArgs)
+
+            # CEF browser/renderer/GPU processes share the image name
+            # "vibrium.exe", so ProcDump's -w name lookup is ambiguous.
+            # Attach to this exact browser-process PID instead.
             $monitor = Start-Process -PassThru -WindowStyle Hidden -FilePath $procDump `
-              -ArgumentList @('-accepteula','-ma','-e','-w','vibrium.exe',$dumpFolder) `
+              -ArgumentList @('-accepteula','-ma','-e',"$($app.Id)",$dumpFolder) `
               -RedirectStandardOutput $dumpLog -RedirectStandardError "$dumpLog.err"
-            Start-Sleep -Milliseconds 750
 
             try {
-              $app = Start-Process -PassThru -WorkingDirectory $package `
-                -FilePath "$package/vibrium.exe" -ArgumentList (@(
-                  '--selftest',
-                  '--url=http://localhost:8123/selftest.html',
-                  "--selftest-report=$report") + $ExtraArgs)
               if (-not $app.WaitForExit(120000)) {
                 $app.Kill()
                 throw "Selftest '$Name' did not exit within 120 s (hung or failed to start)"
               }
             } finally {
-              # ProcDump exits after its target exits or after writing a dump.
+              # ProcDump exits after the attached PID exits or after writing a dump.
               # Give it time to flush the dump before ending the monitor.
               if (-not $monitor.WaitForExit(15000)) {
                 $monitor.Kill()
