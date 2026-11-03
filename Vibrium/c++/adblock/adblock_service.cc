@@ -55,6 +55,21 @@ AdblockService::AdblockService()
   router_->AddHandler(cosmetic_handler_.get(), /*first=*/false);
 }
 
+void AdblockService::Shutdown() {
+  // Remove the raw handler pointer before destroying the handler itself.
+  if (router_ && cosmetic_handler_) {
+    router_->RemoveHandler(cosmetic_handler_.get());
+  }
+
+  // AdblockRequestHandler also owns a CefRefPtr to the router.
+  request_handler_ = nullptr;
+  router_ = nullptr;
+  cosmetic_handler_.reset();
+
+  enabled_ = false;
+  filter_dir_.clear();
+}
+
 bool AdblockService::Initialize(CefRefPtr<CefCommandLine> command_line) {
   std::string filter_dir;
   if (command_line && command_line->HasSwitch("filter-dir")) {
