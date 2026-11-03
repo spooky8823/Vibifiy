@@ -52,8 +52,10 @@ if(_vibrium_probe_rc EQUAL 0 AND
    _vibrium_probe_out MATCHES "native-static-libs: ([^\r\n]*)")
   separate_arguments(_vibrium_native_tokens WINDOWS_COMMAND "${CMAKE_MATCH_1}")
   foreach(_native_token IN LISTS _vibrium_native_tokens)
-    # rustc emits /DEFAULTLIB:LIBCMT as a linker option, not a library name.
-    if(WIN32 AND MSVC AND _native_token MATCHES "^/DEFAULTLIB:")
+    # rustc emits /defaultlib:libcmt as a linker option, not a library name.
+    # Normalize case because rustc may print this option in lowercase.
+    string(TOUPPER "${_native_token}" _native_token_upper)
+    if(WIN32 AND MSVC AND _native_token_upper MATCHES "^/DEFAULTLIB:")
       list(APPEND VIBRIUM_RUST_NATIVE_LINK_OPTIONS "${_native_token}")
     else()
       list(APPEND VIBRIUM_RUST_NATIVE_LIBS "${_native_token}")
