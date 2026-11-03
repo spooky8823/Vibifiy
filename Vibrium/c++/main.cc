@@ -65,6 +65,17 @@ public:
     }
 
     void OnWebKitInitialized() override {
+        // Keep the renderer half of the cosmetic query router disabled during
+        // the CI isolation run as well. Disabling only the browser-side router
+        // is not a complete isolation because renderer-side callbacks still
+        // participate in CEF teardown.
+        CefRefPtr<CefCommandLine> command_line =
+            CefCommandLine::GetGlobalCommandLine();
+        if (command_line &&
+            command_line->HasSwitch("disable-cosmetic-router")) {
+            return;
+        }
+
         rendererRouter_ = CefMessageRouterRendererSide::Create(
             vibrium::CosmeticRouterConfig());
     }
