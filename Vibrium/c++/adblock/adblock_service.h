@@ -30,6 +30,10 @@ class AdblockService {
   // Returns true if blocking is active.
   bool Initialize(CefRefPtr<CefCommandLine> command_line);
 
+  // Release every CEF-owned reference while CEF is still initialized.
+  // Call on the browser UI thread after all browsers have closed.
+  void Shutdown();
+
   // Shared by every tab's CefClient::GetRequestHandler().
   CefRefPtr<CefRequestHandler> request_handler() const {
     return request_handler_;
