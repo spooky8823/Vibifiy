@@ -1139,15 +1139,29 @@ int WINAPI wWinMain(
     vibrium::AdblockService::Get().Initialize(
         CefCommandLine::GetGlobalCommandLine());
 
-    vibrium::MainWindow mainWindow;
+    int appExitCode = 1;
+    {
+        // Destroy the window and its TabRecord/BrowserClient references before
+        // tearing down the process-wide CEF services.
+        vibrium::MainWindow mainWindow;
 
-    if (!mainWindow.Create(instance)) {
-        CefShutdown();
-        return 1;
+        if (!mainWindow.Create(instance)) {
+            vibrium::AdblockService::Get().Shutdown();
+            app = nullptr;
+            CefShutdown();
+            return 1;
+        }
+
+        CefRunMessageLoop();
+        appExitCode = vibrium::SelfTest::Get().exit_code();
     }
 
-    CefRunMessageLoop();
+    // All browsers have delivered OnBeforeClose before the message loop exits.
+    // Release router/request-handler refs before CefShutdown; releasing CEF
+    // objects from static destructors after CefShutdown is unsafe.
+    vibrium::AdblockService::Get().Shutdown();
+    app = nullptr;
     CefShutdown();
 
-    return vibrium::SelfTest::Get().exit_code();
+    return appExitCode;
 }
