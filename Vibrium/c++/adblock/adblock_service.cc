@@ -71,6 +71,20 @@ void AdblockService::Shutdown() {
 }
 
 bool AdblockService::Initialize(CefRefPtr<CefCommandLine> command_line) {
+  // Diagnostic switch used by CI to isolate the browser-side cosmetic query
+  // router from network filtering. The request handler remains installed.
+  if (command_line && command_line->HasSwitch("disable-cosmetic-router")) {
+    if (router_ && cosmetic_handler_) {
+      router_->RemoveHandler(cosmetic_handler_.get());
+    }
+    request_handler_ = nullptr;
+    router_ = nullptr;
+    cosmetic_handler_.reset();
+    request_handler_ =
+        new AdblockRequestHandler(engine_, stats_, nullptr);
+    LOG(WARNING) << "Cosmetic message router disabled by command-line switch";
+  }
+
   std::string filter_dir;
   if (command_line && command_line->HasSwitch("filter-dir")) {
     filter_dir = command_line->GetSwitchValue("filter-dir").ToString();
@@ -95,7 +109,7 @@ bool AdblockService::Initialize(CefRefPtr<CefCommandLine> command_line) {
 }
 
 void AdblockService::ApplyCosmeticFilters(CefRefPtr<CefFrame> frame) const {
-  if (!frame || !frame->IsValid()) {
+  if (!router_ || !frame || !frame->IsValid()) {
     return;
   }
   const std::string url = frame->GetURL().ToString();
@@ -123,12 +137,14 @@ bool AdblockService::OnProcessMessageReceived(
     CefRefPtr<CefFrame> frame,
     CefProcessId source_process,
     CefRefPtr<CefProcessMessage> message) {
-  return router_->OnProcessMessageReceived(browser, frame, source_process,
-                                           message);
+  return router_ && router_->OnProcessMessageReceived(
+                           browser, frame, source_process, message);
 }
 
 void AdblockService::OnBrowserClosed(CefRefPtr<CefBrowser> browser) {
-  router_->OnBeforeClose(browser);
+  if (router_) {
+    router_->OnBeforeClose(browser);
+  }
 }
 
 }  // namespace vibrium
