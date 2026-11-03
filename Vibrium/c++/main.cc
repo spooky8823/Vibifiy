@@ -1147,8 +1147,8 @@ int WINAPI wWinMain(
 
         if (!mainWindow.Create(instance)) {
             vibrium::AdblockService::Get().Shutdown();
-            app = nullptr;
             CefShutdown();
+            app = nullptr;
             return 1;
         }
 
@@ -1160,8 +1160,8 @@ int WINAPI wWinMain(
     // Release router/request-handler refs before CefShutdown; releasing CEF
     // objects from static destructors after CefShutdown is unsafe.
     vibrium::AdblockService::Get().Shutdown();
-    app = nullptr;
     CefShutdown();
+    app = nullptr;
 
     return appExitCode;
 }
