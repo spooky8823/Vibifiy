@@ -24,8 +24,7 @@ add_custom_target(vibrium_adblock_rust
   BYPRODUCTS "${VIBRIUM_RUST_LIB}"
   COMMENT "Building Rust adblock static library")
 
-# Ask rustc which system libraries the static library needs instead of
-# hard-coding a list that changes between Rust releases.
+# Ask rustc which system libraries and linker options the static library needs.
 set(ENV{RUSTFLAGS} "${VIBRIUM_RUSTFLAGS}")
 execute_process(
   COMMAND ${VIBRIUM_CARGO} rustc ${VIBRIUM_CARGO_ARGS} --crate-type staticlib
@@ -33,10 +32,27 @@ execute_process(
   RESULT_VARIABLE _vibrium_probe_rc
   ERROR_VARIABLE _vibrium_probe_out
   OUTPUT_QUIET)
-unset(ENV{RUSTFLAGS})
+
+# Preserve the environment that CMake inherited.
+if(DEFINED _vibrium_saved_rustflags)
+  set(ENV{RUSTFLAGS} "${_vibrium_saved_rustflags}")
+else()
+  unset(ENV{RUSTFLAGS})
+endif()
+
+set(VIBRIUM_RUST_NATIVE_LIBS "")
+set(VIBRIUM_RUST_NATIVE_LINK_OPTIONS "")
 if(_vibrium_probe_rc EQUAL 0 AND
    _vibrium_probe_out MATCHES "native-static-libs: ([^\r\n]*)")
-  separate_arguments(VIBRIUM_RUST_NATIVE_LIBS WINDOWS_COMMAND "${CMAKE_MATCH_1}")
+  separate_arguments(_vibrium_native_tokens WINDOWS_COMMAND "${CMAKE_MATCH_1}")
+  foreach(_native_token IN LISTS _vibrium_native_tokens)
+    # rustc emits /DEFAULTLIB:LIBCMT as a linker option, not a library name.
+    if(WIN32 AND MSVC AND _native_token MATCHES "^/DEFAULTLIB:")
+      list(APPEND VIBRIUM_RUST_NATIVE_LINK_OPTIONS "${_native_token}")
+    else()
+      list(APPEND VIBRIUM_RUST_NATIVE_LIBS "${_native_token}")
+    endif()
+  endforeach()
 else()
   message(WARNING "Could not query native-static-libs (rc=${_vibrium_probe_rc}); "
                   "using a default list.\n${_vibrium_probe_out}")
@@ -44,6 +60,7 @@ else()
                                userenv.lib ws2_32.lib dbghelp.lib)
 endif()
 message(STATUS "Rust native libs: ${VIBRIUM_RUST_NATIVE_LIBS}")
+message(STATUS "Rust native linker options: ${VIBRIUM_RUST_NATIVE_LINK_OPTIONS}")
 
 # Rust's native-static-libs output names the Windows import library but does
 # not include its Cargo registry directory. Resolve that directory through
@@ -104,7 +121,8 @@ set_target_properties(vibrium_adblock PROPERTIES
   IMPORTED_LOCATION "${VIBRIUM_RUST_LIB}"
   INTERFACE_INCLUDE_DIRECTORIES "${VIBRIUM_RUST_DIR}/vibrium-adblock/include"
   INTERFACE_LINK_LIBRARIES "${VIBRIUM_RUST_NATIVE_LIBS}"
-  INTERFACE_LINK_DIRECTORIES "${VIBRIUM_RUST_NATIVE_LINK_DIRS}")
+  INTERFACE_LINK_DIRECTORIES "${VIBRIUM_RUST_NATIVE_LINK_DIRS}"
+  INTERFACE_LINK_OPTIONS "${VIBRIUM_RUST_NATIVE_LINK_OPTIONS}")
 add_dependencies(vibrium_adblock vibrium_adblock_rust)
 
 target_sources(vibrium PRIVATE
