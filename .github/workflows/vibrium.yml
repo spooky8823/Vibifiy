@@ -401,7 +401,7 @@ jobs:
             -RedirectStandardError diagnostics/selftest-server.log
           Start-Sleep -Seconds 2
 
-          function Invoke-SelfTest([string]$Name, [string[]]$ExtraArgs) {
+          function Invoke-SelfTest([string]$Name, [string[]]$ExtraArgs, [bool]$AllowFailure = $false) {
             $report = Join-Path $env:GITHUB_WORKSPACE "diagnostics/selftest-$Name.txt"
             Remove-Item $report -ErrorAction SilentlyContinue
             $app = Start-Process -PassThru -WorkingDirectory $package `
@@ -419,14 +419,29 @@ jobs:
             "### Selftest: $Name" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
             Get-Content $report | Select-Object -First 14 |
               Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
-            if ($app.ExitCode -ne 0) { throw "Selftest '$Name' failed with exit code $($app.ExitCode)" }
+            if ($app.ExitCode -ne 0) {
+              if ($AllowFailure) {
+                Write-Warning "Diagnostic selftest '$Name' exited with $($app.ExitCode); continuing to preserve isolation results."
+              } else {
+                throw "Selftest '$Name' failed with exit code $($app.ExitCode)"
+              }
+            }
           }
 
           try {
             # 1) Fixture list: isolates the browser integration from list content.
             Invoke-SelfTest 'fixture-list' @(
-              "--filter-dir=$env:GITHUB_WORKSPACE/Vibrium/tests/fixtures/selftest-lists")
-            # 2) No --filter-dir: proves the filters that were PACKAGED are found
+              "--filter-dir=$env:GITHUB_WORKSPACE/Vibrium/tests/fixtures/selftest-lists") $true
+
+            # Diagnostic A/B: preserve network filtering but disable the
+            # browser/renderer cosmetic message router. Cosmetic assertions are
+            # expected to fail in this run; its process exit status is the
+            # important shutdown signal.
+            Invoke-SelfTest 'fixture-list-no-cosmetic-router' @(
+              "--filter-dir=$env:GITHUB_WORKSPACE/Vibrium/tests/fixtures/selftest-lists",
+              '--disable-cosmetic-router') $true
+
+            # 3) No --filter-dir: proves the filters that were PACKAGED are found
             #    in the default <exe dir>/filters and actually block.
             Invoke-SelfTest 'packaged-default-filters' @()
           } finally {
