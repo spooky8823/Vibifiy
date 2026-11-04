@@ -550,7 +550,7 @@ jobs:
             Write-Host "CDB analysis: $($dump.Name)"
             Write-Host "============================================================"
 
-            $debuggerArgs = @('-z', $dump.FullName, '-y', $symbolPath, '-i', $imagePath, '-logo', $report, '-c', '!analyze -v; kv; lmvm vibrium; q')
+            $debuggerArgs = @('-z', $dump.FullName, '-y', $symbolPath, '-i', $imagePath, '-logo', $report, '-c', '!analyze -v; .ecxr; r; kv; ln vibrium!wWinMain+0x301; u vibrium!wWinMain+0x2c0 L40; lmvm vibrium; q')
             $quotedArgs = ($debuggerArgs | ForEach-Object { '"' + ([string]$_).Replace('"','\"') + '"' }) -join ' '
             $debugger = Start-Process -FilePath $cdb -ArgumentList $quotedArgs -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 
