@@ -279,6 +279,20 @@ jobs:
             throw "Vibrium compilation failed."
           }
 
+      - name: Preserve exact executable symbols
+        shell: pwsh
+        run: |
+          $symbols = Get-ChildItem "Vibrium/build" -Filter "vibrium.pdb" -File -Recurse |
+            Select-Object -First 1
+          if (!$symbols) {
+            throw "vibrium.pdb was not generated; crash dumps would remain unsymbolicated."
+          }
+          New-Item -ItemType Directory -Force diagnostics/symbols | Out-Null
+          Copy-Item $symbols.FullName diagnostics/symbols/vibrium.pdb
+          Write-Host "Preserved matching PDB: $($symbols.FullName)"
+          Get-FileHash diagnostics/symbols/vibrium.pdb -Algorithm SHA256 |
+            Format-List | Out-File diagnostics/symbols/pdb-sha256.txt
+
       - name: Build and run native tests (MSVC, static CRT)
         shell: pwsh
         run: |
