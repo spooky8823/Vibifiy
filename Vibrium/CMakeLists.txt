@@ -38,6 +38,19 @@ target_include_directories(vibrium PRIVATE
     "${CEF_ROOT}"
 )
 
+# Keep symbols for native crash diagnosis. These files are generated for the
+# exact executable that CI packages, allowing WinDbg to resolve vibrium+RVA
+# frames from ProcDump dumps without changing the shipped runtime.
+if(MSVC)
+    target_compile_options(vibrium PRIVATE
+        "$<$<CONFIG:Release>:/Zi>"
+    )
+    target_link_options(vibrium PRIVATE
+        "$<$<CONFIG:Release>:/DEBUG:FULL>"
+        "$<$<CONFIG:Release>:/MAP>"
+    )
+endif()
+
 target_link_libraries(vibrium PRIVATE
     "${CEF_ROOT}/Release/libcef.lib"
     libcef_dll_wrapper
