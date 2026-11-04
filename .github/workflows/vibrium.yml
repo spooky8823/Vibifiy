@@ -505,6 +505,82 @@ jobs:
             }
           }
 
+      - name: Install WinDbg and analyze crash dumps
+        if: always()
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $dumpFiles = @(Get-ChildItem diagnostics -Filter *.dmp -File -ErrorAction SilentlyContinue)
+          if ($dumpFiles.Count -eq 0) {
+            Write-Host "No crash dumps were produced; WinDbg analysis is not needed."
+            exit 0
+          }
+
+          # Install Microsoft's current WinDbg package. WinDbgX supports
+          # -z (open dump), -y (symbol path), -i (image path), -logo
+          # (capture debugger output), and -c (run commands on startup).
+          $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+          if (!$winget) { throw "winget.exe is unavailable; cannot install WinDbg." }
+          & $winget.Source install --id Microsoft.WinDbg --exact --silent --accept-package-agreements --accept-source-agreements
+          if ($LASTEXITCODE -ne 0) {
+            throw "WinDbg installation failed with exit code $LASTEXITCODE."
+          }
+
+          $windbg = Get-Command WinDbgX.exe -ErrorAction SilentlyContinue
+          if (!$windbg) {
+            $alias = "$env:LOCALAPPDATA/Microsoft/WindowsApps/WinDbgX.exe"
+            if (Test-Path $alias) { $windbg = Get-Item $alias }
+          }
+          if (!$windbg) {
+            $installed = Get-ChildItem "$env:ProgramFiles/WindowsApps" -Filter WinDbgX.exe -File -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+            if ($installed) { $windbg = $installed }
+          }
+          if (!$windbg) {
+            throw "WinDbg was installed, but WinDbgX.exe could not be located."
+          }
+          $windbgPath = if ($windbg.Source) { $windbg.Source } else { $windbg.FullName }
+          Write-Host "Using WinDbg: $windbgPath"
+
+          $symbolCache = Join-Path $env:RUNNER_TEMP "windbg-symbol-cache"
+          New-Item -ItemType Directory -Force $symbolCache | Out-Null
+          $localSymbols = Join-Path $env:GITHUB_WORKSPACE "diagnostics/symbols"
+          $imagePath = Join-Path $env:GITHUB_WORKSPACE "Vibrium_snapshot2026-10-31"
+          $symbolPath = "srv*$symbolCache*https://msdl.microsoft.com/download/symbols;$localSymbols"
+          $reportDir = Join-Path $env:GITHUB_WORKSPACE "diagnostics/windbg"
+          New-Item -ItemType Directory -Force $reportDir | Out-Null
+
+          foreach ($dump in $dumpFiles) {
+            $report = Join-Path $reportDir "$($dump.BaseName)-windbg.txt"
+            Write-Host ""
+            Write-Host "============================================================"
+            Write-Host "WinDbg analysis: $($dump.Name)"
+            Write-Host "============================================================"
+
+            $debuggerCommands = "!analyze -v; kv; lmvm vibrium; q"
+            $debuggerArgs = @(
+              "-Q",
+              "-z", $dump.FullName,
+              "-y", $symbolPath,
+              "-i", $imagePath,
+              "-logo", $report,
+              "-c", $debuggerCommands
+            )
+            $debugger = Start-Process -FilePath $windbgPath -ArgumentList $debuggerArgs -PassThru -Wait -WindowStyle Hidden
+            if (!(Test-Path $report)) {
+              Write-Warning "WinDbg did not create a transcript for $($dump.Name) (exit $($debugger.ExitCode))."
+              continue
+            }
+
+            Get-Content $report
+            if ($debugger.ExitCode -ne 0) {
+              Write-Warning "WinDbg exited with code $($debugger.ExitCode) for $($dump.Name)."
+            }
+          }
+
+          Write-Host ""
+          Write-Host "WinDbg reports are in diagnostics/windbg/ and will be included in the diagnostics artifact."
+
       - name: Upload snapshot artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
