@@ -60,6 +60,7 @@ target_link_libraries(vibrium PRIVATE
     user32
     gdi32
     comctl32
+    comdlg32
     crypt32
     delayimp
     rpcrt4
