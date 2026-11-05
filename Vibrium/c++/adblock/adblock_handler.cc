@@ -51,6 +51,12 @@ void AdblockStats::Record(AdblockEngine::Decision decision,
   }
 }
 
+void AdblockStats::Clear() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  data_ = Snapshot{};
+  events_.clear();
+}
+
 AdblockStats::Snapshot AdblockStats::Get() const {
   std::lock_guard<std::mutex> lock(mutex_);
   Snapshot snapshot = data_;
