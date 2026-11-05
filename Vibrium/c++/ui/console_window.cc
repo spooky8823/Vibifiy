@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <ctime>
+#include <commdlg.h>
+#include <fstream>
 #include <string>
 
 #include "adblock/adblock_service.h"
@@ -12,6 +14,9 @@ namespace {
 constexpr wchar_t kConsoleClass[] = L"VibriumConsoleWindow";
 constexpr UINT_PTR kRefreshTimer = 1;
 constexpr int kSearchId = 4101;
+constexpr int kFilterId = 4102;
+constexpr int kClearId = 4103;
+constexpr int kExportId = 4104;
 constexpr COLORREF kBackground = RGB(19, 17, 27);
 constexpr COLORREF kText = RGB(235, 231, 244);
 
@@ -99,6 +104,18 @@ void ConsoleWindow::CreateControls() {
       instance_, nullptr);
   SendMessageW(search_, EM_SETCUEBANNER, TRUE,
                reinterpret_cast<LPARAM>(L"Filter by URL, source page, or resource type..."));
+  filter_ = CreateWindowExW(0, L"COMBOBOX", L"",
+      WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
+      16, 50, 150, 220, hwnd_, reinterpret_cast<HMENU>(kFilterId), instance_, nullptr);
+  SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All decisions"));
+  SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Blocked"));
+  SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Allowed"));
+  SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Errors"));
+  SendMessageW(filter_, CB_SETCURSEL, 0, 0);
+  clear_ = CreateWindowExW(0, L"BUTTON", L"Clear", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+      0, 50, 82, 28, hwnd_, reinterpret_cast<HMENU>(kClearId), instance_, nullptr);
+  export_ = CreateWindowExW(0, L"BUTTON", L"Export", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+      0, 50, 82, 28, hwnd_, reinterpret_cast<HMENU>(kExportId), instance_, nullptr);
   logs_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
       WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
       ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
