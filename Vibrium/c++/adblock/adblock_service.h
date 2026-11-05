@@ -59,6 +59,7 @@ class AdblockService {
   const std::string& filter_dir() const { return filter_dir_; }
 
   AdblockStats::Snapshot Stats() const { return stats_->Get(); }
+  void ClearStats() { stats_->Clear(); }
 
  private:
   AdblockService();
