@@ -27,6 +27,7 @@
 
 #include "ui/tabbar.h"
 #include "ui/searchengine.h"
+#include "ui/console_window.h"
 #include "adblock/adblock_service.h"
 #include "selftest.h"
 #include "include/cef_load_handler.h"
@@ -36,6 +37,7 @@ namespace vibrium {
 
 constexpr wchar_t kWindowClass[] = L"VibriumMainWindow";
 constexpr wchar_t kWindowTitle[] = L"Vibrium";
+constexpr UINT kOpenConsoleCommand = 50001;
 
 constexpr UINT_PTR kMemoryTimer = 1;
 constexpr UINT_PTR kSelfTestTimer = 2;
@@ -281,6 +283,12 @@ public:
         if (!hwnd_) {
             return false;
         }
+
+        HMENU menu = CreateMenu();
+        HMENU settingsMenu = CreatePopupMenu();
+        AppendMenuW(settingsMenu, MF_STRING, kOpenConsoleCommand, L"Console");
+        AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(settingsMenu), L"Settings");
+        SetMenu(hwnd_, menu);
 
         ShowWindow(hwnd_, SW_SHOW);
         UpdateWindow(hwnd_);
@@ -813,6 +821,18 @@ public:
     // Window resizing
     // --------------------------------------------------------
 
+    void OpenConsole() {
+        if (!console_) {
+            console_ = std::make_unique<ConsoleWindow>();
+            if (!console_->Create(hwnd_, instance_)) {
+                console_.reset();
+                MessageBoxW(hwnd_, L"Could not open the console.", L"Vibrium", MB_OK | MB_ICONERROR);
+                return;
+            }
+        }
+        console_->Show();
+    }
+
     void ResizeUI() {
         if (!hwnd_) {
             return;
@@ -941,6 +961,13 @@ private:
         case WM_CREATE:
             return self->InitializeUI() ? 0 : -1;
 
+        case WM_COMMAND:
+            if (LOWORD(wParam) == kOpenConsoleCommand) {
+                self->OpenConsole();
+                return 0;
+            }
+            break;
+
         case WM_SIZE:
             self->ResizeUI();
             return 0;
@@ -1030,6 +1057,7 @@ private:
 
     std::unique_ptr<TabBar> tabBar_;
     std::unique_ptr<SearchEngine> searchBar_;
+    std::unique_ptr<ConsoleWindow> console_;
 
     std::vector<TabRecord> tabs_;
 
