@@ -39,6 +39,7 @@ constexpr wchar_t kWindowTitle[] = L"Vibrium";
 
 constexpr UINT_PTR kMemoryTimer = 1;
 constexpr UINT_PTR kSelfTestTimer = 2;
+constexpr UINT kFinalizeShutdownMessage = WM_APP + 1;
 constexpr UINT kMemoryCheckInterval = 15000;
 constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
 
@@ -958,9 +959,18 @@ private:
             self->RequestClose();
             return 0;
 
+        // Defer final window destruction until the current CEF callback has
+        // returned. Destroying the parent HWND from OnBeforeClose can re-enter
+        // CEF's native window teardown while it is still dispatching callbacks.
+        case kFinalizeShutdownMessage:
+            self->FinalizeShutdown();
+            return 0;
+
         case WM_DESTROY:
             KillTimer(hwnd, kMemoryTimer);
-            PostQuitMessage(0);
+            // This application uses CefRunMessageLoop(), so use CEF's matching
+            // quit API rather than injecting WM_QUIT into its Windows queue.
+            CefQuitMessageLoop();
             return 0;
 
         case WM_NCDESTROY:
@@ -976,20 +986,41 @@ private:
 
     }
 
+    bool AllBrowsersClosed() const {
+        for (const auto& tab : tabs_) {
+            // A browser creation can complete asynchronously after shutdown
+            // starts. OnBrowserCreated() closes it, and OnBeforeClose() clears
+            // the record before finalization is allowed.
+            if (tab.browser || tab.browserCreating) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     void FinishShutdownIfReady() {
-        if (!closeRequested_ || !hwnd_) {
+        if (!closeRequested_ || !hwnd_ || shutdownFinalizePosted_ ||
+            !AllBrowsersClosed()) {
             return;
         }
 
-        for (const auto& tab : tabs_) {
-            // Wait for existing browsers to close and pending
-            // browser creations to finish.
-            if (tab.browser || tab.browserCreating) {
-                return;
-            }
+        // Never destroy the parent window synchronously from a CEF lifecycle
+        // callback. Queue finalization onto the host window's message queue so
+        // CEF can finish the current OnBeforeClose dispatch first.
+        shutdownFinalizePosted_ = true;
+        if (!PostMessageW(hwnd_, kFinalizeShutdownMessage, 0, 0)) {
+            shutdownFinalizePosted_ = false;
+        }
+    }
+
+    void FinalizeShutdown() {
+        shutdownFinalizePosted_ = false;
+        if (!closeRequested_ || !hwnd_ || !AllBrowsersClosed()) {
+            return;
         }
 
         KillTimer(hwnd_, kMemoryTimer);
+        KillTimer(hwnd_, kSelfTestTimer);
         DestroyWindow(hwnd_);
     }
 
@@ -1006,6 +1037,7 @@ private:
     int nextTabId_ = 1;
 
     bool closeRequested_ = false;
+    bool shutdownFinalizePosted_ = false;
 
     friend class BrowserClient;
 };
