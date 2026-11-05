@@ -13,6 +13,7 @@
 #define VIBRIUM_ADBLOCK_HANDLER_H_
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -30,21 +31,36 @@ namespace vibrium {
 // the end-to-end selftest. Thread-safe.
 class AdblockStats {
  public:
+  struct Event {
+    uint64_t timestamp_ms = 0;
+    AdblockEngine::Decision decision = AdblockEngine::Decision::kAllow;
+    std::string url;
+    std::string source_url;
+    std::string resource_type;
+  };
+
   struct Snapshot {
     uint64_t blocked = 0;
     uint64_t allowed = 0;
     uint64_t errors = 0;
     std::vector<std::string> blocked_urls;
     std::vector<std::string> allowed_urls;
+    std::vector<Event> events;
   };
 
-  void Record(AdblockEngine::Decision decision, const std::string& url);
+  // Stores the most recent decisions in a bounded, thread-safe ring buffer.
+  void Record(AdblockEngine::Decision decision,
+              const std::string& url,
+              const std::string& source_url,
+              const char* resource_type);
   Snapshot Get() const;
 
  private:
   static constexpr size_t kMaxRecordedUrls = 512;
+  static constexpr size_t kMaxEvents = 2000;
   mutable std::mutex mutex_;
   Snapshot data_;
+  std::deque<Event> events_;
 };
 
 ResourceKind ToResourceKind(cef_resource_type_t type);
