@@ -98,24 +98,26 @@ void ConsoleWindow::Show() {
 void ConsoleWindow::CreateControls() {
   summary_ = CreateWindowExW(0, L"STATIC", L"Loading ad-blocking status...",
       WS_CHILD | WS_VISIBLE, 16, 14, 1000, 28, hwnd_, nullptr, instance_, nullptr);
-  search_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+  search_ = CreateWindowExW(WS_EXCLIENTEDGE, L"EDIT", L"",
       WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | WS_TABSTOP,
-      16, 50, 1000, 28, hwnd_, reinterpret_cast<HMENU>(kSearchId),
+      16, 50, 500, 28, hwnd_, reinterpret_cast<HMENU>(kSearchId),
       instance_, nullptr);
   SendMessageW(search_, EM_SETCUEBANNER, TRUE,
-               reinterpret_cast<LPARAM>(L"Filter by URL, source page, or resource type..."));
+               reinterpret_cast<LPARAM>(L"Search URL, source page, or resource type..."));
   filter_ = CreateWindowExW(0, L"COMBOBOX", L"",
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
-      16, 50, 150, 220, hwnd_, reinterpret_cast<HMENU>(kFilterId), instance_, nullptr);
+      520, 50, 140, 220, hwnd_, reinterpret_cast<HMENU>(kFilterId), instance_, nullptr);
   SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All decisions"));
   SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Blocked"));
   SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Allowed"));
   SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Errors"));
   SendMessageW(filter_, CB_SETCURSEL, 0, 0);
-  clear_ = CreateWindowExW(0, L"BUTTON", L"Clear", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-      0, 50, 82, 28, hwnd_, reinterpret_cast<HMENU>(kClearId), instance_, nullptr);
-  export_ = CreateWindowExW(0, L"BUTTON", L"Export", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-      0, 50, 82, 28, hwnd_, reinterpret_cast<HMENU>(kExportId), instance_, nullptr);
+  clear_ = CreateWindowExW(0, L"BUTTON", L"Clear",
+      WS_CHILD | WS_VISIBLE | WS_TABSTOP, 670, 50, 82, 28,
+      hwnd_, reinterpret_cast<HMENU>(kClearId), instance_, nullptr);
+  export_ = CreateWindowExW(0, L"BUTTON", L"Export",
+      WS_CHILD | WS_VISIBLE | WS_TABSTOP, 760, 50, 82, 28,
+      hwnd_, reinterpret_cast<HMENU>(kExportId), instance_, nullptr);
   logs_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
       WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
       ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
@@ -131,7 +133,10 @@ void ConsoleWindow::Layout() {
   const int width = std::max(100, client.right - 32);
   const int height = std::max(100, client.bottom - 106);
   MoveWindow(summary_, 16, 14, width, 26, TRUE);
-  MoveWindow(search_, 16, 48, width, 28, TRUE);
+  MoveWindow(search_, 16, 48, std::max(180, width - 390), 28, TRUE);
+  MoveWindow(filter_, std::max(205, width - 375), 48, 140, 220, TRUE);
+  MoveWindow(clear_, std::max(350, width - 220), 48, 78, 28, TRUE);
+  MoveWindow(export_, std::max(435, width - 130), 48, 114, 28, TRUE);
   MoveWindow(logs_, 16, 86, width, height, TRUE);
 }
 
@@ -168,8 +173,11 @@ void ConsoleWindow::RenderLogs() {
     if (!source.empty()) line += L"  (from " + source + L")";
     line += L"\r\n";
 
-    if (!filter.empty() &&
-        line.find(filter) == std::wstring::npos) continue;
+    const LRESULT selectedFilter = SendMessageW(filter_, CB_GETCURSEL, 0, 0);
+    if ((selectedFilter == 1 && event.decision != AdblockEngine::Decision::kBlock) ||
+        (selectedFilter == 2 && event.decision != AdblockEngine::Decision::kAllow) ||
+        (selectedFilter == 3 && event.decision != AdblockEngine::Decision::kError)) continue;
+    if (!filter.empty() && line.find(filter) == std::wstring::npos) continue;
     output += line;
   }
 
@@ -209,8 +217,30 @@ LRESULT ConsoleWindow::HandleMessage(UINT message, WPARAM wParam,
       if (wParam == kRefreshTimer) Refresh();
       return 0;
     case WM_COMMAND:
-      if (LOWORD(wParam) == kSearchId && HIWORD(wParam) == EN_CHANGE) {
+      if ((LOWORD(wParam) == kSearchId && HIWORD(wParam) == EN_CHANGE) ||
+          (LOWORD(wParam) == kFilterId && HIWORD(wParam) == CBN_SELCHANGE)) {
         Refresh();
+        return 0;
+      }
+      if (LOWORD(wParam) == kClearId) {
+        AdblockService::Get().ClearStats();
+        Refresh();
+        return 0;
+      }
+      if (LOWORD(wParam) == kExportId) {
+        OPENFILENAMEW dialog{};
+        wchar_t path[MAX_PATH] = L"vibrium-console.log";
+        dialog.lStructSize = sizeof(dialog);
+        dialog.hwndOwner = hwnd_;
+        dialog.lpstrFilter = L"Log files (*.log)\0*.log\0Text files (*.txt)\0*.txt\0All files (*.*)\0*.*\0";
+        dialog.lpstrFile = path;
+        dialog.nMaxFile = MAX_PATH;
+        dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+        dialog.lpstrDefExt = L"log";
+        if (GetSaveFileNameW(&dialog)) {
+          std::wofstream file(path);
+          if (file) file << ReadText(logs_);
+        }
         return 0;
       }
       break;
@@ -219,8 +249,13 @@ LRESULT ConsoleWindow::HandleMessage(UINT message, WPARAM wParam,
       return 0;
     case WM_DESTROY:
       KillTimer(hwnd_, kRefreshTimer);
-      hwnd_ = nullptr;
       return 0;
+    case WM_NCDESTROY: {
+      HWND oldWindow = hwnd_;
+      SetWindowLongPtrW(oldWindow, GWLP_USERDATA, 0);
+      hwnd_ = nullptr;
+      return DefWindowProcW(oldWindow, message, wParam, lParam);
+    }
   }
   return DefWindowProcW(hwnd_, message, wParam, lParam);
 }
