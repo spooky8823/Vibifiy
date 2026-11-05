@@ -1007,10 +1007,12 @@ private:
                 hwnd, message, wParam, lParam);
 
         default:
-            return DefWindowProcW(
-                hwnd, message, wParam, lParam);
+            break;
         }
 
+        // WM_COMMAND can intentionally fall through after an unhandled command.
+        // Keep every path through this window procedure returning a result.
+        return DefWindowProcW(hwnd, message, wParam, lParam);
     }
 
     bool AllBrowsersClosed() const {

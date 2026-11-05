@@ -38,6 +38,7 @@ target_compile_definitions(vibrium PRIVATE
 
 target_include_directories(vibrium PRIVATE
     "${CEF_ROOT}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/c++"
 )
 
 # Keep symbols for native crash diagnosis. These files are generated for the
