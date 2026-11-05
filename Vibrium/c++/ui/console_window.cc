@@ -5,6 +5,7 @@
 #include <cwchar>
 #include <ctime>
 #include <commdlg.h>
+#include <commctrl.h>
 #include <fstream>
 #include <string>
 
@@ -124,6 +125,7 @@ void ConsoleWindow::CreateControls() {
       WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
       ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
       16, 90, 1000, 520, hwnd_, nullptr, instance_, nullptr);
+  SendMessageW(logs_, EM_SETLIMITTEXT, 1024 * 1024, 0);
   SendMessageW(logs_, WM_SETFONT,
       reinterpret_cast<WPARAM>(GetStockObject(ANSI_FIXED_FONT)), TRUE);
 }
