@@ -26,6 +26,9 @@ class ConsoleWindow {
   HWND summary_ = nullptr;
   HWND search_ = nullptr;
   HWND logs_ = nullptr;
+  HWND filter_ = nullptr;
+  HWND clear_ = nullptr;
+  HWND export_ = nullptr;
   HINSTANCE instance_ = nullptr;
 };
 
