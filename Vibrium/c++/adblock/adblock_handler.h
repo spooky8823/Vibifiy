@@ -54,6 +54,7 @@ class AdblockStats {
               const std::string& source_url,
               const char* resource_type);
   Snapshot Get() const;
+  void Clear();
 
  private:
   static constexpr size_t kMaxRecordedUrls = 512;
