@@ -1,5 +1,6 @@
 #include "adblock_handler.h"
 
+#include <chrono>
 #include <utility>
 
 #include "include/cef_browser.h"
@@ -10,7 +11,21 @@
 namespace vibrium {
 
 void AdblockStats::Record(AdblockEngine::Decision decision,
-                          const std::string& url) {
+                          const std::string& url,
+                          const std::string& source_url,
+                          const char* resource_type) {
+  const auto now = std::chrono::system_clock::now().time_since_epoch();
+  const auto timestamp_ms =
+      static_cast<uint64_t>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+
+  Event event;
+  event.timestamp_ms = timestamp_ms;
+  event.decision = decision;
+  event.url = url;
+  event.source_url = source_url;
+  event.resource_type = resource_type ? resource_type : "other";
+
   std::lock_guard<std::mutex> lock(mutex_);
   switch (decision) {
     case AdblockEngine::Decision::kBlock:
@@ -29,11 +44,18 @@ void AdblockStats::Record(AdblockEngine::Decision decision,
       ++data_.errors;
       break;
   }
+
+  events_.push_back(std::move(event));
+  if (events_.size() > kMaxEvents) {
+    events_.pop_front();
+  }
 }
 
 AdblockStats::Snapshot AdblockStats::Get() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return data_;
+  Snapshot snapshot = data_;
+  snapshot.events.assign(events_.begin(), events_.end());
+  return snapshot;
 }
 
 ResourceKind ToResourceKind(cef_resource_type_t type) {
@@ -126,7 +148,9 @@ AdblockEngine::Decision AdblockResourceRequestHandler::Evaluate(
       url, ChooseSourceUrl(browser, request_initiator_, request),
       AdblockTypeName(kind));
   if (stats_) {
-    stats_->Record(decision, url);
+    stats_->Record(decision, url,
+                   ChooseSourceUrl(browser, request_initiator_, request),
+                   AdblockTypeName(kind));
   }
   return decision;
 }
