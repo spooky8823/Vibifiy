@@ -1,6 +1,8 @@
 #include "console_window.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <cwchar>
 #include <ctime>
 #include <commdlg.h>
 #include <fstream>
@@ -98,7 +100,7 @@ void ConsoleWindow::Show() {
 void ConsoleWindow::CreateControls() {
   summary_ = CreateWindowExW(0, L"STATIC", L"Loading ad-blocking status...",
       WS_CHILD | WS_VISIBLE, 16, 14, 1000, 28, hwnd_, nullptr, instance_, nullptr);
-  search_ = CreateWindowExW(WS_EXCLIENTEDGE, L"EDIT", L"",
+  search_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
       WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | WS_TABSTOP,
       16, 50, 500, 28, hwnd_, reinterpret_cast<HMENU>(kSearchId),
       instance_, nullptr);
