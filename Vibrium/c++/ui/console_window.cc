@@ -103,13 +103,13 @@ void ConsoleWindow::CreateControls() {
       WS_CHILD | WS_VISIBLE, 16, 14, 1000, 28, hwnd_, nullptr, instance_, nullptr);
   search_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
       WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | WS_TABSTOP,
-      16, 50, 500, 28, hwnd_, reinterpret_cast<HMENU>(kSearchId),
+      16, 50, 500, 28, hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSearchId)),
       instance_, nullptr);
   SendMessageW(search_, EM_SETCUEBANNER, TRUE,
                reinterpret_cast<LPARAM>(L"Search URL, source page, or resource type..."));
   filter_ = CreateWindowExW(0, L"COMBOBOX", L"",
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
-      520, 50, 140, 220, hwnd_, reinterpret_cast<HMENU>(kFilterId), instance_, nullptr);
+      520, 50, 140, 220, hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFilterId)), instance_, nullptr);
   SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All decisions"));
   SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Blocked"));
   SendMessageW(filter_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Allowed"));
@@ -117,10 +117,10 @@ void ConsoleWindow::CreateControls() {
   SendMessageW(filter_, CB_SETCURSEL, 0, 0);
   clear_ = CreateWindowExW(0, L"BUTTON", L"Clear",
       WS_CHILD | WS_VISIBLE | WS_TABSTOP, 670, 50, 82, 28,
-      hwnd_, reinterpret_cast<HMENU>(kClearId), instance_, nullptr);
+      hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearId)), instance_, nullptr);
   export_ = CreateWindowExW(0, L"BUTTON", L"Export",
       WS_CHILD | WS_VISIBLE | WS_TABSTOP, 760, 50, 82, 28,
-      hwnd_, reinterpret_cast<HMENU>(kExportId), instance_, nullptr);
+      hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kExportId)), instance_, nullptr);
   logs_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
       WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
       ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
@@ -134,8 +134,8 @@ void ConsoleWindow::Layout() {
   if (!hwnd_) return;
   RECT client{};
   GetClientRect(hwnd_, &client);
-  const int width = std::max(100, client.right - 32);
-  const int height = std::max(100, client.bottom - 106);
+  const int width = std::max(100, static_cast<int>(client.right) - 32);
+  const int height = std::max(100, static_cast<int>(client.bottom) - 106);
   MoveWindow(summary_, 16, 14, width, 26, TRUE);
   MoveWindow(search_, 16, 48, std::max(180, width - 390), 28, TRUE);
   MoveWindow(filter_, std::max(205, width - 375), 48, 140, 220, TRUE);
