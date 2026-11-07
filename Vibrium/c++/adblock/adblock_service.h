@@ -12,6 +12,7 @@
 #include "adblock_engine.h"
 #include "adblock_cosmetic_router.h"
 #include "adblock_handler.h"
+#include "filter_list_updater.h"
 #include "include/cef_command_line.h"
 #include "include/cef_frame.h"
 #include "include/cef_process_message.h"
@@ -23,8 +24,12 @@ class AdblockService {
  public:
   static AdblockService& Get();
 
-  // Loads <name>.txt filter lists from `--filter-dir=<dir>` (default:
-  // <executable directory>/filters). Call once on the UI thread before the
+  // Loads <name>.txt filter lists. With `--filter-dir=<dir>` exactly that
+  // directory is used and nothing is downloaded (tests, CI). Otherwise lists
+  // live in the per-user directory (%LOCALAPPDATA%\\Vibrium\\filters): the
+  // shipped <executable directory>/filters are copied in, cached downloads are
+  // loaded, and FilterListUpdater refreshes them in the background (disable with
+  // `--no-filter-updates`). Call once on the UI thread before the
   // first browser is created. If no usable list is found the browser keeps
   // working without blocking (fail open) and a warning is logged.
   // Returns true if blocking is active.
@@ -72,6 +77,7 @@ class AdblockService {
   CefRefPtr<CefRequestHandler> request_handler_;
   bool enabled_ = false;
   std::string filter_dir_;
+  std::shared_ptr<FilterListUpdater> updater_;
 };
 
 }  // namespace vibrium

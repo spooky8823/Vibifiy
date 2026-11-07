@@ -41,9 +41,33 @@ no `*.txt`**. Two selftests then run: one against a fixture list, and one with n
 `--filter-dir`, which proves the *packaged* filters are found and block. The
 shipped `vibrium-baseline.txt` ends with sentinel rules that this relies on.
 
-Not implemented yet: downloading/updating lists (the Rust updater has no HTTP
-transport; the host must fetch and call `vibrium_adblock_validate_filter_response`),
-persisted enable/disable state, loading lists off the UI thread.
+### Default lists and updates
+
+With no `--filter-dir`, lists live in `%LOCALAPPDATA%\Vibrium\filters` (the install
+dir is usually read-only). Startup copies the shipped baseline there, loads whatever
+is cached, then `FilterListUpdater` (`filter_list_updater.*`) downloads the lists in
+`filter_list_catalog.h` with CEF's network stack: conditional requests (ETag), 10 MB
+cap, each body checked with `vibrium_adblock_validate_filter_response`, atomic
+replace, then the engine is rebuilt on a background thread and swapped in via
+`AdblockEngineHolder::Set()`. Re-checked every 6 h; files younger than 24 h are
+skipped. `--filter-dir=<dir>` = exactly that dir, no network. `--no-filter-updates`
+= user dir, no network. First launch is protected only by the baseline until the
+first download finishes (seconds); `tools/fetch_filter_lists.py <dir>` pre-seeds.
+
+### Measuring coverage
+
+`cargo run --release --example turtlecute_bench -- <filters-dir> <adblock_data.json>`
+(in `rust/vibrium-adblock`) replays adblock.turtlecute.org's checks against the real
+engine (`adblock_data.json` is from github.com/Turtlecute33/toolz, `src/data/`).
+Its score is a *floor*: the real site also counts DNS failures as "blocked".
+
+| Lists | Estimated score |
+|---|---|
+| baseline only | 7% |
+| + EasyList, EasyPrivacy, uBO lists | 67% |
+| + HaGeZi Light (shipped default) | ~92-96% |
+
+Not implemented yet: persisted per-list enable/disable state in the UI.
 
 ## Cosmetic filtering
 

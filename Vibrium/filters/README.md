@@ -8,6 +8,13 @@ next to the executable, so the file below ships with every package:
 |------|------------|
 | `vibrium-baseline.txt` | First-party baseline: major ad networks plus the self-test sentinel rules. |
 
+## Downloaded lists
+
+Besides this folder, Vibrium downloads EasyList, EasyPrivacy, the uBlock Origin lists
+and HaGeZi Light into `%LOCALAPPDATA%\Vibrium\filters` at run time (see
+`c++/adblock/filter_list_catalog.h`). They are not bundled, so the licence note
+below still applies to anything you choose to ship in an installer.
+
 ## Adding lists
 
 Drop more Adblock-Plus / uBlock-syntax lists (`*.txt`) here. They are not

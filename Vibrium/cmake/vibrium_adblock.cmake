@@ -142,6 +142,9 @@ target_sources(vibrium PRIVATE
   c++/adblock/adblock_handler.h
   c++/adblock/adblock_service.cc
   c++/adblock/adblock_service.h
+  c++/adblock/filter_list_catalog.h
+  c++/adblock/filter_list_updater.cc
+  c++/adblock/filter_list_updater.h
   c++/adblock/request_policy.cc
   c++/adblock/request_policy.h
   c++/adblock/cosmetic_content_js.inc

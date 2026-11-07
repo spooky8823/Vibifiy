@@ -1,5 +1,6 @@
 #include "adblock_service.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <utility>
 
@@ -23,6 +24,35 @@ namespace {
 std::string ToUtf8(const std::filesystem::path& path) {
   const auto u8 = path.u8string();
   return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
+}
+
+// Per-user, writable directory for downloaded lists. Empty if unavailable.
+std::filesystem::path UserFilterDirectory() {
+#if defined(_WIN32)
+  if (const wchar_t* base = _wgetenv(L"LOCALAPPDATA")) {
+    return std::filesystem::path(base) / L"Vibrium" / L"filters";
+  }
+#endif
+  return {};
+}
+
+// Copies the shipped lists (the baseline) into `user_dir`, replacing a copy
+// that differs, so an upgraded baseline reaches users who already have a
+// user directory. Failures are non-fatal.
+void SeedShippedLists(const std::filesystem::path& shipped,
+                      const std::filesystem::path& user_dir) {
+  std::error_code ec;
+  for (const auto& entry : std::filesystem::directory_iterator(shipped, ec)) {
+    const auto& p = entry.path();
+    if (!entry.is_regular_file(ec) || p.extension() != ".txt") continue;
+    const auto dest = user_dir / p.filename();
+    if (std::filesystem::exists(dest, ec) &&
+        std::filesystem::file_size(dest, ec) == entry.file_size(ec)) {
+      continue;
+    }
+    std::filesystem::copy_file(
+        p, dest, std::filesystem::copy_options::overwrite_existing, ec);
+  }
 }
 
 std::filesystem::path ExecutableDirectory() {
@@ -56,6 +86,10 @@ AdblockService::AdblockService()
 }
 
 void AdblockService::Shutdown() {
+  if (updater_) {
+    updater_->Cancel();
+    updater_.reset();
+  }
   // Remove the raw handler pointer before destroying the handler itself.
   if (router_ && cosmetic_handler_) {
     router_->RemoveHandler(cosmetic_handler_.get());
@@ -86,13 +120,29 @@ bool AdblockService::Initialize(CefRefPtr<CefCommandLine> command_line) {
   }
 
   std::string filter_dir;
-  if (command_line && command_line->HasSwitch("filter-dir")) {
+  const bool explicit_dir =
+      command_line && command_line->HasSwitch("filter-dir");
+  if (explicit_dir) {
     filter_dir = command_line->GetSwitchValue("filter-dir").ToString();
   }
+  const std::filesystem::path shipped_dir = ExecutableDirectory() / "filters";
+  bool use_updater = false;
   if (filter_dir.empty()) {
     // Deliberately not the working directory: that depends on how the
-    // browser was launched.
-    filter_dir = ToUtf8(ExecutableDirectory() / "filters");
+    // browser was launched. Prefer the per-user directory so downloaded
+    // lists can be stored (the install directory is often read-only).
+    const std::filesystem::path user_dir = UserFilterDirectory();
+    std::error_code ec;
+    if (!user_dir.empty() &&
+        (std::filesystem::create_directories(user_dir, ec) ||
+         std::filesystem::is_directory(user_dir, ec))) {
+      SeedShippedLists(shipped_dir, user_dir);
+      filter_dir = ToUtf8(user_dir);
+      use_updater = !(command_line &&
+                      command_line->HasSwitch("no-filter-updates"));
+    } else {
+      filter_dir = ToUtf8(shipped_dir);
+    }
   }
 
   filter_dir_ = filter_dir;
@@ -100,12 +150,19 @@ bool AdblockService::Initialize(CefRefPtr<CefCommandLine> command_line) {
     engine_->Set(std::move(engine));
     enabled_ = true;
     LOG(INFO) << "Ad blocking enabled; filter lists from " << filter_dir;
-    return true;
+  } else {
+    enabled_ = false;
+    LOG(WARNING) << "Ad blocking DISABLED: no usable filter lists in "
+                 << filter_dir;
   }
-  enabled_ = false;
-  LOG(WARNING) << "Ad blocking DISABLED: no usable filter lists in "
-               << filter_dir;
-  return false;
+
+  // Start downloading even if nothing usable was loaded yet: the updater
+  // installs the engine when the first lists arrive.
+  if (use_updater) {
+    updater_ = FilterListUpdater::Create(engine_, filter_dir);
+    updater_->Start();
+  }
+  return enabled_;
 }
 
 void AdblockService::ApplyCosmeticFilters(CefRefPtr<CefFrame> frame) const {

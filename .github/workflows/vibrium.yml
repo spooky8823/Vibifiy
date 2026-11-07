@@ -484,7 +484,7 @@ jobs:
 
             # 3) No --filter-dir: proves the filters that were PACKAGED are found
             #    in the default <exe dir>/filters and actually block.
-            Invoke-SelfTest 'packaged-default-filters' @()
+            Invoke-SelfTest 'packaged-default-filters' @('--no-filter-updates')
           } finally {
             if (-not $server.HasExited) { $server.Kill() }
             Copy-Item "$package/debug.log" diagnostics/ -ErrorAction SilentlyContinue
