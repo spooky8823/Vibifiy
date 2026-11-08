@@ -19,6 +19,12 @@ license texts ship with the respective sources or distributions.
 - Project: https://bitbucket.org/chromiumembedded/cef (mirror:
   https://github.com/chromiumembedded/cef)
 - Pinned build: see `cef-version.txt` (downloaded in CI, never committed).
+- Codec build: the pinned archive is a third-party build of the same CEF
+  version with `proprietary_codecs=true ffmpeg_branding=Chrome`
+  (https://github.com/psmux/godwinmix-cef), verified in CI by pinned SHA1 and
+  SHA256. **H.264 and AAC are patent-licensed technologies. These flags enable
+  the decoders but do not grant a patent licence; review this before
+  distributing Vibrium widely.**
 - License: BSD-3-Clause for CEF itself (`LICENSE.txt` in the distribution).
   The distribution also contains Chromium and its third-party components under
   their own licenses; **any redistributed Vibrium build must include the

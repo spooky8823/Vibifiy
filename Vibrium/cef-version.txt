@@ -1,13 +1,20 @@
-﻿# CEF binary distribution used by Vibrium (official index:
-# https://cef-builds.spotifycdn.com/index.json, windows64).
-# CI downloads exactly this build and refuses it if it does not match the
-# SHA1 listed in the official index, or the SHA1 pinned below when set.
+﻿# CEF binary distribution used by Vibrium.
+# Vibrium needs H.264/AAC (most streaming sites), which the official Spotify
+# builds lack (CEF issue #3559). The pinned archive is a third-party build of
+# the same, unmodified CEF version compiled with
+# proprietary_codecs=true ffmpeg_branding=Chrome (github.com/psmux/godwinmix-cef).
+# Because it is not in the official index, CI verifies it against the SHA1 AND
+# SHA256 pinned below and fails if either is missing or different.
+# To go back to the official build: delete CEF_DOWNLOAD_BASE, set
+# CEF_DISTRIBUTION=minimal and clear the two hashes (CI then checks the
+# official index at https://cef-builds.spotifycdn.com/index.json instead).
 # To upgrade: change CEF_VERSION (and CEF_SHA1), then re-verify the CEF APIs
 # used under c++/ against the new headers and update THIRD_PARTY_NOTICES.md.
 CEF_VERSION=154.0.34+g14c5a08+chromium-154.0.8037.98
 CEF_PLATFORM=windows64
 # "standard" archives have no suffix; "minimal" adds _minimal.
-CEF_DISTRIBUTION=standard
-# Pin these after the first CI run (it prints both in the job summary).
-CEF_SHA1=
-CEF_SHA256=
+CEF_DISTRIBUTION=minimal
+# Where the archive is downloaded from (no trailing slash). Empty = official CDN.
+CEF_DOWNLOAD_BASE=https://github.com/psmux/godwinmix-cef/releases/download/cef-154.0.34
+CEF_SHA1=a65470732caf00d89a437f87166c2deeb27b7433
+CEF_SHA256=af1f188711b4e9220c87e2a90377d5bddd70e163909070dd81f6f3bb2fc884ce

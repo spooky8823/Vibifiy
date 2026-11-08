@@ -156,6 +156,7 @@ jobs:
           "archive=$archive"          >> $env:GITHUB_OUTPUT
           "sha1=$($pin.CEF_SHA1)"     >> $env:GITHUB_OUTPUT
           "sha256=$($pin.CEF_SHA256)" >> $env:GITHUB_OUTPUT
+          "base=$($pin.CEF_DOWNLOAD_BASE)" >> $env:GITHUB_OUTPUT
 
       - name: Cache extracted CEF
         id: cef-cache
@@ -173,8 +174,20 @@ jobs:
           CEF_PLATFORM: ${{ steps.pin.outputs.platform }}
           PINNED_SHA1: ${{ steps.pin.outputs.sha1 }}
           PINNED_SHA256: ${{ steps.pin.outputs.sha256 }}
+          CEF_BASE: ${{ steps.pin.outputs.base }}
         run: |
-          $url = "https://cef-builds.spotifycdn.com/$env:CEF_ARCHIVE"
+          $custom = [bool]$env:CEF_BASE
+          if ($custom) {
+            # Not in the official index: both pinned hashes are mandatory.
+            if (-not $env:PINNED_SHA1 -or -not $env:PINNED_SHA256) {
+              throw "CEF_DOWNLOAD_BASE is set, so CEF_SHA1 and CEF_SHA256 must be pinned in cef-version.txt."
+            }
+            # '+' in the version must be percent-encoded for GitHub release URLs.
+            $url = "$($env:CEF_BASE.TrimEnd('/'))/$([uri]::EscapeDataString($env:CEF_ARCHIVE))"
+          } else {
+            $url = "https://cef-builds.spotifycdn.com/$env:CEF_ARCHIVE"
+          }
+          Write-Host "Downloading CEF from $url"
           $archive = Join-Path $env:RUNNER_TEMP $env:CEF_ARCHIVE
 
           curl.exe -L --fail --retry 3 "$url" -o "$archive"
@@ -183,13 +196,15 @@ jobs:
           $sha1   = (Get-FileHash $archive -Algorithm SHA1).Hash.ToLower()
           $sha256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
 
-          # Expected SHA1 according to CEF's official build index.
-          $index = Invoke-RestMethod https://cef-builds.spotifycdn.com/index.json
-          $entry = $index.($env:CEF_PLATFORM).versions |
-            Where-Object { $_.cef_version -eq $env:CEF_VERSION } | Select-Object -First 1
-          $file = $entry.files | Where-Object { $_.name -eq $env:CEF_ARCHIVE } | Select-Object -First 1
-          if (-not $file) { throw "$env:CEF_ARCHIVE is not listed in the official CEF index." }
-          $indexSha1 = $file.sha1.ToLower()
+          if (-not $custom) {
+            # Expected SHA1 according to CEF's official build index.
+            $index = Invoke-RestMethod https://cef-builds.spotifycdn.com/index.json
+            $entry = $index.($env:CEF_PLATFORM).versions |
+              Where-Object { $_.cef_version -eq $env:CEF_VERSION } | Select-Object -First 1
+            $file = $entry.files | Where-Object { $_.name -eq $env:CEF_ARCHIVE } | Select-Object -First 1
+            if (-not $file) { throw "$env:CEF_ARCHIVE is not listed in the official CEF index." }
+            $indexSha1 = $file.sha1.ToLower()
+          }
 
           @(
             "### CEF archive",
@@ -199,7 +214,7 @@ jobs:
             "- Pin these as CEF_SHA1 / CEF_SHA256 in ``Vibrium/cef-version.txt``."
           ) | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
-          if ($sha1 -ne $indexSha1) { throw "SHA1 $sha1 does not match the official index ($indexSha1)." }
+          if (-not $custom -and $sha1 -ne $indexSha1) { throw "SHA1 $sha1 does not match the official index ($indexSha1)." }
           if ($env:PINNED_SHA1 -and $sha1 -ne $env:PINNED_SHA1.ToLower()) {
             throw "SHA1 $sha1 does not match the pinned CEF_SHA1 ($env:PINNED_SHA1)."
           }
