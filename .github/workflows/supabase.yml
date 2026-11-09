@@ -2,9 +2,7 @@ name: Ping Supabase Database
 
 on:
   schedule:
-    # Runs every 6 hours
     - cron: '0 */6 * * *'
-  # Allows you to run this workflow manually from the GitHub Actions tab
   workflow_dispatch:
 
 jobs:
@@ -13,6 +11,6 @@ jobs:
     steps:
       - name: Ping Supabase Rest API
         run: |
-          curl -X GET "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+          curl -X GET "https://pmpvchacduibmciylhni.supabase.co/rest/v1/?select=count" \
           -H "apikey: ${{ secrets.SUPABASE_SECRET_KEY }}" \
           -H "Authorization: Bearer ${{ secrets.SUPABASE_SECRET_KEY }}"
