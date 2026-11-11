@@ -325,7 +325,7 @@ jobs:
       - name: Package snapshot
         shell: pwsh
         run: |
-          $package = "Vibrium_snapshot2026-10-31"
+          $package = "Vibrium-Snapshot"
 
           New-Item -ItemType Directory -Force `
             -Path $package | Out-Null
@@ -590,8 +590,8 @@ jobs:
       - name: Upload snapshot artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Vibrium_snapshot2026-10-31
-          path: Vibrium_snapshot2026-10-31.zip
+          name: Vibrium-Snapshot
+          path: Vibrium_Snapshot.zip
           if-no-files-found: error
           retention-days: 30
 
