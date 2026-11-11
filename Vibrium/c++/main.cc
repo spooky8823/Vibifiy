@@ -27,7 +27,7 @@
 
 #include "ui/tabbar.h"
 #include "ui/searchengine.h"
-#include "ui/console_window.h"
+#include "ui/settings_page.h"
 #include "adblock/adblock_service.h"
 #include "selftest.h"
 #include "include/cef_load_handler.h"
@@ -37,7 +37,6 @@ namespace vibrium {
 
 constexpr wchar_t kWindowClass[] = L"VibriumMainWindow";
 constexpr wchar_t kWindowTitle[] = L"Vibrium";
-constexpr UINT kOpenConsoleCommand = 50001;
 
 constexpr UINT_PTR kMemoryTimer = 1;
 constexpr UINT_PTR kSelfTestTimer = 2;
@@ -241,6 +240,9 @@ struct TabRecord {
     bool playingAudio = false;
     bool closingBrowser = false;
     bool browserCreating = false;
+
+    // The built-in settings page: a native view, no CEF browser.
+    bool isSettings = false;
 };
 
 // ------------------------------------------------------------
@@ -283,12 +285,6 @@ public:
         if (!hwnd_) {
             return false;
         }
-
-        HMENU menu = CreateMenu();
-        HMENU settingsMenu = CreatePopupMenu();
-        AppendMenuW(settingsMenu, MF_STRING, kOpenConsoleCommand, L"Console");
-        AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(settingsMenu), L"Settings");
-        SetMenu(hwnd_, menu);
 
         ShowWindow(hwnd_, SW_SHOW);
         UpdateWindow(hwnd_);
@@ -345,6 +341,18 @@ public:
                 NavigateActiveTab(url);
             });
 
+        searchBar_->SetOnSettings(
+            [this]() {
+                OpenSettings();
+            });
+
+        settingsPage_ = std::make_unique<SettingsPage>();
+
+        if (!settingsPage_->Create(hwnd_, instance_)) {
+            // Not fatal: browsing works, the gear button just does nothing.
+            settingsPage_.reset();
+        }
+
         SetTimer(
             hwnd_,
             kMemoryTimer,
@@ -398,11 +406,20 @@ public:
     // --------------------------------------------------------
 
     void CreateNewTab() {
+        CreateTab(GetNewTabUrl(), L"New Tab", false);
+    }
+
+    void CreateTab(
+        const std::wstring& url,
+        const std::wstring& title,
+        bool isSettings) {
+
         TabRecord tab;
 
         tab.id = nextTabId_++;
-        tab.title = L"New Tab";
-        tab.url = GetNewTabUrl();
+        tab.title = title;
+        tab.url = url;
+        tab.isSettings = isSettings;
         tab.lastActiveTime = GetTickCount64();
 
         const int id = tab.id;
@@ -411,10 +428,46 @@ public:
 
         const int index = static_cast<int>(tabs_.size()) - 1;
 
-        tabBar_->AddTab(L"New Tab");
+        tabBar_->AddTab(title);
         SelectTab(index);
 
         (void)id;
+    }
+
+    // --------------------------------------------------------
+    // Settings page (native view shown in place of a browser)
+    // --------------------------------------------------------
+
+    // Opens the settings page as a tab, or switches to it if it is open.
+    void OpenSettings() {
+        if (!settingsPage_) {
+            return;
+        }
+
+        for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
+            if (tabs_[i].isSettings) {
+                SelectTab(i);
+                return;
+            }
+        }
+
+        CreateTab(kSettingsUrl, L"Settings", true);
+    }
+
+    void ShowSettingsPage() {
+        if (!settingsPage_) {
+            return;
+        }
+
+        RECT rect{};
+        GetBrowserBounds(rect);
+        settingsPage_->Show(rect);
+    }
+
+    void HideSettingsPage() {
+        if (settingsPage_) {
+            settingsPage_->Hide();
+        }
     }
 
     // --------------------------------------------------------
@@ -453,6 +506,13 @@ public:
 
         UpdateAddressBar();
 
+        if (selected.isSettings) {
+            ShowSettingsPage();
+            return;
+        }
+
+        HideSettingsPage();
+
         if (selected.browser) {
             ShowBrowser(selected);
         } else if (!selected.browserCreating &&
@@ -466,7 +526,8 @@ public:
     // --------------------------------------------------------
 
     void CreateBrowserForTab(TabRecord& tab) {
-        if (tab.browser ||
+        if (tab.isSettings ||
+            tab.browser ||
             tab.browserCreating ||
             tab.closingBrowser) {
             return;
@@ -599,6 +660,10 @@ public:
 
         const bool wasActive = index == activeTab_;
 
+        if (tabs_[index].isSettings) {
+            HideSettingsPage();
+        }
+
         if (tabs_[index].browser) {
             tabs_[index].closingBrowser = true;
             tabs_[index].browser->GetHost()->CloseBrowser(true);
@@ -626,7 +691,9 @@ public:
 
         TabRecord& selected = tabs_[activeTab_];
 
-        if (selected.browser) {
+        if (selected.isSettings) {
+            ShowSettingsPage();
+        } else if (selected.browser) {
             ShowBrowser(selected);
         } else if (!selected.browserCreating &&
                    !selected.closingBrowser) {
@@ -645,6 +712,22 @@ public:
 
     if (!tab) {
         return;
+    }
+
+    // "vibrium://settings" opens (or switches to) the settings tab.
+    if (IsSettingsUrl(url)) {
+        if (tab->isSettings) {
+            UpdateAddressBar();
+        } else {
+            OpenSettings();
+        }
+        return;
+    }
+
+    // Navigating away from the settings tab turns it into a normal tab.
+    if (tab->isSettings) {
+        tab->isSettings = false;
+        HideSettingsPage();
     }
 
     tab->url = url;
@@ -821,17 +904,6 @@ public:
     // Window resizing
     // --------------------------------------------------------
 
-    void OpenConsole() {
-        if (!console_) {
-            console_ = std::make_unique<ConsoleWindow>();
-            if (!console_->Create(hwnd_, instance_)) {
-                console_.reset();
-                MessageBoxW(hwnd_, L"Could not open the console.", L"Vibrium", MB_OK | MB_ICONERROR);
-                return;
-            }
-        }
-        console_->Show();
-    }
 
     void ResizeUI() {
         if (!hwnd_) {
@@ -860,6 +932,10 @@ public:
                 tab.id == GetActiveTabId()) {
                 ShowBrowser(tab);
             }
+        }
+
+        if (settingsPage_ && settingsPage_->visible()) {
+            ShowSettingsPage();
         }
 
         (void)height;
@@ -961,13 +1037,6 @@ private:
         case WM_CREATE:
             return self->InitializeUI() ? 0 : -1;
 
-        case WM_COMMAND:
-            if (LOWORD(wParam) == kOpenConsoleCommand) {
-                self->OpenConsole();
-                return 0;
-            }
-            break;
-
         case WM_SIZE:
             self->ResizeUI();
             return 0;
@@ -1010,7 +1079,6 @@ private:
             break;
         }
 
-        // WM_COMMAND can intentionally fall through after an unhandled command.
         // Keep every path through this window procedure returning a result.
         return DefWindowProcW(hwnd, message, wParam, lParam);
     }
@@ -1059,7 +1127,7 @@ private:
 
     std::unique_ptr<TabBar> tabBar_;
     std::unique_ptr<SearchEngine> searchBar_;
-    std::unique_ptr<ConsoleWindow> console_;
+    std::unique_ptr<SettingsPage> settingsPage_;
 
     std::vector<TabRecord> tabs_;
 

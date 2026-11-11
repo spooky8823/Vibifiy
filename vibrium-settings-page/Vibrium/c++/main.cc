@@ -1,0 +1,1308 @@
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
+#include <windows.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "include/cef_app.h"
+#include "include/cef_browser.h"
+#include "include/cef_client.h"
+#include "include/cef_display_handler.h"
+#include "include/cef_download_handler.h"
+#include "include/cef_audio_handler.h"
+#include "include/cef_life_span_handler.h"
+#include "include/cef_request_context.h"
+
+#include "ui/tabbar.h"
+#include "ui/searchengine.h"
+#include "ui/settings_page.h"
+#include "adblock/adblock_service.h"
+#include "selftest.h"
+#include "include/cef_load_handler.h"
+
+
+namespace vibrium {
+
+constexpr wchar_t kWindowClass[] = L"VibriumMainWindow";
+constexpr wchar_t kWindowTitle[] = L"Vibrium";
+
+constexpr UINT_PTR kMemoryTimer = 1;
+constexpr UINT_PTR kSelfTestTimer = 2;
+constexpr UINT kFinalizeShutdownMessage = WM_APP + 1;
+constexpr UINT kMemoryCheckInterval = 15000;
+constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
+
+constexpr int kTabBarHeight = 36;
+constexpr int kSearchBarHeight = 44;
+constexpr int kBrowserTop = kTabBarHeight + kSearchBarHeight;
+
+class MainWindow;
+
+// ------------------------------------------------------------
+// CEF application
+// ------------------------------------------------------------
+
+// Runs in the browser process and in every renderer. The renderer half
+// exposes window.cefQuery to page scripts so the cosmetic content script can
+// ask the browser for generic class/id selectors (see adblock/
+// adblock_cosmetic_router.h).
+class VibriumApp final
+    : public CefApp,
+      public CefRenderProcessHandler {
+public:
+    CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override {
+        return this;
+    }
+
+    void OnWebKitInitialized() override {
+        // Keep the renderer half of the cosmetic query router disabled during
+        // the CI isolation run as well. Disabling only the browser-side router
+        // is not a complete isolation because renderer-side callbacks still
+        // participate in CEF teardown.
+        CefRefPtr<CefCommandLine> command_line =
+            CefCommandLine::GetGlobalCommandLine();
+        if (command_line &&
+            command_line->HasSwitch("disable-cosmetic-router")) {
+            return;
+        }
+
+        rendererRouter_ = CefMessageRouterRendererSide::Create(
+            vibrium::CosmeticRouterConfig());
+    }
+
+    void OnContextCreated(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        CefRefPtr<CefV8Context> context) override {
+        if (rendererRouter_) {
+            rendererRouter_->OnContextCreated(browser, frame, context);
+        }
+    }
+
+    void OnContextReleased(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        CefRefPtr<CefV8Context> context) override {
+        if (rendererRouter_) {
+            rendererRouter_->OnContextReleased(browser, frame, context);
+        }
+    }
+
+    bool OnProcessMessageReceived(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        CefProcessId source_process,
+        CefRefPtr<CefProcessMessage> message) override {
+        return rendererRouter_ &&
+               rendererRouter_->OnProcessMessageReceived(
+                   browser, frame, source_process, message);
+    }
+
+private:
+    CefRefPtr<CefMessageRouterRendererSide> rendererRouter_;
+
+    IMPLEMENT_REFCOUNTING(VibriumApp);
+};
+
+// ------------------------------------------------------------
+// Per-tab browser client
+// ------------------------------------------------------------
+
+class BrowserClient final
+    : public CefClient,
+      public CefLifeSpanHandler,
+      public CefDisplayHandler,
+      public CefDownloadHandler,
+      public CefAudioHandler,
+      public CefLoadHandler {
+public:
+    BrowserClient(MainWindow* owner, int tabId)
+        : owner_(owner), tabId_(tabId) {}
+
+    CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override {
+        return this;
+    }
+
+    CefRefPtr<CefDisplayHandler> GetDisplayHandler() override {
+        return this;
+    }
+
+    CefRefPtr<CefDownloadHandler> GetDownloadHandler() override {
+        return this;
+    }
+
+    CefRefPtr<CefAudioHandler> GetAudioHandler() override {
+        return this;
+    }
+
+    // Ad blocking: shared request handler + cosmetic filter injection.
+    CefRefPtr<CefRequestHandler> GetRequestHandler() override {
+        return AdblockService::Get().request_handler();
+    }
+
+    CefRefPtr<CefLoadHandler> GetLoadHandler() override {
+        return this;
+    }
+
+    // window.cefQuery calls from page scripts (generic cosmetic selectors).
+    bool OnProcessMessageReceived(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        CefProcessId source_process,
+        CefRefPtr<CefProcessMessage> message) override {
+        return AdblockService::Get().OnProcessMessageReceived(
+            browser, frame, source_process, message);
+    }
+
+    void OnLoadStart(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        TransitionType transition_type) override;
+
+    void OnAfterCreated(CefRefPtr<CefBrowser> browser) override;
+
+    void OnBeforeClose(CefRefPtr<CefBrowser> browser) override;
+
+    void OnAddressChange(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        const CefString& url) override;
+
+    void OnTitleChange(
+        CefRefPtr<CefBrowser> browser,
+        const CefString& title) override;
+
+    bool OnBeforeDownload(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefDownloadItem> item,
+        const CefString& suggestedName,
+        CefRefPtr<CefBeforeDownloadCallback> callback) override;
+
+    void OnDownloadUpdated(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefDownloadItem> item,
+        CefRefPtr<CefDownloadItemCallback> callback) override;
+
+    void OnAudioStreamStarted(
+        CefRefPtr<CefBrowser> browser,
+        const CefAudioParameters& params,
+        int channels) override;
+
+    void OnAudioStreamStopped(
+        CefRefPtr<CefBrowser> browser) override;
+
+    void OnAudioStreamPacket(
+        CefRefPtr<CefBrowser> browser,
+        const float** data,
+        int frames,
+        int64_t pts) override;
+
+    void OnAudioStreamError(
+        CefRefPtr<CefBrowser> browser,
+        const CefString& message) override;
+
+private:
+    MainWindow* owner_;
+    int tabId_;
+
+    IMPLEMENT_REFCOUNTING(BrowserClient);
+};
+
+// ------------------------------------------------------------
+// Tab state
+// ------------------------------------------------------------
+
+struct TabRecord {
+    int id = 0;
+
+    std::wstring title = L"New Tab";
+    std::wstring url;
+
+    CefRefPtr<CefBrowser> browser;
+    CefRefPtr<BrowserClient> client;
+
+    ULONGLONG lastActiveTime = 0;
+
+    int activeDownloads = 0;
+
+    bool playingAudio = false;
+    bool closingBrowser = false;
+    bool browserCreating = false;
+
+    // The built-in settings page: a native view, no CEF browser.
+    bool isSettings = false;
+};
+
+// ------------------------------------------------------------
+// Main window
+// ------------------------------------------------------------
+
+class MainWindow {
+public:
+    bool Create(HINSTANCE instance) {
+        instance_ = instance;
+
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = WindowProc;
+        wc.hInstance = instance_;
+        wc.lpszClassName = kWindowClass;
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hbrBackground =
+            reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+
+        if (!RegisterClassExW(&wc) &&
+            GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            return false;
+        }
+
+        hwnd_ = CreateWindowExW(
+            0,
+            kWindowClass,
+            kWindowTitle,
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            1280,
+            800,
+            nullptr,
+            nullptr,
+            instance_,
+            this);
+
+        if (!hwnd_) {
+            return false;
+        }
+
+        ShowWindow(hwnd_, SW_SHOW);
+        UpdateWindow(hwnd_);
+
+        return true;
+    }
+
+    // --------------------------------------------------------
+    // UI initialization
+    // --------------------------------------------------------
+
+    bool InitializeUI() {
+        tabBar_ = std::make_unique<TabBar>();
+
+        if (!tabBar_->Create(
+                hwnd_,
+                instance_,
+                0,
+                0,
+                1280,
+                kTabBarHeight)) {
+            return false;
+        }
+
+        searchBar_ = std::make_unique<SearchEngine>();
+
+        if (!searchBar_->Create(
+                hwnd_,
+                instance_,
+                0,
+                kTabBarHeight,
+                1280,
+                kSearchBarHeight)) {
+            return false;
+        }
+
+        tabBar_->SetOnTabSelected(
+            [this](int index) {
+                SelectTab(index);
+            });
+
+        tabBar_->SetOnTabClosed(
+            [this](int index) {
+                CloseTab(index);
+            });
+
+        tabBar_->SetOnNewTab(
+            [this]() {
+                CreateNewTab();
+            });
+
+        searchBar_->SetOnNavigate(
+            [this](const std::wstring& url) {
+                NavigateActiveTab(url);
+            });
+
+        searchBar_->SetOnSettings(
+            [this]() {
+                OpenSettings();
+            });
+
+        settingsPage_ = std::make_unique<SettingsPage>();
+
+        if (!settingsPage_->Create(hwnd_, instance_)) {
+            // Not fatal: browsing works, the gear button just does nothing.
+            settingsPage_.reset();
+        }
+
+        SetTimer(
+            hwnd_,
+            kMemoryTimer,
+            kMemoryCheckInterval,
+            nullptr);
+
+        if (SelfTest::Get().enabled()) {
+            SetTimer(hwnd_, kSelfTestTimer, SelfTest::kTimeoutMs, nullptr);
+        }
+
+        CreateNewTab();
+
+        return true;
+    }
+
+    // --------------------------------------------------------
+    // Tab lookup
+    // --------------------------------------------------------
+
+    TabRecord* FindTab(int id) {
+        for (auto& tab : tabs_) {
+            if (tab.id == id) {
+                return &tab;
+            }
+        }
+
+        return nullptr;
+    }
+
+    int FindTabIndex(int id) const {
+        for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
+            if (tabs_[i].id == id) {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    TabRecord* GetActiveTab() {
+        if (activeTab_ < 0 ||
+            activeTab_ >= static_cast<int>(tabs_.size())) {
+            return nullptr;
+        }
+
+        return &tabs_[activeTab_];
+    }
+
+    // --------------------------------------------------------
+    // Tab creation
+    // --------------------------------------------------------
+
+    void CreateNewTab() {
+        CreateTab(GetNewTabUrl(), L"New Tab", false);
+    }
+
+    void CreateTab(
+        const std::wstring& url,
+        const std::wstring& title,
+        bool isSettings) {
+
+        TabRecord tab;
+
+        tab.id = nextTabId_++;
+        tab.title = title;
+        tab.url = url;
+        tab.isSettings = isSettings;
+        tab.lastActiveTime = GetTickCount64();
+
+        const int id = tab.id;
+
+        tabs_.push_back(std::move(tab));
+
+        const int index = static_cast<int>(tabs_.size()) - 1;
+
+        tabBar_->AddTab(title);
+        SelectTab(index);
+
+        (void)id;
+    }
+
+    // --------------------------------------------------------
+    // Settings page (native view shown in place of a browser)
+    // --------------------------------------------------------
+
+    // Opens the settings page as a tab, or switches to it if it is open.
+    void OpenSettings() {
+        if (!settingsPage_) {
+            return;
+        }
+
+        for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
+            if (tabs_[i].isSettings) {
+                SelectTab(i);
+                return;
+            }
+        }
+
+        CreateTab(kSettingsUrl, L"Settings", true);
+    }
+
+    void ShowSettingsPage() {
+        if (!settingsPage_) {
+            return;
+        }
+
+        RECT rect{};
+        GetBrowserBounds(rect);
+        settingsPage_->Show(rect);
+    }
+
+    void HideSettingsPage() {
+        if (settingsPage_) {
+            settingsPage_->Hide();
+        }
+    }
+
+    // --------------------------------------------------------
+    // Tab selection
+    // --------------------------------------------------------
+
+    void SelectTab(int index) {
+        if (index < 0 ||
+            index >= static_cast<int>(tabs_.size())) {
+            return;
+        }
+
+        if (activeTab_ >= 0 &&
+            activeTab_ < static_cast<int>(tabs_.size())) {
+            TabRecord& previous = tabs_[activeTab_];
+
+            if (previous.browser) {
+                HWND previousWindow =
+                    previous.browser->GetHost()->GetWindowHandle();
+
+                if (previousWindow) {
+                    ShowWindow(previousWindow, SW_HIDE);
+                }
+
+                previous.browser->GetHost()->WasHidden(true);
+            }
+        }
+
+        activeTab_ = index;
+
+        TabRecord& selected = tabs_[activeTab_];
+
+        selected.lastActiveTime = GetTickCount64();
+
+        tabBar_->SetActiveTab(index);
+
+        UpdateAddressBar();
+
+        if (selected.isSettings) {
+            ShowSettingsPage();
+            return;
+        }
+
+        HideSettingsPage();
+
+        if (selected.browser) {
+            ShowBrowser(selected);
+        } else if (!selected.browserCreating &&
+                   !selected.closingBrowser) {
+            CreateBrowserForTab(selected);
+        }
+    }
+
+    // --------------------------------------------------------
+    // Browser creation
+    // --------------------------------------------------------
+
+    void CreateBrowserForTab(TabRecord& tab) {
+        if (tab.isSettings ||
+            tab.browser ||
+            tab.browserCreating ||
+            tab.closingBrowser) {
+            return;
+        }
+
+        tab.browserCreating = true;
+
+        RECT rect{};
+        GetBrowserBounds(rect);
+
+        CefWindowInfo windowInfo;
+        windowInfo.SetAsChild(
+            hwnd_,
+            CefRect(
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top
+            )
+        );
+
+        CefBrowserSettings browserSettings{};
+
+        tab.client = new BrowserClient(this, tab.id);
+
+        const bool created = CefBrowserHost::CreateBrowser(
+            windowInfo,
+            tab.client,
+            tab.url,
+            browserSettings,
+            nullptr,
+            CefRequestContext::GetGlobalContext());
+
+        if (!created) {
+            tab.browserCreating = false;
+            tab.client = nullptr;
+
+            MessageBoxW(
+                hwnd_,
+                L"Could not create this tab's browser.",
+                L"Vibrium",
+                MB_OK | MB_ICONERROR);
+        }
+    }
+
+    void OnBrowserCreated(
+    int tabId,
+    CefRefPtr<CefBrowser> browser) {
+
+    TabRecord* tab = FindTab(tabId);
+
+    if (!tab) {
+        browser->GetHost()->CloseBrowser(true);
+        return;
+    }
+
+    tab->browser = browser;
+    tab->browserCreating = false;
+
+    // If shutdown started while CEF was creating this browser,
+    // close it immediately instead of displaying it.
+    if (closeRequested_) {
+        tab->closingBrowser = true;
+        browser->GetHost()->CloseBrowser(true);
+        return;
+    }
+
+    if (tabId == GetActiveTabId()) {
+        ShowBrowser(*tab);
+    } else {
+        browser->GetHost()->WasHidden(true);
+
+        HWND window = browser->GetHost()->GetWindowHandle();
+
+        if (window) {
+            ShowWindow(window, SW_HIDE);
+        }
+    }
+ }
+
+    void ShowBrowser(TabRecord& tab) {
+        if (!tab.browser) {
+            return;
+        }
+
+        RECT rect{};
+        GetBrowserBounds(rect);
+
+        HWND window =
+            tab.browser->GetHost()->GetWindowHandle();
+
+        if (window) {
+            MoveWindow(
+                window,
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                TRUE);
+
+            ShowWindow(window, SW_SHOW);
+        }
+
+        tab.browser->GetHost()->WasHidden(false);
+        tab.browser->GetHost()->WasResized();
+
+        tab.lastActiveTime = GetTickCount64();
+    }
+
+    int GetActiveTabId() const {
+        if (activeTab_ < 0 ||
+            activeTab_ >= static_cast<int>(tabs_.size())) {
+            return -1;
+        }
+
+        return tabs_[activeTab_].id;
+    }
+
+    // --------------------------------------------------------
+    // Tab closing
+    // --------------------------------------------------------
+
+    void CloseTab(int index) {
+        if (index < 0 ||
+            index >= static_cast<int>(tabs_.size())) {
+            return;
+        }
+
+        const int closingId = tabs_[index].id;
+
+        const bool wasActive = index == activeTab_;
+
+        if (tabs_[index].isSettings) {
+            HideSettingsPage();
+        }
+
+        if (tabs_[index].browser) {
+            tabs_[index].closingBrowser = true;
+            tabs_[index].browser->GetHost()->CloseBrowser(true);
+        }
+
+        tabs_.erase(tabs_.begin() + index);
+        tabBar_->RemoveTab(index);
+
+        if (tabs_.empty()) {
+            activeTab_ = -1;
+            CreateNewTab();
+            return;
+        }
+
+        if (wasActive) {
+            activeTab_ = std::min(
+                index,
+                static_cast<int>(tabs_.size()) - 1);
+        } else if (activeTab_ > index) {
+            --activeTab_;
+        }
+
+        tabBar_->SetActiveTab(activeTab_);
+        UpdateAddressBar();
+
+        TabRecord& selected = tabs_[activeTab_];
+
+        if (selected.isSettings) {
+            ShowSettingsPage();
+        } else if (selected.browser) {
+            ShowBrowser(selected);
+        } else if (!selected.browserCreating &&
+                   !selected.closingBrowser) {
+            CreateBrowserForTab(selected);
+        }
+
+        (void)closingId;
+    }
+
+    // --------------------------------------------------------
+    // Navigation
+    // --------------------------------------------------------
+
+    void NavigateActiveTab(const std::wstring& url) {
+    TabRecord* tab = GetActiveTab();
+
+    if (!tab) {
+        return;
+    }
+
+    // "vibrium://settings" opens (or switches to) the settings tab.
+    if (IsSettingsUrl(url)) {
+        if (tab->isSettings) {
+            UpdateAddressBar();
+        } else {
+            OpenSettings();
+        }
+        return;
+    }
+
+    // Navigating away from the settings tab turns it into a normal tab.
+    if (tab->isSettings) {
+        tab->isSettings = false;
+        HideSettingsPage();
+    }
+
+    tab->url = url;
+
+    if (tab->browser) {
+        tab->browser->GetMainFrame()->LoadURL(url);
+    } else if (!tab->browserCreating) {
+        CreateBrowserForTab(*tab);
+    }
+}
+
+    void UpdateAddressBar() {
+        TabRecord* tab = GetActiveTab();
+
+        if (tab && searchBar_) {
+            searchBar_->SetText(tab->url);
+        }
+    }
+
+    // --------------------------------------------------------
+    // Address and title updates
+    // --------------------------------------------------------
+
+    void OnAddressChanged(
+        int tabId,
+        const std::wstring& url) {
+
+        TabRecord* tab = FindTab(tabId);
+
+        if (!tab) {
+            return;
+        }
+
+        tab->url = url;
+
+        if (tabId == GetActiveTabId()) {
+            UpdateAddressBar();
+        }
+    }
+
+    void OnTitleChanged(
+    int tabId,
+    const std::wstring& title) {
+
+    TabRecord* tab = FindTab(tabId);
+
+    if (!tab) {
+        return;
+    }
+
+    tab->title = title.empty() ? L"New Tab" : title;
+
+    const int index = FindTabIndex(tabId);
+
+    if (index >= 0 && tabBar_) {
+        tabBar_->SetTabTitle(index, tab->title);
+    }
+
+    if (SelfTest::Get().OnTitleChanged(tab->title)) {
+        RequestClose();
+    }
+ }
+
+    // --------------------------------------------------------
+    // Activity protection
+    // --------------------------------------------------------
+
+    void OnDownloadStarted(int tabId) {
+        TabRecord* tab = FindTab(tabId);
+
+        if (tab) {
+            ++tab->activeDownloads;
+        }
+    }
+
+    void OnDownloadUpdated(
+        int tabId,
+        CefRefPtr<CefDownloadItem> item) {
+
+        TabRecord* tab = FindTab(tabId);
+
+        if (!tab || !item) {
+            return;
+        }
+
+        if (item->IsComplete() || item->IsCanceled()) {
+            tab->activeDownloads =
+                std::max(0, tab->activeDownloads - 1);
+        }
+    }
+
+    void OnAudioStarted(int tabId) {
+        TabRecord* tab = FindTab(tabId);
+
+        if (tab) {
+            tab->playingAudio = true;
+        }
+    }
+
+    void OnAudioStopped(int tabId) {
+        TabRecord* tab = FindTab(tabId);
+
+        if (tab) {
+            tab->playingAudio = false;
+        }
+    }
+
+    bool IsProtected(const TabRecord& tab) const {
+        return tab.activeDownloads > 0 ||
+               tab.playingAudio;
+    }
+
+    // --------------------------------------------------------
+    // Memory manager
+    // --------------------------------------------------------
+
+    void CheckInactiveTabs() {
+        const ULONGLONG now = GetTickCount64();
+
+        for (auto& tab : tabs_) {
+            if (tab.id == GetActiveTabId()) {
+                continue;
+            }
+
+            if (!tab.browser ||
+                tab.browserCreating ||
+                tab.closingBrowser) {
+                continue;
+            }
+
+            if (IsProtected(tab)) {
+                continue;
+            }
+
+            const ULONGLONG inactiveFor =
+                now - tab.lastActiveTime;
+
+            if (inactiveFor >= kUnloadTimeoutMs) {
+                UnloadTab(tab);
+            }
+        }
+    }
+
+    void UnloadTab(TabRecord& tab) {
+        if (!tab.browser ||
+            tab.closingBrowser ||
+            IsProtected(tab)) {
+            return;
+        }
+
+        // Keep the URL and title in TabRecord.
+        // The CEF page instance is closed to release resources.
+        tab.closingBrowser = true;
+
+        tab.browser->GetHost()->CloseBrowser(true);
+    }
+
+    void OnBrowserClosed(int tabId) {
+    TabRecord* tab = FindTab(tabId);
+
+    if (tab) {
+        tab->browser = nullptr;
+        tab->client = nullptr;
+        tab->browserCreating = false;
+        tab->closingBrowser = false;
+    }
+
+    if (closeRequested_) {
+        FinishShutdownIfReady();
+    }
+ }
+
+    // --------------------------------------------------------
+    // Window resizing
+    // --------------------------------------------------------
+
+
+    void ResizeUI() {
+        if (!hwnd_) {
+            return;
+        }
+
+        RECT client{};
+        GetClientRect(hwnd_, &client);
+
+        const int width = client.right;
+        const int height = client.bottom;
+
+        if (tabBar_) {
+            tabBar_->Resize(
+                0, 0, width, kTabBarHeight);
+        }
+
+        if (searchBar_) {
+            searchBar_->Resize(
+                0, kTabBarHeight,
+                width, kSearchBarHeight);
+        }
+
+        for (auto& tab : tabs_) {
+            if (tab.browser &&
+                tab.id == GetActiveTabId()) {
+                ShowBrowser(tab);
+            }
+        }
+
+        if (settingsPage_ && settingsPage_->visible()) {
+            ShowSettingsPage();
+        }
+
+        (void)height;
+    }
+
+    void GetBrowserBounds(RECT& rect) const {
+        RECT client{};
+        GetClientRect(hwnd_, &client);
+
+        rect.left = 0;
+        rect.top = kBrowserTop;
+        rect.right = client.right;
+        rect.bottom = std::max(
+            kBrowserTop,
+            static_cast<int>(client.bottom));
+    }
+
+    // --------------------------------------------------------
+    // Shutdown
+    // --------------------------------------------------------
+
+    void RequestClose() {
+    if (closeRequested_) {
+        return;
+    }
+
+    closeRequested_ = true;
+
+    KillTimer(hwnd_, kMemoryTimer);
+
+    for (auto& tab : tabs_) {
+        if (tab.browser) {
+            tab.closingBrowser = true;
+            tab.browser->GetHost()->CloseBrowser(true);
+        }
+    }
+
+    FinishShutdownIfReady();
+ }
+
+private:
+    std::wstring GetNewTabUrl() const {
+        if (SelfTest::Get().enabled()) {
+            return SelfTest::Get().start_url();
+        }
+
+        const auto path =
+            std::filesystem::absolute(
+                std::filesystem::current_path() /
+                L"html" /
+                L"newtab.html");
+
+        std::wstring value = path.generic_wstring();
+        std::wstring encoded;
+
+        for (wchar_t ch : value) {
+            if (ch == L' ') encoded += L"%20";
+            else if (ch == L'#') encoded += L"%23";
+            else if (ch == L'%') encoded += L"%25";
+            else if (ch == L'?') encoded += L"%3F";
+            else encoded += ch;
+        }
+
+        return L"file:///" + encoded;
+    }
+
+    static LRESULT CALLBACK WindowProc(
+        HWND hwnd,
+        UINT message,
+        WPARAM wParam,
+        LPARAM lParam) {
+
+        MainWindow* self = nullptr;
+
+        if (message == WM_NCCREATE) {
+            auto* create =
+                reinterpret_cast<CREATESTRUCTW*>(lParam);
+
+            self = static_cast<MainWindow*>(
+                create->lpCreateParams);
+
+            self->hwnd_ = hwnd;
+
+            SetWindowLongPtrW(
+                hwnd,
+                GWLP_USERDATA,
+                reinterpret_cast<LONG_PTR>(self));
+        } else {
+            self = reinterpret_cast<MainWindow*>(
+                GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        }
+
+        if (!self) {
+            return DefWindowProcW(
+                hwnd, message, wParam, lParam);
+        }
+
+        switch (message) {
+        case WM_CREATE:
+            return self->InitializeUI() ? 0 : -1;
+
+        case WM_SIZE:
+            self->ResizeUI();
+            return 0;
+
+        case WM_TIMER:
+            if (wParam == kMemoryTimer) {
+                self->CheckInactiveTabs();
+            } else if (wParam == kSelfTestTimer) {
+                KillTimer(hwnd, kSelfTestTimer);
+                SelfTest::Get().OnTimeout();
+                self->RequestClose();
+            }
+            return 0;
+
+        case WM_CLOSE:
+            self->RequestClose();
+            return 0;
+
+        // Defer final window destruction until the current CEF callback has
+        // returned. Destroying the parent HWND from OnBeforeClose can re-enter
+        // CEF's native window teardown while it is still dispatching callbacks.
+        case kFinalizeShutdownMessage:
+            self->FinalizeShutdown();
+            return 0;
+
+        case WM_DESTROY:
+            KillTimer(hwnd, kMemoryTimer);
+            // This application uses CefRunMessageLoop(), so use CEF's matching
+            // quit API rather than injecting WM_QUIT into its Windows queue.
+            CefQuitMessageLoop();
+            return 0;
+
+        case WM_NCDESTROY:
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            self->hwnd_ = nullptr;
+            return DefWindowProcW(
+                hwnd, message, wParam, lParam);
+
+        default:
+            break;
+        }
+
+        // Keep every path through this window procedure returning a result.
+        return DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+
+    bool AllBrowsersClosed() const {
+        for (const auto& tab : tabs_) {
+            // A browser creation can complete asynchronously after shutdown
+            // starts. OnBrowserCreated() closes it, and OnBeforeClose() clears
+            // the record before finalization is allowed.
+            if (tab.browser || tab.browserCreating) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void FinishShutdownIfReady() {
+        if (!closeRequested_ || !hwnd_ || shutdownFinalizePosted_ ||
+            !AllBrowsersClosed()) {
+            return;
+        }
+
+        // Never destroy the parent window synchronously from a CEF lifecycle
+        // callback. Queue finalization onto the host window's message queue so
+        // CEF can finish the current OnBeforeClose dispatch first.
+        shutdownFinalizePosted_ = true;
+        if (!PostMessageW(hwnd_, kFinalizeShutdownMessage, 0, 0)) {
+            shutdownFinalizePosted_ = false;
+        }
+    }
+
+    void FinalizeShutdown() {
+        shutdownFinalizePosted_ = false;
+        if (!closeRequested_ || !hwnd_ || !AllBrowsersClosed()) {
+            return;
+        }
+
+        KillTimer(hwnd_, kMemoryTimer);
+        KillTimer(hwnd_, kSelfTestTimer);
+        DestroyWindow(hwnd_);
+    }
+
+private:
+    HINSTANCE instance_ = nullptr;
+    HWND hwnd_ = nullptr;
+
+    std::unique_ptr<TabBar> tabBar_;
+    std::unique_ptr<SearchEngine> searchBar_;
+    std::unique_ptr<SettingsPage> settingsPage_;
+
+    std::vector<TabRecord> tabs_;
+
+    int activeTab_ = -1;
+    int nextTabId_ = 1;
+
+    bool closeRequested_ = false;
+    bool shutdownFinalizePosted_ = false;
+
+    friend class BrowserClient;
+};
+
+// ------------------------------------------------------------
+// CEF callbacks
+// ------------------------------------------------------------
+
+void BrowserClient::OnAfterCreated(
+    CefRefPtr<CefBrowser> browser) {
+
+    owner_->OnBrowserCreated(tabId_, browser);
+}
+
+void BrowserClient::OnBeforeClose(
+    CefRefPtr<CefBrowser> browser) {
+
+    AdblockService::Get().OnBrowserClosed(browser);
+    owner_->OnBrowserClosed(tabId_);
+}
+
+void BrowserClient::OnLoadStart(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefFrame> frame,
+    TransitionType transition_type) {
+
+    AdblockService::Get().ApplyCosmeticFilters(frame);
+}
+
+void BrowserClient::OnAddressChange(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefFrame> frame,
+    const CefString& url) {
+
+    if (frame && frame->IsMain()) {
+        owner_->OnAddressChanged(
+            tabId_,
+            url.ToWString());
+    }
+}
+
+void BrowserClient::OnTitleChange(
+    CefRefPtr<CefBrowser> browser,
+    const CefString& title) {
+
+    owner_->OnTitleChanged(
+        tabId_,
+        title.ToWString());
+}
+
+bool BrowserClient::OnBeforeDownload(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefDownloadItem> item,
+    const CefString& suggestedName,
+    CefRefPtr<CefBeforeDownloadCallback> callback) {
+
+    owner_->OnDownloadStarted(tabId_);
+
+    // Let CEF choose its normal download location.
+    callback->Continue(
+        CefString(suggestedName),
+        false);
+
+    return true;
+}
+
+void BrowserClient::OnDownloadUpdated(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefDownloadItem> item,
+    CefRefPtr<CefDownloadItemCallback> callback) {
+
+    owner_->OnDownloadUpdated(tabId_, item);
+}
+
+void BrowserClient::OnAudioStreamStarted(
+    CefRefPtr<CefBrowser> browser,
+    const CefAudioParameters& params,
+    int channels) {
+
+    owner_->OnAudioStarted(tabId_);
+}
+
+void BrowserClient::OnAudioStreamStopped(
+    CefRefPtr<CefBrowser> browser) {
+
+    owner_->OnAudioStopped(tabId_);
+}
+
+void BrowserClient::OnAudioStreamPacket(
+    CefRefPtr<CefBrowser> browser,
+    const float** data,
+    int frames,
+    int64_t pts) {
+    // Audio packet processing is intentionally not implemented yet.
+}
+
+void BrowserClient::OnAudioStreamError(
+    CefRefPtr<CefBrowser> browser,
+    const CefString& message) {
+    // Audio error reporting can be added here later.
+}
+
+} // namespace vibrium
+
+// ------------------------------------------------------------
+// Application entry point
+// ------------------------------------------------------------
+
+int WINAPI wWinMain(
+    HINSTANCE instance,
+    HINSTANCE,
+    PWSTR,
+    int) {
+
+    CefMainArgs mainArgs(instance);
+
+    CefRefPtr<vibrium::VibriumApp> app =
+        new vibrium::VibriumApp();
+
+    const int subprocessExit =
+        CefExecuteProcess(mainArgs, app, nullptr);
+
+    if (subprocessExit >= 0) {
+        return subprocessExit;
+    }
+
+    CefSettings settings;
+    // DEVELOPMENT ONLY: a release build must run sandboxed (see
+    // c++/adblock/README.md, "Sandbox").
+    settings.no_sandbox = true;
+    settings.multi_threaded_message_loop = false;
+
+    if (!CefInitialize(
+            mainArgs,
+            settings,
+            app,
+            nullptr)) {
+        return 1;
+    }
+
+    vibrium::SelfTest::Get().Configure(CefCommandLine::GetGlobalCommandLine());
+    vibrium::AdblockService::Get().Initialize(
+        CefCommandLine::GetGlobalCommandLine());
+
+    int appExitCode = 1;
+    {
+        // Destroy the window and its TabRecord/BrowserClient references before
+        // tearing down the process-wide CEF services.
+        vibrium::MainWindow mainWindow;
+
+        if (!mainWindow.Create(instance)) {
+            vibrium::AdblockService::Get().Shutdown();
+            CefShutdown();
+            app = nullptr;
+            return 1;
+        }
+
+        CefRunMessageLoop();
+        appExitCode = vibrium::SelfTest::Get().exit_code();
+    }
+
+    // All browsers have delivered OnBeforeClose before the message loop exits.
+    // Release router/request-handler refs before CefShutdown; releasing CEF
+    // objects from static destructors after CefShutdown is unsafe.
+    vibrium::AdblockService::Get().Shutdown();
+    CefShutdown();
+    app = nullptr;
+
+    return appExitCode;
+}

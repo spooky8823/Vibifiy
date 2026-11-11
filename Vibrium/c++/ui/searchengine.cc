@@ -1,6 +1,7 @@
 #include "searchengine.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,61 @@ constexpr int kOuterPadding = 3;
 constexpr int kEditLeft = 20;
 constexpr int kEditRightPadding = 91;
 constexpr int kButtonWidth = 70;
+
+// Settings (gear) button, to the right of the address pill.
+constexpr int kGearAreaWidth = 52;
+constexpr int kGearSize = 32;
+constexpr COLORREF kGearHoverFill = RGB(52, 42, 78);
+
+// Draws a gear (8 teeth, centre hole) with plain GDI so it does not depend on
+// any font having a gear glyph.
+void DrawGear(HDC hdc, int cx, int cy, COLORREF color, COLORREF holeColor) {
+    constexpr int kTeeth = 8;
+    constexpr double kPi = 3.14159265358979323846;
+    constexpr double kOuter = 9.0;
+    constexpr double kRoot = 6.6;
+
+    POINT points[kTeeth * 4];
+    int count = 0;
+
+    for (int i = 0; i < kTeeth; ++i) {
+        const double centre = i * (2.0 * kPi / kTeeth);
+        const double rootHalf = 0.30;   // radians, base of the tooth
+        const double tipHalf = 0.17;    // radians, top of the tooth
+        const double angles[4] = {centre - rootHalf, centre - tipHalf,
+                                  centre + tipHalf, centre + rootHalf};
+        const double radii[4] = {kRoot, kOuter, kOuter, kRoot};
+
+        for (int k = 0; k < 4; ++k) {
+            points[count].x =
+                cx + static_cast<LONG>(std::lround(std::cos(angles[k]) * radii[k]));
+            points[count].y =
+                cy + static_cast<LONG>(std::lround(std::sin(angles[k]) * radii[k]));
+            ++count;
+        }
+    }
+
+    HBRUSH brush = CreateSolidBrush(color);
+    HPEN pen = CreatePen(PS_SOLID, 1, color);
+    HGDIOBJ oldBrush = SelectObject(hdc, brush);
+    HGDIOBJ oldPen = SelectObject(hdc, pen);
+
+    Polygon(hdc, points, count);
+
+    // Centre hole.
+    HBRUSH holeBrush = CreateSolidBrush(holeColor);
+    HPEN holePen = CreatePen(PS_SOLID, 1, holeColor);
+    SelectObject(hdc, holeBrush);
+    SelectObject(hdc, holePen);
+    Ellipse(hdc, cx - 3, cy - 3, cx + 4, cy + 4);
+
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+    DeleteObject(holeBrush);
+    DeleteObject(holePen);
+}
 
 std::wstring Trim(const std::wstring& value) {
     const size_t first =
@@ -163,7 +219,7 @@ void SearchEngine::LayoutControls() {
 
     const int editWidth = std::max(
         50,
-        width_ - kEditLeft - kEditRightPadding);
+        width_ - kGearAreaWidth - kEditLeft - kEditRightPadding);
 
     const int editHeight = std::max(18, height_ - 16);
     const int editY = (height_ - editHeight) / 2;
@@ -241,7 +297,8 @@ bool SearchEngine::LooksLikeURL(
 
     if (StartsWith(value, L"https://") ||
         StartsWith(value, L"http://") ||
-        StartsWith(value, L"file://")) {
+        StartsWith(value, L"file://") ||
+        StartsWith(value, L"vibrium://")) {
         return true;
     }
 
@@ -258,7 +315,8 @@ std::wstring SearchEngine::NormalizeURL(
 
     if (StartsWith(value, L"https://") ||
         StartsWith(value, L"http://") ||
-        StartsWith(value, L"file://")) {
+        StartsWith(value, L"file://") ||
+        StartsWith(value, L"vibrium://")) {
         return value;
     }
 
@@ -351,6 +409,34 @@ void SearchEngine::SetOnNavigate(
     onNavigate_ = std::move(callback);
 }
 
+void SearchEngine::SetOnSettings(
+    SettingsCallback callback) {
+
+    onSettings_ = std::move(callback);
+}
+
+RECT SearchEngine::GearRect(const RECT& client) const {
+    const int areaLeft = client.right - kGearAreaWidth;
+    const int left = areaLeft + (kGearAreaWidth - kGearSize) / 2 - 2;
+    const int top = (client.bottom - kGearSize) / 2;
+
+    return RECT{left, top, left + kGearSize, top + kGearSize};
+}
+
+bool SearchEngine::PointInGear(int x, int y) const {
+    if (!hwnd_) {
+        return false;
+    }
+
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+
+    const RECT gear = GearRect(client);
+    const POINT point{x, y};
+
+    return PtInRect(&gear, point) != FALSE;
+}
+
 HWND SearchEngine::GetHandle() const {
     return hwnd_;
 }
@@ -363,10 +449,13 @@ void SearchEngine::Paint(HDC hdc) {
     FillRect(hdc, &client, background);
     DeleteObject(background);
 
+    // Everything except the gear button is laid out inside [0, barRight].
+    const int barRight = client.right - kGearAreaWidth;
+
     RECT pill{
         kOuterPadding,
         kOuterPadding,
-        client.right - kOuterPadding,
+        barRight - kOuterPadding,
         client.bottom - kOuterPadding
     };
 
@@ -394,14 +483,14 @@ void SearchEngine::Paint(HDC hdc) {
     DeleteObject(pillBrush);
     DeleteObject(pillPen);
 
-    const int buttonLeft = client.right - kButtonWidth - 9;
+    const int buttonLeft = barRight - kButtonWidth - 9;
     const int buttonTop = 8;
     const int buttonBottom = client.bottom - 8;
 
     RECT button{
         buttonLeft,
         buttonTop,
-        client.right - 9,
+        barRight - 9,
         buttonBottom
     };
 
@@ -451,6 +540,40 @@ void SearchEngine::Paint(HDC hdc) {
 
     SelectObject(hdc, oldFont);
     DeleteObject(buttonFont);
+
+    // Settings button: a round gear that lights up on hover.
+    RECT gear = GearRect(client);
+
+    HBRUSH gearBrush = CreateSolidBrush(
+        gearHover_ ? kGearHoverFill : kPillColor);
+    HPEN gearPen = CreatePen(
+        PS_SOLID,
+        1,
+        gearHover_ ? kFocusBorder : kPillBorder);
+
+    HGDIOBJ gearOldBrush = SelectObject(hdc, gearBrush);
+    HGDIOBJ gearOldPen = SelectObject(hdc, gearPen);
+
+    RoundRect(
+        hdc,
+        gear.left,
+        gear.top,
+        gear.right,
+        gear.bottom,
+        kGearSize,
+        kGearSize);
+
+    SelectObject(hdc, gearOldBrush);
+    SelectObject(hdc, gearOldPen);
+    DeleteObject(gearBrush);
+    DeleteObject(gearPen);
+
+    DrawGear(
+        hdc,
+        (gear.left + gear.right) / 2,
+        (gear.top + gear.bottom) / 2,
+        gearHover_ ? RGB(255, 255, 255) : kTextColor,
+        gearHover_ ? kGearHoverFill : kPillColor);
 }
 
 LRESULT CALLBACK SearchEngine::EditProc(
@@ -538,15 +661,67 @@ LRESULT CALLBACK SearchEngine::WindowProc(
     }
 
     case WM_LBUTTONDOWN: {
-        const int x = LOWORD(lParam);
+        const int x = static_cast<short>(LOWORD(lParam));
+        const int y = static_cast<short>(HIWORD(lParam));
 
-        if (x >= self->width_ - kButtonWidth - 12) {
+        if (self->PointInGear(x, y)) {
+            if (self->onSettings_) {
+                self->onSettings_();
+            }
+            return 0;
+        }
+
+        const int barRight = self->width_ - kGearAreaWidth;
+
+        if (x >= barRight - kButtonWidth - 12 && x < barRight) {
             self->Navigate();
             return 0;
         }
 
         break;
     }
+
+    case WM_MOUSEMOVE: {
+        const bool over = self->PointInGear(
+            static_cast<short>(LOWORD(lParam)),
+            static_cast<short>(HIWORD(lParam)));
+
+        if (over != self->gearHover_) {
+            self->gearHover_ = over;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+
+        if (!self->trackingMouse_) {
+            TRACKMOUSEEVENT track{};
+            track.cbSize = sizeof(track);
+            track.dwFlags = TME_LEAVE;
+            track.hwndTrack = hwnd;
+
+            if (TrackMouseEvent(&track)) {
+                self->trackingMouse_ = true;
+            }
+        }
+
+        break;
+    }
+
+    case WM_MOUSELEAVE:
+        self->trackingMouse_ = false;
+
+        if (self->gearHover_) {
+            self->gearHover_ = false;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+
+        return 0;
+
+    case WM_SETCURSOR:
+        if (LOWORD(lParam) == HTCLIENT && self->gearHover_) {
+            SetCursor(LoadCursorW(nullptr, IDC_HAND));
+            return TRUE;
+        }
+
+        break;
 
     case WM_ERASEBKGND:
         return 1;

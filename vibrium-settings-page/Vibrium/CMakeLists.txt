@@ -1,0 +1,78 @@
+﻿cmake_minimum_required(VERSION 3.21)
+project(Vibrium LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(NOT DEFINED CEF_ROOT OR NOT EXISTS "${CEF_ROOT}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "CEF_ROOT must point to an extracted CEF binary distribution.")
+endif()
+
+# Match the CEF DLL wrapper's static MSVC runtime (/MT).
+set(CMAKE_MSVC_RUNTIME_LIBRARY
+    "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+
+add_subdirectory("${CEF_ROOT}" "${CMAKE_BINARY_DIR}/cef")
+
+add_executable(vibrium WIN32
+    c++/main.cc
+    c++/ui/tabbar.cc
+    c++/ui/tabbar.h
+    c++/ui/searchengine.cc
+    c++/ui/searchengine.h
+    c++/ui/settings_page.cc
+    c++/ui/settings_page.h
+)
+
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/vibrium_adblock.cmake")
+
+target_compile_definitions(vibrium PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    UNICODE
+    _UNICODE
+)
+
+target_include_directories(vibrium PRIVATE
+    "${CEF_ROOT}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/c++"
+)
+
+# Keep symbols for native crash diagnosis. These files are generated for the
+# exact executable that CI packages, allowing WinDbg to resolve vibrium+RVA
+# frames from ProcDump dumps without changing the shipped runtime.
+if(MSVC)
+    target_compile_options(vibrium PRIVATE
+        "$<$<CONFIG:Release>:/Zi>"
+    )
+    target_link_options(vibrium PRIVATE
+        "$<$<CONFIG:Release>:/DEBUG:FULL>"
+        "$<$<CONFIG:Release>:/MAP>"
+    )
+endif()
+
+target_link_libraries(vibrium PRIVATE
+    "${CEF_ROOT}/Release/libcef.lib"
+    libcef_dll_wrapper
+
+    user32
+    gdi32
+    comctl32
+    comdlg32
+    crypt32
+    delayimp
+    rpcrt4
+    shlwapi
+    wintrust
+    ws2_32
+)
+
+if(TARGET libcef_dll_wrapper)
+    set_target_properties(libcef_dll_wrapper PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+    )
+endif()

@@ -9,6 +9,7 @@ class SearchEngine {
 public:
     using NavigateCallback =
         std::function<void(const std::wstring&)>;
+    using SettingsCallback = std::function<void()>;
 
     bool Create(
         HWND parent,
@@ -28,6 +29,10 @@ public:
     std::wstring GetText() const;
 
     void SetOnNavigate(NavigateCallback callback);
+
+    // Called when the settings (gear) button next to the address bar is
+    // clicked.
+    void SetOnSettings(SettingsCallback callback);
     void SetSearchProvider(const std::wstring& provider);
 
     void Navigate();
@@ -53,6 +58,8 @@ private:
 
     void Paint(HDC hdc);
     void LayoutControls();
+    RECT GearRect(const RECT& client) const;
+    bool PointInGear(int x, int y) const;
 
     HWND parent_ = nullptr;
     HWND hwnd_ = nullptr;
@@ -65,6 +72,7 @@ private:
     HFONT font_ = nullptr;
 
     NavigateCallback onNavigate_;
+    SettingsCallback onSettings_;
 
     std::wstring searchProvider_ =
         L"https://www.google.com/search?q=";
@@ -73,4 +81,6 @@ private:
     int height_ = 0;
 
     bool editFocused_ = false;
+    bool gearHover_ = false;
+    bool trackingMouse_ = false;
 };
