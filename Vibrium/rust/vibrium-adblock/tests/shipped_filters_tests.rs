@@ -85,7 +85,11 @@ fn shipped_lists_include_generic_cosmetic_rules() {
 fn baseline_carries_the_selftest_sentinel_rules() {
     // `vibrium --selftest` on the packaged build has no --filter-dir, so the
     // shipped baseline must contain every rule the fixture list has.
-    let fixture = rules(vibrium_dir().join("tests/fixtures/selftest-lists/selftest.txt"));
+    let mut fixture = rules(vibrium_dir().join("tests/fixtures/selftest-lists/selftest.txt"));
+    // Scriptlet rules are fixture-only: they need the fixture's own
+    // resources.json and the selftest only checks them when the fixture list
+    // is active, so the baseline does not have to carry them.
+    fixture.retain(|rule| !rule.contains("+js("));
     let baseline = rules(vibrium_dir().join("filters/vibrium-baseline.txt"));
     assert!(!fixture.is_empty());
 

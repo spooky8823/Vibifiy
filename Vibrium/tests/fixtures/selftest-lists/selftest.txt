@@ -3,3 +3,5 @@
 localhost##.vibrium-ad
 ##.vibrium-generic-ad
 localhost##.vibrium-proc:has-text(selftest sponsored)
+! Scriptlet: must already have run when the first script of the page executes.
+localhost##+js(vibrium-selftest, __vibriumScriptlet)

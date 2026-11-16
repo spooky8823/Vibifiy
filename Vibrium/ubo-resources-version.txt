@@ -1,0 +1,17 @@
+# uBlock Origin source used to build the scriptlet resources (resources.json).
+#
+# Scriptlets are small scripts that neutralise a page's ad logic before it runs
+# (for example, they strip the ad data from YouTube's player response). The
+# filter lists contain the RULES (which site gets which scriptlet); uBlock
+# Origin contains the CODE the rules refer to. CI fetches exactly this commit,
+# converts its scriptlets with tools/build_ubo_resources.mjs and packages the
+# result as filters/resources.json.
+#
+# To update: pick a newer commit of https://github.com/gorhill/uBlock, paste the
+# full 40-character hash below, and let CI check that the conversion still
+# works. Do this when the filter lists start using scriptlets that this commit
+# does not have (they are silently ignored until then).
+#
+# License: uBlock Origin is GPL-3.0-or-later. See THIRD_PARTY_NOTICES.md.
+UBO_REPO=https://github.com/gorhill/uBlock.git
+UBO_COMMIT=e8efba123b7e4719613360e301a85b464927b953

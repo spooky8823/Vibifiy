@@ -1,0 +1,10 @@
+[
+  {
+    "name": "vibrium-selftest.js",
+    "aliases": [],
+    "kind": {
+      "mime": "application/javascript"
+    },
+    "content": "ZnVuY3Rpb24gdmlicml1bVNlbGZ0ZXN0KG5hbWUpeyB3aW5kb3dbbmFtZV0gPSB0cnVlOyB9"
+  }
+]

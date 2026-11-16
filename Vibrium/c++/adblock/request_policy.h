@@ -54,9 +54,10 @@ std::string BuildCosmeticScript(const std::string& css);
 // literal, so it cannot break out into code.
 std::string BuildContentScript(const std::string& payload_json);
 
-// Wraps scriptlet code from AdblockEngine::CosmeticScript() so an exception in
-// it stays contained. Run it as its own ExecuteJavaScript call: a syntax error
-// in a scriptlet must not stop the content script from being compiled.
+// Wraps scriptlet code from ScriptletEngine::ScriptFor() so an exception in it
+// stays contained, and defines the `scriptletGlobals` object that uBlock
+// Origin's scriptlets expect. Run it as its own script: a syntax error in a
+// scriptlet must not stop anything else from being compiled.
 std::string BuildScriptletScript(const std::string& scriptlet);
 
 // What a page asks for through window.cefQuery: the class names and ids it

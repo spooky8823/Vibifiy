@@ -5,6 +5,7 @@
 // against the real Rust library. No CEF binaries are required.
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -16,6 +17,7 @@
 
 #include "adblock_engine.h"
 #include "request_policy.h"
+#include "scriptlet_engine.h"
 
 namespace {
 
@@ -232,6 +234,127 @@ void TestContentScriptHelpers() {
          "oversized generic request is rejected");
 }
 
+
+// ---------------------------------------------------------------------------
+// Scriptlets (renderer side)
+// ---------------------------------------------------------------------------
+
+// A scratch directory that is removed when it goes out of scope.
+class ScratchDir {
+ public:
+  ScratchDir() {
+    static int counter = 0;
+    path_ = std::filesystem::temp_directory_path() /
+            ("vibrium-scriptlet-test-" + std::to_string(counter++) + "-" +
+             std::to_string(std::chrono::steady_clock::now()
+                                .time_since_epoch()
+                                .count()));
+    std::filesystem::create_directories(path_);
+  }
+  ~ScratchDir() {
+    std::error_code ec;
+    std::filesystem::remove_all(path_, ec);
+  }
+  ScratchDir(const ScratchDir&) = delete;
+  ScratchDir& operator=(const ScratchDir&) = delete;
+
+  std::string str() const { return path_.string(); }
+  void Write(const std::string& name, const std::string& text) const {
+    std::ofstream out(path_ / name, std::ios::binary | std::ios::trunc);
+    out << text;
+  }
+
+ private:
+  std::filesystem::path path_;
+};
+
+// safe.fn (helper) and plain.js (a scriptlet that depends on it).
+const char* kScriptletResources =
+    R"([{"name":"safe.fn","aliases":[],"kind":{"mime":"fn/javascript"},"content":"ZnVuY3Rpb24gc2FmZUhlbHBlcigpe3JldHVybiAxO30="},)"
+    R"({"name":"plain.js","aliases":[],"kind":{"mime":"application/javascript"},)"
+    R"("content":"ZnVuY3Rpb24gcGxhaW4oYSl7IHNlbGYuX19wbGFpbiA9IGE7IH0=","dependencies":["safe.fn"]}])";
+
+bool Contains(const std::optional<std::string>& text, const char* needle) {
+  return text.has_value() && text->find(needle) != std::string::npos;
+}
+
+void TestScriptletDirectorySignature() {
+  ScratchDir dir;
+  dir.Write("ubo-a.txt", "example.com##+js(plain, a)\n");
+  const uint64_t base = vibrium::ScriptletDirectorySignature(dir.str());
+
+  Expect(base == vibrium::ScriptletDirectorySignature(dir.str()),
+         "signature is stable while nothing changes");
+
+  dir.Write(".ubo-a.tmp", "x");
+  dir.Write(".hidden.txt", "x");
+  dir.Write("ubo-a.etag", "x");
+  Expect(base == vibrium::ScriptletDirectorySignature(dir.str()),
+         "temp files, hidden files and .etag sidecars are ignored");
+
+  dir.Write("ubo-a.txt", "example.com##+js(plain, a)\nother.org##+js(plain, b)\n");
+  const uint64_t edited = vibrium::ScriptletDirectorySignature(dir.str());
+  Expect(edited != base, "signature changes when a list is rewritten");
+
+  dir.Write("resources.json", "[]");
+  Expect(vibrium::ScriptletDirectorySignature(dir.str()) != edited,
+         "signature changes when resources.json appears");
+
+  Expect(vibrium::ScriptletDirectorySignature(
+             (std::filesystem::temp_directory_path() / "vibrium-no-such-dir")
+                 .string()) == 0,
+         "a missing directory has an empty signature");
+}
+
+void TestScriptletProvider() {
+  ScratchDir dir;
+  // Interval 0: re-check the directory on every call.
+  vibrium::ScriptletProvider provider(dir.str(), std::chrono::milliseconds(0));
+
+  Expect(!provider.ScriptFor("https://example.com/").has_value(),
+         "no scriptlets while the directory is empty (renderer starts first)");
+
+  // The first list download finishes after the renderer has started.
+  dir.Write("resources.json", kScriptletResources);
+  dir.Write("ubo-test.txt", "example.com##+js(plain, hello)\n");
+
+  const auto script = provider.ScriptFor("https://example.com/");
+  Expect(Contains(script, "plain(\"hello\")"),
+         "scriptlets appear once the files exist, without a restart");
+  Expect(Contains(script, "function safeHelper"),
+         "the scriptlet's helper function is included");
+  Expect(!provider.ScriptFor("https://other.org/").has_value(),
+         "an unrelated page gets no script");
+  Expect(!provider.ScriptFor("file:///c:/page.html").has_value() &&
+             !provider.ScriptFor("about:blank").has_value(),
+         "non-http pages never get a script");
+
+  // The updater replaces a list: the new rule is picked up.
+  dir.Write("ubo-test.txt",
+            "example.com##+js(plain, hello)\nother.org##+js(plain, bye)\n");
+  Expect(Contains(provider.ScriptFor("https://other.org/"), "plain(\"bye\")"),
+         "a rewritten list is reloaded while the process runs");
+
+  // A long interval must not re-scan on every call.
+  ScratchDir slow_dir;
+  slow_dir.Write("resources.json", kScriptletResources);
+  slow_dir.Write("ubo-test.txt", "example.com##+js(plain, one)\n");
+  vibrium::ScriptletProvider slow(slow_dir.str(), std::chrono::hours(1));
+  Expect(Contains(slow.ScriptFor("https://example.com/"), "plain(\"one\")"),
+         "provider loads on first use");
+  slow_dir.Write("ubo-test.txt",
+                 "example.com##+js(plain, one)\nother.org##+js(plain, two)\n");
+  Expect(!slow.ScriptFor("https://other.org/").has_value(),
+         "changes are not picked up before the re-check interval elapses");
+}
+
+void TestScriptletWrapper() {
+  const std::string wrapped = vibrium::BuildScriptletScript("var a = 1;");
+  Expect(wrapped.find("scriptletGlobals") != std::string::npos &&
+             wrapped.find("scriptletGlobals") < wrapped.find("var a = 1;"),
+         "scriptletGlobals is defined before the scriptlet runs");
+}
+
 // Many threads check requests while the active engine is swapped repeatedly.
 // Run under ASan/TSan in CI-style checks: any use-after-free or double free of
 // the Rust handle would be caught here.
@@ -289,6 +412,9 @@ int main() {
   TestJsEscaping();
   TestCosmeticPipeline();
   TestContentScriptHelpers();
+  TestScriptletDirectorySignature();
+  TestScriptletProvider();
+  TestScriptletWrapper();
   TestConcurrentChecksWhileSwappingEngines();
   TestEngineOutlivesHolder();
 

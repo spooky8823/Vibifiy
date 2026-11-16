@@ -6,6 +6,7 @@ use crate::engine::VibriumAdblock;
 use crate::filter_list_updater::validate_downloaded_response;
 use crate::filter_lists::FilterList;
 use crate::filter_validation::validate_and_clean_filter_list;
+use crate::scriptlets::ScriptletEngine;
 
 const ABI_VERSION: u32 = 3;
 
@@ -373,6 +374,87 @@ unsafe fn parse_names(json: *const c_char) -> Option<Vec<String>> {
     }
 
     serde_json::from_str::<Vec<String>>(text).ok()
+}
+
+/// Creates a scriptlet-only engine from the filter lists and `resources.json`
+/// in `directory`. See `scriptlets::ScriptletEngine`.
+///
+/// Returns null when there is no `resources.json`, no scriptlet rules, or on
+/// error. Release a non-null handle with `vibrium_adblock_scriptlets_destroy`.
+///
+/// # Safety
+///
+/// If `directory` is non-null, it must point to a valid, readable,
+/// null-terminated C string that remains valid for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vibrium_adblock_scriptlets_create_from_directory(
+    directory: *const c_char,
+) -> *mut c_void {
+    if directory.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    catch_unwind(AssertUnwindSafe(|| {
+        let directory = unsafe { CStr::from_ptr(directory) }.to_str().ok()?;
+        let engine = ScriptletEngine::from_directory(std::path::Path::new(directory)).ok()?;
+        Some(Box::into_raw(Box::new(engine)).cast::<c_void>())
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Returns the scriptlet JavaScript to run in `page_url` before the page's own
+/// scripts.
+///
+/// Returns null when no scriptlet applies, the URL is not http(s), or on
+/// error. A non-null result must be released with `vibrium_adblock_string_free`.
+///
+/// # Safety
+///
+/// `handle` must be a live handle from
+/// `vibrium_adblock_scriptlets_create_from_directory`. `page_url` must point to
+/// a valid, readable, null-terminated C string for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vibrium_adblock_scriptlets_script(
+    handle: *mut c_void,
+    page_url: *const c_char,
+) -> *mut c_char {
+    if handle.is_null() || page_url.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        let engine = &*handle.cast::<ScriptletEngine>();
+        let url = CStr::from_ptr(page_url).to_str().ok()?;
+        let script = engine.injected_script(url).ok()?;
+
+        if script.is_empty() {
+            return None;
+        }
+
+        CString::new(script).ok().map(CString::into_raw)
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Destroys a handle from `vibrium_adblock_scriptlets_create_from_directory`.
+/// Passing null is allowed and does nothing.
+///
+/// # Safety
+///
+/// `handle` must be null or a live handle that is destroyed exactly once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vibrium_adblock_scriptlets_destroy(handle: *mut c_void) {
+    if handle.is_null() {
+        return;
+    }
+
+    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+        drop(Box::from_raw(handle.cast::<ScriptletEngine>()));
+    }));
 }
 
 /// Returns the C ABI version supported by this library.

@@ -29,6 +29,8 @@
 #include "ui/searchengine.h"
 #include "ui/settings_page.h"
 #include "adblock/adblock_service.h"
+#include "adblock/request_policy.h"
+#include "adblock/scriptlet_engine.h"
 #include "selftest.h"
 #include "include/cef_load_handler.h"
 
@@ -60,10 +62,38 @@ class MainWindow;
 // adblock_cosmetic_router.h).
 class VibriumApp final
     : public CefApp,
+      public CefBrowserProcessHandler,
       public CefRenderProcessHandler {
 public:
+    // Command-line switch that tells child processes where the filter lists
+    // and resources.json are, so a renderer can build its scriptlet engine.
+    static constexpr char kScriptletDirSwitch[] = "vibrium-scriptlet-dir";
+
+    CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override {
+        return this;
+    }
+
     CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override {
         return this;
+    }
+
+    // Browser process: runs for every child process just before it launches.
+    void OnBeforeChildProcessLaunch(
+        CefRefPtr<CefCommandLine> command_line) override {
+        CefRefPtr<CefCommandLine> own = CefCommandLine::GetGlobalCommandLine();
+        if (own && own->HasSwitch("disable-scriptlets")) {
+            return;
+        }
+
+        const vibrium::AdblockService& service =
+            vibrium::AdblockService::Get();
+
+        if (!service.enabled() || service.filter_dir().empty()) {
+            return;
+        }
+
+        command_line->AppendSwitchWithValue(
+            kScriptletDirSwitch, service.filter_dir());
     }
 
     void OnWebKitInitialized() override {
@@ -86,6 +116,9 @@ public:
         CefRefPtr<CefBrowser> browser,
         CefRefPtr<CefFrame> frame,
         CefRefPtr<CefV8Context> context) override {
+        // First, before the page runs anything: see InjectScriptlets().
+        InjectScriptlets(frame, context);
+
         if (rendererRouter_) {
             rendererRouter_->OnContextCreated(browser, frame, context);
         }
@@ -111,7 +144,60 @@ public:
     }
 
 private:
+    // Runs the ad-blocking scriptlets for `frame` (for example, the ones that
+    // strip ads from YouTube's player data) in the page's own JavaScript
+    // context. OnContextCreated fires when the context is created, before any
+    // script of the page has run, and Eval is synchronous, so the scriptlet is
+    // guaranteed to be in place first. V8 evaluation is not subject to the
+    // page's Content-Security-Policy.
+    void InjectScriptlets(
+        CefRefPtr<CefFrame> frame,
+        CefRefPtr<CefV8Context> context) {
+        if (scriptletsUnavailable_ || !frame || !context) {
+            return;
+        }
+
+        const std::string url = frame->GetURL().ToString();
+
+        if (!vibrium::IsFilterableUrl(url)) {
+            return;  // about:blank, file:, devtools, ...
+        }
+
+        if (!scriptlets_) {
+            CefRefPtr<CefCommandLine> command_line =
+                CefCommandLine::GetGlobalCommandLine();
+
+            if (!command_line ||
+                !command_line->HasSwitch(kScriptletDirSwitch)) {
+                scriptletsUnavailable_ = true;
+                return;
+            }
+
+            scriptlets_ = std::make_unique<vibrium::ScriptletProvider>(
+                command_line->GetSwitchValue(kScriptletDirSwitch).ToString());
+        }
+
+        const std::optional<std::string> script = scriptlets_->ScriptFor(url);
+
+        if (!script) {
+            return;
+        }
+
+        CefRefPtr<CefV8Value> result;
+        CefRefPtr<CefV8Exception> exception;
+
+        // A failing scriptlet must never break the page: errors are ignored.
+        context->Eval(
+            vibrium::BuildScriptletScript(*script),
+            url,
+            0,
+            result,
+            exception);
+    }
+
     CefRefPtr<CefMessageRouterRendererSide> rendererRouter_;
+    std::unique_ptr<vibrium::ScriptletProvider> scriptlets_;
+    bool scriptletsUnavailable_ = false;
 
     IMPLEMENT_REFCOUNTING(VibriumApp);
 };

@@ -44,7 +44,10 @@ void SeedShippedLists(const std::filesystem::path& shipped,
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(shipped, ec)) {
     const auto& p = entry.path();
-    if (!entry.is_regular_file(ec) || p.extension() != ".txt") continue;
+    if (!entry.is_regular_file(ec) ||
+        (p.extension() != ".txt" && p.filename() != "resources.json")) {
+      continue;
+    }
     const auto dest = user_dir / p.filename();
     if (std::filesystem::exists(dest, ec) &&
         std::filesystem::file_size(dest, ec) == entry.file_size(ec)) {
@@ -178,12 +181,11 @@ void AdblockService::ApplyCosmeticFilters(CefRefPtr<CefFrame> frame) const {
     return;
   }
 
-  // Scriptlets first, in their own call so a syntax error in one cannot stop
-  // the content script. Note: ExecuteJavaScript is asynchronous, so a
-  // scriptlet is not guaranteed to run before the page's own scripts.
-  if (auto scriptlet = engine->CosmeticScript(url)) {
-    frame->ExecuteJavaScript(BuildScriptletScript(*scriptlet), url, 0);
-  }
+  // Scriptlets are NOT injected here. ExecuteJavaScript is asynchronous, so
+  // they would not be guaranteed to run before the page's own scripts, which
+  // is too late for things like YouTube's inline player data. They run
+  // synchronously in the renderer at document start instead (see
+  // scriptlet_engine.h and VibriumApp::OnContextCreated).
   if (auto payload = engine->CosmeticPayload(url)) {
     frame->ExecuteJavaScript(BuildContentScript(*payload), url, 0);
   }

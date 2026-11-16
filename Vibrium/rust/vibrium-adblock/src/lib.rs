@@ -10,6 +10,8 @@ pub mod filter_storage;
 pub mod filter_validation;
 pub mod network_filter;
 pub mod resource_replacement;
+pub mod scriptlets;
 
 pub use crate::engine::VibriumAdblock;
 pub use crate::error::VibriumAdblockError;
+pub use crate::scriptlets::ScriptletEngine;

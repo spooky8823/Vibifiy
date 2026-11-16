@@ -147,6 +147,8 @@ target_sources(vibrium PRIVATE
   c++/adblock/filter_list_updater.h
   c++/adblock/request_policy.cc
   c++/adblock/request_policy.h
+  c++/adblock/scriptlet_engine.cc
+  c++/adblock/scriptlet_engine.h
   c++/adblock/cosmetic_content_js.inc
   c++/selftest.cc
   c++/selftest.h)
@@ -160,6 +162,7 @@ foreach(_test IN ITEMS vibrium_native_tests vibrium_ffi_smoke_test)
     add_executable(${_test} EXCLUDE_FROM_ALL
       tests/native/adblock_wrapper_tests.cc
       c++/adblock/adblock_engine.cc
+      c++/adblock/scriptlet_engine.cc
       c++/adblock/request_policy.cc)
   else()
     add_executable(${_test} EXCLUDE_FROM_ALL tests/native/ffi_smoke_test.cc)

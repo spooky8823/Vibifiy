@@ -118,3 +118,34 @@ vibrium.exe --selftest --url=http://localhost:8123/selftest.html `
 ```
 Loads a page requesting blocked, allowed and redirected resources, checks the
 engine's decisions and the cosmetic result, closes cleanly and exits 0 or 1.
+
+### Scriptlets (YouTube and similar sites)
+
+Network blocking cannot remove most YouTube ads: they are described inside the
+player's own data, which the page's scripts read. uBlock Origin handles this
+with *scriptlets*, small scripts that strip that data before the player sees
+it. The filter lists already contain the rules (`youtube.com##+js(...)`); what
+was missing was the code they refer to, and a way to run it early enough.
+
+- **Code**: `tools/build_ubo_resources.mjs` converts uBlock Origin's scriptlets
+  into `filters/resources.json`. CI builds it from the commit pinned in
+  `ubo-resources-version.txt` and packages it; it is seeded into the user filter
+  directory with the baseline. It is generated, not committed.
+- **Trust**: `trusted-*` scriptlets can rewrite arbitrary page data, so only
+  lists whose file name starts with `ubo-` (the ones downloaded from uBlock
+  Origin's own repository) may use them (`rust/vibrium-adblock/src/scriptlets.rs`).
+- **Timing**: a scriptlet must be in place before the page's first script.
+  The browser process can only run code later (`ExecuteJavaScript` is
+  asynchronous), so each renderer builds a tiny scriptlet-only engine (about
+  3,000 rules, ~7 ms and ~7 MB) and evaluates the script synchronously in
+  `VibriumApp::OnContextCreated`. V8 evaluation is not subject to the page's
+  Content-Security-Policy. `ScriptletProvider` reloads the engine when the lists
+  or `resources.json` change, and retries if they did not exist yet at start.
+- **Diagnostics**: `--disable-scriptlets` turns this off. The selftest's
+  fixture run checks that a scriptlet runs before the page's first script.
+
+YouTube changes its player often; the lists are updated daily, but a rule that
+needs a scriptlet newer than the pinned uBlock Origin commit is ignored until
+the pin is bumped (see `ubo-resources-version.txt`). Ads that YouTube inserts
+into the video stream on the server side cannot be removed by any browser-side
+blocker.

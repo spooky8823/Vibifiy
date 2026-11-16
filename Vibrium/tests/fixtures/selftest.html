@@ -3,6 +3,13 @@
 <head>
 <meta charset="utf-8">
 <title>pending</title>
+<script>
+// Must stay the FIRST script on the page. The selftest list injects a
+// scriptlet that sets window.__vibriumScriptlet; if it is already set here, the
+// scriptlet ran at document start, before any script of the page. (An
+// asynchronous injection would arrive too late for this to see it.)
+window.__scriptletAtStart = window.__vibriumScriptlet === true;
+</script>
 <!-- End-to-end page for `vibrium --selftest`. Hosts under .test never resolve,
      so whether a request was blocked or allowed is judged by the browser's
      request handler, not by whether the resource loads. -->
@@ -42,7 +49,9 @@ window.addEventListener('load', function () {
         'cosmetic=' + (s.cosmetic ? 'hidden' : 'visible') +
         ' generic=' + (s.generic ? 'hidden' : 'visible') +
         ' procedural=' + (s.procedural ? 'hidden' : 'visible') +
-        ' kept=' + (s.kept ? 'visible' : 'hidden');
+        ' kept=' + (s.kept ? 'visible' : 'hidden') +
+        ' scriptlet=' + (window.__scriptletAtStart ? 'atstart' :
+                         (window.__vibriumScriptlet === true ? 'late' : 'missing'));
     } else {
       setTimeout(poll, 100);
     }

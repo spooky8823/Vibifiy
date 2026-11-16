@@ -35,3 +35,10 @@ are not guaranteed to run before the page's own scripts.
 The last block of `vibrium-baseline.txt` exists only so CI can prove, from the
 *packaged* build, that the shipped filters are found and active. Do not remove
 it. `cargo test` checks that it matches `tests/fixtures/selftest-lists/selftest.txt`.
+
+## resources.json (generated)
+
+`resources.json` holds the scriptlet code for the `+js(...)` rules (YouTube ad
+removal and similar). CI generates it from uBlock Origin (see
+`ubo-resources-version.txt`) and packages it here; it is not committed. Without
+it, scriptlet rules are ignored and everything else keeps working.

@@ -94,6 +94,29 @@ char* vibrium_adblock_generic_css(
     const char* ids_json);
 
 /*
+ * Scriptlet-only engine, small enough to load in every renderer process.
+ * It is built from the "+js(" rules of the filter lists plus resources.json in
+ * `directory`, and is what lets scriptlets run before the page's own scripts
+ * (the full engine lives in the browser process).
+ *
+ * Returns NULL when there is no resources.json or no scriptlet rule, or on
+ * error. Release with vibrium_adblock_scriptlets_destroy() (NULL is allowed).
+ */
+VibriumAdblockHandle vibrium_adblock_scriptlets_create_from_directory(
+    const char* directory);
+
+/*
+ * JavaScript to run in page_url before the page's own scripts. Returns NULL
+ * when no scriptlet applies, the URL is not http(s), or on error. Free a
+ * non-NULL result with vibrium_adblock_string_free().
+ */
+char* vibrium_adblock_scriptlets_script(
+    VibriumAdblockHandle handle,
+    const char* page_url);
+
+void vibrium_adblock_scriptlets_destroy(VibriumAdblockHandle handle);
+
+/*
  * Frees a string returned by vibrium_adblock_cosmetic_css(),
  * vibrium_adblock_cosmetic_payload(), vibrium_adblock_cosmetic_script() or
  * vibrium_adblock_generic_css(). NULL is a no-op.

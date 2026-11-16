@@ -1,11 +1,13 @@
 #include "selftest.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <vector>
 
 #include "adblock/adblock_service.h"
+#include "adblock/scriptlet_engine.h"
 
 namespace vibrium {
 
@@ -84,10 +86,23 @@ void SelfTest::Finish(const std::string& page_result, bool timed_out) {
       {"procedural filter left non-matching content visible",
        page_result.find("kept=visible") != std::string::npos},
   };
+  std::vector<Check> all_checks = checks;
+
+  // The scriptlet check only applies when the selftest fixture list (which
+  // carries the scriptlet rule) is the active one; the packaged-lists run has
+  // no such rule.
+  std::error_code fixture_ec;
+  if (std::filesystem::exists(
+          vibrium::PathFromUtf8(service.filter_dir()) / "selftest.txt",
+          fixture_ec)) {
+    all_checks.push_back(
+        {"scriptlet ran before the page's first script (renderer, document start)",
+         page_result.find("scriptlet=atstart") != std::string::npos});
+  }
 
   bool all_ok = true;
   std::ostringstream report;
-  for (const Check& c : checks) {
+  for (const Check& c : all_checks) {
     report << (c.ok ? "PASS " : "FAIL ") << c.name << "\n";
     all_ok = all_ok && c.ok;
   }

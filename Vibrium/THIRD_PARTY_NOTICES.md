@@ -58,3 +58,18 @@ Filter lists are not bundled except `filters/vibrium-baseline.txt`, which is
 original first-party work under MPL-2.0. No scriptlet library (`resources.json`)
 is bundled; uBlock Origin's is GPL-3.0, so shipping one is a deliberate
 licensing decision for the maintainers.
+
+## uBlock Origin scriptlets
+
+- Project: https://github.com/gorhill/uBlock
+- Used for: the scriptlet code (`filters/resources.json`) that the `+js(...)`
+  rules in the uBlock Origin filter lists refer to, for example removing ad data
+  from YouTube's player response. Built in CI by `tools/build_ubo_resources.mjs`
+  from the commit pinned in `ubo-resources-version.txt`.
+- License: GPL-3.0-or-later. **The generated `resources.json` contains uBlock
+  Origin's code and is distributed inside the Vibrium package, so the GPL's
+  source-offer and compatibility terms apply to that file. Vibrium itself is
+  MPL-2.0; review how the two should be combined before distributing Vibrium
+  widely (for example, by shipping the file as a separate, clearly attributed
+  data file with a source offer, or by downloading it on the user's machine).**
+  The exact source is the pinned commit.

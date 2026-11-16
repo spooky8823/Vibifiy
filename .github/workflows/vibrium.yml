@@ -110,7 +110,7 @@ jobs:
           sudo sysctl -w vm.mmap_rnd_bits=28
           LIB=rust/target/release/libvibrium_adblock.a
           FLAGS="-std=c++17 -Wall -Wextra -g -O1 -Ic++/adblock -Irust/vibrium-adblock/include"
-          SRC="c++/adblock/adblock_engine.cc c++/adblock/request_policy.cc"
+          SRC="c++/adblock/adblock_engine.cc c++/adblock/request_policy.cc c++/adblock/scriptlet_engine.cc"
           for san in address,undefined thread; do
             echo "::group::sanitizer $san"
             g++ $FLAGS -fsanitize=$san $SRC tests/native/adblock_wrapper_tests.cc \
@@ -322,6 +322,53 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "$t failed." }
           }
 
+      - name: Build uBlock Origin scriptlet resources
+        shell: pwsh
+        run: |
+          # Scriptlet RULES come from the downloaded filter lists; the scriptlet
+          # CODE comes from uBlock Origin, converted for the ad-block engine.
+          $pin = @{}
+          Get-Content "Vibrium/ubo-resources-version.txt" |
+            Where-Object { $_ -match '^\s*(UBO_[A-Z_]+)=(.*)$' } |
+            ForEach-Object { $pin[$Matches[1]] = $Matches[2].Trim() }
+
+          if (-not $pin['UBO_REPO'] -or $pin['UBO_COMMIT'] -notmatch '^[0-9a-f]{40}$') {
+            throw "Vibrium/ubo-resources-version.txt needs UBO_REPO and a full 40-character UBO_COMMIT."
+          }
+
+          # The converter uses only Node built-ins; the runner's Node is enough.
+          $nodeVersion = [version]((node --version).Trim().TrimStart('v'))
+          if ($nodeVersion.Major -lt 18) { throw "Node.js 18 or newer is required, found $nodeVersion." }
+
+          $source = Join-Path $env:RUNNER_TEMP 'ubo-source'
+          if (Test-Path $source) { Remove-Item $source -Recurse -Force }
+          git init -q $source
+          git -C $source fetch --depth 1 $pin['UBO_REPO'] $pin['UBO_COMMIT']
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch uBlock Origin commit $($pin['UBO_COMMIT'])." }
+          git -C $source checkout -q FETCH_HEAD
+          $head = (git -C $source rev-parse HEAD).Trim()
+          if ($head -ne $pin['UBO_COMMIT']) { throw "Fetched $head but expected $($pin['UBO_COMMIT'])." }
+
+          node Vibrium/tools/build_ubo_resources.mjs $source "Vibrium/filters/resources.json"
+          if ($LASTEXITCODE -ne 0) { throw "Converting uBlock Origin scriptlets failed." }
+
+          # Sanity: the scriptlets YouTube's rules depend on must be present.
+          $resources = Get-Content "Vibrium/filters/resources.json" -Raw | ConvertFrom-Json
+          $names = @($resources | ForEach-Object { $_.name })
+          foreach ($needed in @(
+              'json-prune.js', 'set-constant.js', 'json-prune-fetch-response.js',
+              'json-prune-xhr-response.js', 'trusted-replace-xhr-response.js',
+              'trusted-replace-fetch-response.js', 'safe-self.fn')) {
+            if ($names -notcontains $needed) { throw "resources.json lacks required scriptlet '$needed'." }
+          }
+
+          $bytes = (Get-Item "Vibrium/filters/resources.json").Length
+          @(
+            "### Scriptlet resources",
+            "- uBlock Origin commit: ``$($pin['UBO_COMMIT'])``",
+            "- resources: $($names.Count) ($bytes bytes)"
+          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
       - name: Package snapshot
         shell: pwsh
         run: |
@@ -376,6 +423,9 @@ jobs:
             throw "Vibrium/filters is missing: the snapshot would ship with ad blocking disabled."
           }
           Copy-Item "Vibrium/filters" "$package/filters" -Recurse -Force
+          if (!(Test-Path "$package/filters/resources.json")) {
+            throw "filters/resources.json was not packaged: scriptlets (for example YouTube ad removal) would not work."
+          }
           $lists = @(Get-ChildItem "$package/filters" -Filter *.txt -File)
           if ($lists.Count -eq 0) {
             throw "No filter lists (*.txt) were packaged in $package/filters."

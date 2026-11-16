@@ -127,7 +127,11 @@ std::string BuildContentScript(const std::string& payload_json) {
 }
 
 std::string BuildScriptletScript(const std::string& scriptlet) {
-  return "(function(){try{" + scriptlet + "\n}catch(e){}})();";
+  // uBlock Origin's scriptlet helpers (safeSelf and friends) read a
+  // `scriptletGlobals` object that uBO's own injector defines. It is a
+  // per-injection scratch object, so a fresh one here is equivalent.
+  return "(function(){const scriptletGlobals={};try{" + scriptlet +
+         "\n}catch(e){}})();";
 }
 
 std::optional<GenericQuery> ParseGenericQuery(const std::string& request) {
