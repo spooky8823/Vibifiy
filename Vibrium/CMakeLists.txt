@@ -25,6 +25,8 @@ add_executable(vibrium WIN32
     c++/searchengine.h
     c++/settings_page.cc
     c++/settings_page.h
+    c++/browsermenu.cc
+    c++/browsermenu.h
 )
 
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/vibrium_adblock.cmake")
