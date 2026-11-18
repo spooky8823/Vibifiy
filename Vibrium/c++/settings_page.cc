@@ -1,4 +1,4 @@
-#include "ui/settings_page.h"
+#include "settings_page.h"
 
 #include <commdlg.h>
 
