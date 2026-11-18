@@ -25,9 +25,9 @@
 #include "include/cef_life_span_handler.h"
 #include "include/cef_request_context.h"
 
-#include "ui/tabbar.h"
-#include "ui/searchengine.h"
-#include "ui/settings_page.h"
+#include "tabbar.h"
+#include "searchengine.h"
+#include "settings_page.h"
 #include "adblock/adblock_service.h"
 #include "adblock/request_policy.h"
 #include "adblock/scriptlet_engine.h"
