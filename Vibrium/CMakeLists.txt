@@ -19,12 +19,12 @@ add_subdirectory("${CEF_ROOT}" "${CMAKE_BINARY_DIR}/cef")
 
 add_executable(vibrium WIN32
     c++/main.cc
-    c++/ui/tabbar.cc
-    c++/ui/tabbar.h
-    c++/ui/searchengine.cc
-    c++/ui/searchengine.h
-    c++/ui/settings_page.cc
-    c++/ui/settings_page.h
+    c++/tabbar.cc
+    c++/tabbar.h
+    c++/searchengine.cc
+    c++/searchengine.h
+    c++/settings_page.cc
+    c++/settings_page.h
 )
 
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/vibrium_adblock.cmake")
