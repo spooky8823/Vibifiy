@@ -1,3 +1,11 @@
+// The browser passes its saved accent to each local new-tab page.
+(() => {
+  const accent = new URLSearchParams(location.search).get('vibriumAccent');
+  if (accent && /^[0-9a-f]{6}$/i.test(accent)) {
+    document.documentElement.style.setProperty('--vibrium-accent', '#' + accent);
+  }
+})();
+
 (function(){
   const mem=navigator.deviceMemory||2;
   const cores=navigator.hardwareConcurrency||2;
