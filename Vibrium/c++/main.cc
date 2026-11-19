@@ -8,6 +8,7 @@
 #endif
 
 #include <windows.h>
+#include <dwmapi.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -362,7 +363,7 @@ public:
             0,
             kWindowClass,
             kWindowTitle,
-            WS_OVERLAPPEDWINDOW,
+            WS_OVERLAPPEDWINDOW & ~WS_CAPTION,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             1280,
@@ -374,6 +375,12 @@ public:
 
         if (!hwnd_) {
             return false;
+        }
+
+        DWORD color = 0;
+        BOOL opaque = FALSE;
+        if (SUCCEEDED(DwmGetColorizationColor(&color, &opaque))) {
+            TabBar::SetSystemAccentColor(RGB(GetRValue(color), GetGValue(color), GetBValue(color)));
         }
 
         ShowWindow(hwnd_, SW_SHOW);
@@ -1200,6 +1207,44 @@ private:
         switch (message) {
         case WM_CREATE:
             return self->InitializeUI() ? 0 : -1;
+
+        case WM_NCCALCSIZE:
+            if (wParam) {
+                return 0; // Extend the client area into the former title bar.
+            }
+            break;
+
+        case WM_NCHITTEST: {
+            if (!self->videoFullscreen_ && !IsZoomed(hwnd)) {
+                POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                RECT window{};
+                GetWindowRect(hwnd, &window);
+                constexpr int resizeBorder = 8;
+                const bool left = point.x < window.left + resizeBorder;
+                const bool right = point.x >= window.right - resizeBorder;
+                const bool top = point.y < window.top + resizeBorder;
+                const bool bottom = point.y >= window.bottom - resizeBorder;
+                if (top && left) return HTTOPLEFT;
+                if (top && right) return HTTOPRIGHT;
+                if (bottom && left) return HTBOTTOMLEFT;
+                if (bottom && right) return HTBOTTOMRIGHT;
+                if (left) return HTLEFT;
+                if (right) return HTRIGHT;
+                if (top) return HTTOP;
+                if (bottom) return HTBOTTOM;
+            }
+            return HTCLIENT;
+        }
+
+        case WM_DWMCOLORIZATIONCOLORCHANGED: {
+            const DWORD color = static_cast<DWORD>(wParam);
+            TabBar::SetSystemAccentColor(RGB(GetRValue(color), GetGValue(color), GetBValue(color)));
+            return 0;
+        }
+
+        case WM_SYSCOLORCHANGE:
+            InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
 
         case WM_SIZE:
             self->ResizeUI();
