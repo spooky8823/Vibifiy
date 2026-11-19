@@ -70,6 +70,7 @@ class SettingsPage {
   void Paint(HDC hdc, const RECT& client);
   void PaintSidebar(HDC hdc);
   void PaintConsole(HDC hdc);
+  void PaintAppearance(HDC hdc);
   void PaintLog(HDC hdc);
 
   void Refresh(bool force);
@@ -114,6 +115,9 @@ class SettingsPage {
   RECT title_{};
   RECT subtitle_{};
   RECT cards_[5]{};
+  RECT palette_[6]{};
+  RECT systemAccentRect_{};
+  RECT customAccentRect_{};
   RECT notice_{};
   RECT searchBox_{};
   RECT chipsBox_{};
