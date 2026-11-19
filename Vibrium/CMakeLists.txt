@@ -61,6 +61,7 @@ target_link_libraries(vibrium PRIVATE
     libcef_dll_wrapper
 
     user32
+    advapi32
     dwmapi
     gdi32
     comctl32
