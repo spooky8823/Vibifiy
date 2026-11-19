@@ -463,7 +463,7 @@ void SearchEngine::Paint(HDC hdc) {
     HPEN pillPen = CreatePen(
         PS_SOLID,
         editFocused_ ? 2 : 1,
-        editFocused_ ? Theme::Accent() : kPillBorder);
+        editFocused_ ? vibrium::Theme::Accent() : kPillBorder);
 
     HGDIOBJ oldBrush = SelectObject(hdc, pillBrush);
     HGDIOBJ oldPen = SelectObject(hdc, pillPen);
@@ -485,7 +485,7 @@ void SearchEngine::Paint(HDC hdc) {
 
     // Compact native navigation controls: back, home, reload and forward.
     const int cy = client.bottom / 2;
-    const COLORREF navColor = Theme::Accent();
+    const COLORREF navColor = vibrium::Theme::Accent();
     HPEN navPen = CreatePen(PS_SOLID, 2, navColor);
     HGDIOBJ oldNavPen = SelectObject(hdc, navPen);
     SetBkMode(hdc, TRANSPARENT);
@@ -507,7 +507,7 @@ void SearchEngine::Paint(HDC hdc) {
     HPEN gearPen = CreatePen(
         PS_SOLID,
         1,
-        gearHover_ ? Theme::Accent() : kPillBorder);
+        gearHover_ ? vibrium::Theme::Accent() : kPillBorder);
 
     HGDIOBJ gearOldBrush = SelectObject(hdc, gearBrush);
     HGDIOBJ gearOldPen = SelectObject(hdc, gearPen);
