@@ -12,6 +12,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,7 @@ class SettingsPage {
   SettingsPage& operator=(const SettingsPage&) = delete;
 
   bool Create(HWND parent, HINSTANCE instance);
+  void SetOnThemeChanged(std::function<void(COLORREF)> callback) { onThemeChanged_ = std::move(callback); }
 
   // Positions the page over `bounds` (parent client coordinates), shows it and
   // starts the live refresh timer.
@@ -152,6 +154,7 @@ class SettingsPage {
   int dragStartScroll_ = 0;
   int scrollY_ = 0;
   std::wstring flash_;
+  std::function<void(COLORREF)> onThemeChanged_;
 };
 
 }  // namespace vibrium
