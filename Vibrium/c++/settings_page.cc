@@ -679,6 +679,8 @@ bool SettingsPage::ThumbRect(RECT* rect) const {
 void SettingsPage::OnClick(int id) {
   if (id >= kHitSection && id < kHitSection + kSectionCount) {
     activeSection_ = id - kHitSection;
+    if (searchEdit_) ShowWindow(searchEdit_, SW_HIDE);
+    searchFocused_ = false;
     Layout();
     InvalidateRect(hwnd_, nullptr, FALSE);
     return;
