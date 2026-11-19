@@ -20,6 +20,7 @@ constexpr COLORREF kTextColor = RGB(245, 245, 247);
 constexpr COLORREF kPlaceholderColor = RGB(155, 155, 162);
 
 constexpr int kOuterPadding = 3;
+constexpr int kNavigationWidth = 154;
 constexpr int kEditLeft = 164;
 constexpr int kEditRightPadding = 12;
 
@@ -214,9 +215,12 @@ void SearchEngine::LayoutControls() {
         return;
     }
 
+    // Navigation controls live in their own strip to the left of the address
+    // pill. Let the pill use all remaining horizontal space up to Settings.
+    const int addressRight = std::max(kEditLeft + 50,
+        width_ - kGearAreaWidth - kOuterPadding);
     const int editWidth = std::max(
-        50,
-        std::min(width_ - kGearAreaWidth, width_ * 78 / 100) - kEditLeft - kEditRightPadding);
+        50, addressRight - kEditLeft - kEditRightPadding);
 
     const int editHeight = std::max(18, height_ - 16);
     const int editY = (height_ - editHeight) / 2;
@@ -449,13 +453,14 @@ void SearchEngine::Paint(HDC hdc) {
     FillRect(hdc, &client, background);
     DeleteObject(background);
 
-    // Everything except the gear button is laid out inside [0, barRight].
-    const int barRight = std::min(client.right - kGearAreaWidth, client.right * 78 / 100);
+    // Keep navigation completely outside the address pill. The pill stretches
+    // across the full remaining width, stopping only before the Settings gear.
+    const int addressRight = client.right - kGearAreaWidth - kOuterPadding;
 
     RECT pill{
+        kNavigationWidth,
         kOuterPadding,
-        kOuterPadding,
-        barRight - kOuterPadding,
+        addressRight,
         client.bottom - kOuterPadding
     };
 
