@@ -67,10 +67,10 @@ private:
     static constexpr int NEW_TAB_WIDTH = 44;
     static constexpr int WINDOW_CONTROLS_WIDTH = 138;
 
-    static constexpr COLORREF COLOR_WINDOW_BG = RGB(19, 15, 29);
-    static constexpr COLORREF COLOR_TAB = RGB(35, 29, 49);
-    static constexpr COLORREF COLOR_ACTIVE = RGB(62, 47, 91);
-    static constexpr COLORREF COLOR_HOVER = RGB(75, 58, 108);
+    static constexpr COLORREF COLOR_WINDOW_BG = RGB(30, 30, 32);
+    static constexpr COLORREF COLOR_TAB = RGB(42, 42, 45);
+    static constexpr COLORREF COLOR_ACTIVE = RGB(55, 55, 59);
+    static constexpr COLORREF COLOR_HOVER = RGB(68, 68, 73);
     static COLORREF systemAccentColor_;
     static constexpr COLORREF COLOR_TEXT = RGB(243, 238, 252);
     static constexpr COLORREF COLOR_MUTED = RGB(164, 153, 183);
