@@ -374,9 +374,6 @@ void SettingsPage::Layout() {
   title_ = RECT{cx, 24, right, 62};
   subtitle_ = RECT{cx, 62, right, 84};
 
-  const COLORREF paletteColors[6] = {
-      RGB(0, 120, 215), RGB(0, 153, 102), RGB(16, 124, 16),
-      RGB(232, 90, 35), RGB(190, 70, 160), RGB(100, 100, 110)};
   const int swatch = 48;
   for (int i = 0; i < 6; ++i) {
     const int left = cx + i * (swatch + 14);
@@ -682,7 +679,41 @@ void SettingsPage::OnClick(int id) {
     InvalidateRect(hwnd_, nullptr, FALSE);
     return;
   }
-  if (id >= kHitPalette && id < kHitPalette + 6) {\n    const COLORREF colors[6] = {RGB(0,120,215), RGB(0,153,102), RGB(16,124,16), RGB(232,90,35), RGB(190,70,160), RGB(100,100,110)};\n    Theme::SetManualAccent(colors[id - kHitPalette]);\n    TabBar::SetSystemAccentColor(Theme::Accent());\n    if (onThemeChanged_) onThemeChanged_(Theme::Accent());\n    InvalidateRect(hwnd_, nullptr, FALSE);\n    EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0);\n    return;\n  }\n  if (id == kHitSystemAccent) {\n    Theme::UseSystemAccent();\n    TabBar::SetSystemAccentColor(Theme::Accent());\n    InvalidateRect(hwnd_, nullptr, FALSE);\n    EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0);\n    return;\n  }\n  if (id == kHitCustomAccent) {\n    static COLORREF custom[16]{};\n    CHOOSECOLORW choose{}; choose.lStructSize = sizeof(choose); choose.hwndOwner = hwnd_; choose.lpCustColors = custom; choose.rgbResult = Theme::Accent(); choose.Flags = CC_FULLOPEN | CC_RGBINIT;\n    if (ChooseColorW(&choose)) { Theme::SetManualAccent(choose.rgbResult); TabBar::SetSystemAccentColor(Theme::Accent()); if (onThemeChanged_) onThemeChanged_(Theme::Accent()); InvalidateRect(hwnd_, nullptr, FALSE); EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0); }\n    return;\n  }\n  if (id >= kHitChip && id < kHitChip + 4) {
+  if (id >= kHitPalette && id < kHitPalette + 6) {
+    const COLORREF colors[6] = {RGB(0,120,215), RGB(0,153,102), RGB(16,124,16), RGB(232,90,35), RGB(190,70,160), RGB(100,100,110)};
+    Theme::SetManualAccent(colors[id - kHitPalette]);
+    TabBar::SetSystemAccentColor(Theme::Accent());
+    if (onThemeChanged_) onThemeChanged_(Theme::Accent());
+    InvalidateRect(hwnd_, nullptr, FALSE);
+    EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0);
+    return;
+  }
+  if (id == kHitSystemAccent) {
+    Theme::UseSystemAccent();
+    TabBar::SetSystemAccentColor(Theme::Accent());
+    if (onThemeChanged_) onThemeChanged_(Theme::Accent());
+    InvalidateRect(hwnd_, nullptr, FALSE);
+    EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0);
+    return;
+  }
+  if (id == kHitCustomAccent) {
+    static COLORREF custom[16]{};
+    CHOOSECOLORW choose{};
+    choose.lStructSize = sizeof(choose);
+    choose.hwndOwner = hwnd_;
+    choose.lpCustColors = custom;
+    choose.rgbResult = Theme::Accent();
+    choose.Flags = CC_FULLOPEN | CC_RGBINIT;
+    if (ChooseColorW(&choose)) {
+      Theme::SetManualAccent(choose.rgbResult);
+      TabBar::SetSystemAccentColor(Theme::Accent());
+      if (onThemeChanged_) onThemeChanged_(Theme::Accent());
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0);
+    }
+    return;
+  }
+  if (id >= kHitChip && id < kHitChip + 4) {
     filter_ = id - kHitChip;
     ApplyFilter();
     if (stickToBottom_) ScrollToBottom();
@@ -752,7 +783,7 @@ void SettingsPage::PaintSidebar(HDC hdc) {
     const bool active = i == activeSection_;
     const bool hover = hoverId_ == kHitSection + i;
     if (active) {
-      FillRound(hdc, r, 12, kAccent);
+      FillRound(hdc, r, 12, Theme::Accent());
     } else if (hover) {
       FillRound(hdc, r, 12, kSoft);
     }
@@ -764,7 +795,26 @@ void SettingsPage::PaintSidebar(HDC hdc) {
   }
 }
 
-void SettingsPage::PaintAppearance(HDC hdc) {\n  DrawLabel(hdc, L"Appearance", title_, fontTitle_, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);\n  DrawLabel(hdc, L"Choose the accent used throughout Vibrium.", subtitle_, fontUi_, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);\n  const COLORREF colors[6] = {RGB(0,120,215), RGB(0,153,102), RGB(16,124,16), RGB(232,90,35), RGB(190,70,160), RGB(100,100,110)};\n  const wchar_t* names[6] = {L"Blue", L"Teal", L"Green", L"Orange", L"Pink", L"Graphite"};\n  for (int i=0;i<6;++i) { FillRound(hdc, palette_[i], 12, colors[i], Theme::Accent()==colors[i] ? kText : kBorderStrong, Theme::Accent()==colors[i] ? 3 : 1); RECT label{palette_[i].left-8,palette_[i].bottom+8,palette_[i].right+8,palette_[i].bottom+30}; DrawLabel(hdc,names[i],label,fontUi_,kText,DT_SINGLELINE|DT_CENTER|DT_VCENTER); }\n  FillRound(hdc, systemAccentRect_, 12, kPanel3, kBorderStrong);\n  DrawLabel(hdc, L"Use Windows accent", systemAccentRect_, fontUi_, kText, DT_SINGLELINE|DT_CENTER|DT_VCENTER);\n  FillRound(hdc, customAccentRect_, 12, Theme::Accent(), Theme::Accent());\n  DrawLabel(hdc, L"Custom colour...", customAccentRect_, fontUi_, RGB(255,255,255), DT_SINGLELINE|DT_CENTER|DT_VCENTER);\n  std::wstring mode = Theme::IsManual() ? L"Using a custom Vibrium accent" : L"Following your Windows accent colour";\n  DrawLabel(hdc, mode, RECT{systemAccentRect_.left, 282, systemAccentRect_.right+260, 310}, fontUi_, kMuted, DT_SINGLELINE|DT_VCENTER|DT_LEFT);\n}\n\nvoid SettingsPage::PaintConsole(HDC hdc) {
+void SettingsPage::PaintAppearance(HDC hdc) {
+  DrawLabel(hdc, L"Appearance", title_, fontTitle_, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+  DrawLabel(hdc, L"Choose the accent used throughout Vibrium.", subtitle_, fontUi_, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+  const COLORREF colors[6] = {RGB(0,120,215), RGB(0,153,102), RGB(16,124,16), RGB(232,90,35), RGB(190,70,160), RGB(100,100,110)};
+  const wchar_t* names[6] = {L"Blue", L"Teal", L"Green", L"Orange", L"Pink", L"Graphite"};
+  for (int i=0;i<6;++i) {
+    const bool selected = Theme::Accent() == colors[i] && Theme::IsManual();
+    FillRound(hdc, palette_[i], 12, colors[i], selected ? kText : kBorderStrong, selected ? 3 : 1);
+    RECT label{palette_[i].left-8,palette_[i].bottom+8,palette_[i].right+8,palette_[i].bottom+30};
+    DrawLabel(hdc,names[i],label,fontUi_,kText,DT_SINGLELINE|DT_CENTER|DT_VCENTER);
+  }
+  FillRound(hdc, systemAccentRect_, 12, kPanel3, kBorderStrong);
+  DrawLabel(hdc, L"Use Windows accent", systemAccentRect_, fontUi_, kText, DT_SINGLELINE|DT_CENTER|DT_VCENTER);
+  FillRound(hdc, customAccentRect_, 12, Theme::Accent(), Theme::Accent());
+  DrawLabel(hdc, L"Custom colour...", customAccentRect_, fontUi_, RGB(255,255,255), DT_SINGLELINE|DT_CENTER|DT_VCENTER);
+  std::wstring mode = Theme::IsManual() ? L"Using a custom Vibrium accent" : L"Following your Windows accent colour";
+  DrawLabel(hdc, mode, RECT{systemAccentRect_.left, 282, systemAccentRect_.right+260, 310}, fontUi_, kMuted, DT_SINGLELINE|DT_VCENTER|DT_LEFT);
+}
+
+void SettingsPage::PaintConsole(HDC hdc) {
   DrawLabel(hdc, L"Console", title_, fontTitle_, kText,
             DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   DrawLabel(hdc, L"Live ad-blocking decisions for the pages you open.",
@@ -832,7 +882,7 @@ void SettingsPage::PaintAppearance(HDC hdc) {\n  DrawLabel(hdc, L"Appearance", t
     const bool selected = filter_ == i;
     const bool hover = hoverId_ == kHitChip + i;
     if (selected) {
-      FillRound(hdc, r, 10, kAccent);
+      FillRound(hdc, r, 10, Theme::Accent());
     } else if (hover) {
       FillRound(hdc, r, 10, kSoft);
     }
@@ -858,14 +908,14 @@ void SettingsPage::PaintAppearance(HDC hdc) {\n  DrawLabel(hdc, L"Appearance", t
     COLORREF fill = kPanel3;
     COLORREF border = kBorderStrong;
     if (button.primary) {
-      fill = hover ? Theme::Mix(Theme::Accent(), RGB(255,255,255), 14) : kAccent;
+      fill = hover ? Theme::Mix(Theme::Accent(), RGB(255,255,255), 14) : Theme::Accent();
       border = fill;
     } else if (button.active) {
       fill = kSoft;
-      border = kFocus;
+      border = Theme::Accent();
     } else if (hover) {
       fill = kSoftStrong;
-      border = kFocus;
+      border = Theme::Accent();
     }
     FillRound(hdc, r, 14, fill, border);
     DrawLabel(hdc, button.label, r, fontUi_, RGB(255, 255, 255),
@@ -889,7 +939,7 @@ void SettingsPage::PaintAppearance(HDC hdc) {\n  DrawLabel(hdc, L"Appearance", t
     if (paused_) footer += L"   -   paused, the list is not updating";
   }
   DrawLabel(hdc, footer, footer_, fontLabel_,
-            flash_.empty() ? kMuted : kFocus,
+            flash_.empty() ? kMuted : Theme::Accent(),
             DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
 }
 
@@ -955,7 +1005,7 @@ void SettingsPage::PaintLog(HDC hdc) {
   RECT thumb{};
   if (ThumbRect(&thumb)) {
     const bool hot = draggingThumb_;
-    FillRound(hdc, thumb, kScrollbarWidth, hot ? kFocus : Theme::Accent());
+    FillRound(hdc, thumb, kScrollbarWidth, hot ? Theme::Accent() : Theme::Accent());
   }
 }
 
