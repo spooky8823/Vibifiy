@@ -15,6 +15,12 @@ namespace {
     constexpr int TAB_CORNER = 12;
 }
 
+COLORREF TabBar::systemAccentColor_ = GetSysColor(COLOR_HIGHLIGHT);
+
+void TabBar::SetSystemAccentColor(COLORREF color) {
+    systemAccentColor_ = color;
+}
+
 bool TabBar::Create(
     HWND parent,
     HINSTANCE instance,
@@ -172,7 +178,7 @@ int TabBar::GetTabWidth() const {
     GetClientRect(hwnd_, &client);
 
     const int availableWidth =
-        client.right - client.left - NEW_TAB_WIDTH - 12;
+        client.right - client.left - NEW_TAB_WIDTH - WINDOW_CONTROLS_WIDTH - 12;
 
     const int calculatedWidth =
         availableWidth / static_cast<int>(tabs_.size());
@@ -312,7 +318,7 @@ void TabBar::Paint(HDC hdc) {
         HPEN tabPen = CreatePen(
             PS_SOLID,
             1,
-            active ? COLOR_ACCENT : COLOR_TAB);
+            active ? systemAccentColor_ : COLOR_TAB);
 
         HGDIOBJ oldBrush = SelectObject(hdc, tabBrush);
         HGDIOBJ oldPen = SelectObject(hdc, tabPen);
@@ -342,7 +348,7 @@ void TabBar::Paint(HDC hdc) {
             };
 
             HBRUSH accentBrush =
-                CreateSolidBrush(COLOR_ACCENT);
+                CreateSolidBrush(systemAccentColor_);
 
             FillRect(hdc, &accent, accentBrush);
             DeleteObject(accentBrush);
@@ -387,6 +393,25 @@ void TabBar::Paint(HDC hdc) {
         DeleteObject(closePen);
     }
 
+    // Native window controls are drawn inside the custom title bar.
+    const int controlY = TAB_HEIGHT / 2;
+    const int controlCenters[] = { client.right - 115, client.right - 69, client.right - 23 };
+    SetTextColor(hdc, COLOR_TEXT);
+    for (int i = 0; i < 3; ++i) {
+        const int cx = controlCenters[i];
+        if (i == 0) {
+            MoveToEx(hdc, cx - 5, controlY + 4, nullptr);
+            LineTo(hdc, cx + 5, controlY + 4);
+        } else if (i == 1) {
+            Rectangle(hdc, cx - 5, controlY - 5, cx + 5, controlY + 5);
+        } else {
+            MoveToEx(hdc, cx - 5, controlY - 5, nullptr);
+            LineTo(hdc, cx + 5, controlY + 5);
+            MoveToEx(hdc, cx + 5, controlY - 5, nullptr);
+            LineTo(hdc, cx - 5, controlY + 5);
+        }
+    }
+
     // Rounded new-tab button.
     const int tabWidth = GetTabWidth();
 
@@ -402,10 +427,10 @@ void TabBar::Paint(HDC hdc) {
     };
 
     HBRUSH newTabBrush =
-        CreateSolidBrush(RGB(48, 37, 72));
+        CreateSolidBrush(COLOR_TAB);
 
     HPEN newTabPen =
-        CreatePen(PS_SOLID, 1, COLOR_ACCENT);
+        CreatePen(PS_SOLID, 1, systemAccentColor_);
 
     HGDIOBJ oldNewBrush = SelectObject(hdc, newTabBrush);
     HGDIOBJ oldNewPen = SelectObject(hdc, newTabPen);
@@ -442,6 +467,22 @@ void TabBar::Paint(HDC hdc) {
 
 void TabBar::HandleClick(int x, int y) {
     if (y < 0 || y > TAB_HEIGHT) {
+        return;
+    }
+
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    if (x >= client.right - 46) {
+        SendMessageW(parent_, WM_SYSCOMMAND, SC_CLOSE, 0);
+        return;
+    }
+    if (x >= client.right - 92) {
+        SendMessageW(parent_, WM_SYSCOMMAND,
+            IsZoomed(parent_) ? SC_RESTORE : SC_MAXIMIZE, 0);
+        return;
+    }
+    if (x >= client.right - 138) {
+        SendMessageW(parent_, WM_SYSCOMMAND, SC_MINIMIZE, 0);
         return;
     }
 
@@ -482,5 +523,13 @@ void TabBar::HandleClick(int x, int y) {
         if (onNewTab_) {
             onNewTab_();
         }
+        return;
     }
+
+    // Empty tab-strip space acts as the draggable custom title bar.
+    POINT screenPoint{x, y};
+    ClientToScreen(hwnd_, &screenPoint);
+    ReleaseCapture();
+    SendMessageW(parent_, WM_NCLBUTTONDOWN, HTCAPTION,
+        MAKELPARAM(screenPoint.x, screenPoint.y));
 }
