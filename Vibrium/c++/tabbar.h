@@ -73,7 +73,7 @@ private:
     static constexpr COLORREF COLOR_HOVER = RGB(68, 68, 73);
     static COLORREF systemAccentColor_;
     static constexpr COLORREF COLOR_TEXT = RGB(243, 238, 252);
-    static constexpr COLORREF COLOR_MUTED = RGB(164, 153, 183);
+    static constexpr COLORREF COLOR_MUTED = RGB(158, 158, 166);
 
     static LRESULT CALLBACK WindowProc(
         HWND hwnd,
