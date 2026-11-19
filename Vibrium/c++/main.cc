@@ -38,6 +38,7 @@
 #include "tabbar.h"
 #include "searchengine.h"
 #include "settings_page.h"
+#include "theme.h"
 #include "adblock/adblock_service.h"
 #include "adblock/request_policy.h"
 #include "adblock/scriptlet_engine.h"
@@ -386,11 +387,8 @@ public:
             return false;
         }
 
-        DWORD color = 0;
-        BOOL opaque = FALSE;
-        if (SUCCEEDED(DwmGetColorizationColor(&color, &opaque))) {
-            TabBar::SetSystemAccentColor(RGB(GetRValue(color), GetGValue(color), GetBValue(color)));
-        }
+        Theme::Load();
+        TabBar::SetSystemAccentColor(Theme::Accent());
 
         ShowWindow(hwnd_, SW_SHOW);
         UpdateWindow(hwnd_);
@@ -451,6 +449,18 @@ public:
             [this]() {
                 OpenSettings();
             });
+
+        searchBar_->SetOnNavigation([this](int action) {
+            TabRecord* tab = GetActiveTab();
+            if (!tab || !tab->browser) return;
+            switch (action) {
+                case 0: tab->browser->GoBack(); break;
+                case 1: NavigateActiveTab(GetNewTabUrl()); break;
+                case 2: tab->browser->Reload(); break;
+                case 3: tab->browser->GoForward(); break;
+                default: break;
+            }
+        });
 
         settingsPage_ = std::make_unique<SettingsPage>();
 
@@ -1247,7 +1257,10 @@ private:
 
         case WM_DWMCOLORIZATIONCOLORCHANGED: {
             const DWORD color = static_cast<DWORD>(wParam);
-            TabBar::SetSystemAccentColor(RGB(GetRValue(color), GetGValue(color), GetBValue(color)));
+            Theme::SetSystemAccentColor(RGB(GetRValue(color), GetGValue(color), GetBValue(color)));
+            TabBar::SetSystemAccentColor(Theme::Accent());
+            if (self->tabBar_) InvalidateRect(self->tabBar_->GetHandle(), nullptr, TRUE);
+            if (self->searchBar_) InvalidateRect(self->searchBar_->GetHandle(), nullptr, TRUE);
             return 0;
         }
 
