@@ -378,12 +378,14 @@ void SettingsPage::Layout() {
   for (int i = 0; i < 6; ++i) {
     const int left = cx + i * (swatch + 14);
     palette_[i] = RECT{left, 142, left + swatch, 142 + swatch};
-    hits_.push_back({palette_[i], kHitPalette + i});
+    if (activeSection_ == 1) hits_.push_back({palette_[i], kHitPalette + i});
   }
   systemAccentRect_ = RECT{cx, 220, cx + 190, 260};
   customAccentRect_ = RECT{cx + 204, 220, cx + 394, 260};
-  hits_.push_back({systemAccentRect_, kHitSystemAccent});
-  hits_.push_back({customAccentRect_, kHitCustomAccent});
+  if (activeSection_ == 1) {
+    hits_.push_back({systemAccentRect_, kHitSystemAccent});
+    hits_.push_back({customAccentRect_, kHitCustomAccent});
+  }
 
   // Cards flow into 5, 3 or 2 columns so labels never get truncated.
   const int cardsTop = 104;
@@ -676,6 +678,7 @@ bool SettingsPage::ThumbRect(RECT* rect) const {
 void SettingsPage::OnClick(int id) {
   if (id >= kHitSection && id < kHitSection + kSectionCount) {
     activeSection_ = id - kHitSection;
+    Layout();
     InvalidateRect(hwnd_, nullptr, FALSE);
     return;
   }
