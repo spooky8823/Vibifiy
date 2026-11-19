@@ -1280,6 +1280,13 @@ private:
             TabBar::SetSystemAccentColor(Theme::Accent());
             if (self->tabBar_) InvalidateRect(self->tabBar_->GetHandle(), nullptr, TRUE);
             if (self->searchBar_) InvalidateRect(self->searchBar_->GetHandle(), nullptr, TRUE);
+            if (self->settingsPage_) InvalidateRect(self->settingsPage_->handle(), nullptr, TRUE);
+            wchar_t script[128]{};
+            swprintf_s(script, L"document.documentElement.style.setProperty('--vibrium-accent', '#%02X%02X%02X');",
+                GetRValue(Theme::Accent()), GetGValue(Theme::Accent()), GetBValue(Theme::Accent()));
+            for (auto& tab : self->tabs_) {
+                if (tab.browser) tab.browser->GetMainFrame()->ExecuteJavaScript(script, tab.browser->GetMainFrame()->GetURL(), 0);
+            }
             return 0;
         }
 
