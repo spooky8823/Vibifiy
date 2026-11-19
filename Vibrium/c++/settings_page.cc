@@ -385,6 +385,7 @@ void SettingsPage::Layout() {
   if (activeSection_ == 1) {
     hits_.push_back({systemAccentRect_, kHitSystemAccent});
     hits_.push_back({customAccentRect_, kHitCustomAccent});
+    return;
   }
 
   // Cards flow into 5, 3 or 2 columns so labels never get truncated.
@@ -762,7 +763,8 @@ void SettingsPage::Paint(HDC hdc, const RECT& client) {
   DeleteObject(background);
 
   PaintSidebar(hdc);
-  if (activeSection_ == 0) PaintConsole(hdc);\n  else if (activeSection_ == 1) PaintAppearance(hdc);
+  if (activeSection_ == 0) PaintConsole(hdc);
+  else if (activeSection_ == 1) PaintAppearance(hdc);
 }
 
 void SettingsPage::PaintSidebar(HDC hdc) {
