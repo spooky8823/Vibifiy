@@ -10,6 +10,7 @@ public:
     using NavigateCallback =
         std::function<void(const std::wstring&)>;
     using SettingsCallback = std::function<void()>;
+    using NavigationCallback = std::function<void(int)>;
 
     bool Create(
         HWND parent,
@@ -33,6 +34,7 @@ public:
     // Called when the settings (gear) button next to the address bar is
     // clicked.
     void SetOnSettings(SettingsCallback callback);
+    void SetOnNavigation(NavigationCallback callback);
     void SetSearchProvider(const std::wstring& provider);
 
     void Navigate();
@@ -73,6 +75,7 @@ private:
 
     NavigateCallback onNavigate_;
     SettingsCallback onSettings_;
+    NavigationCallback onNavigation_;
 
     std::wstring searchProvider_ =
         L"https://www.google.com/search?q=";
