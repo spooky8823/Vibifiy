@@ -1,4 +1,5 @@
 #include "searchengine.h"
+#include "theme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,24 +13,20 @@ constexpr wchar_t kSearchEngineClass[] =
 
 constexpr int kAddressControlId = 1001;
 
-constexpr COLORREF kBackground = RGB(24, 20, 36);
-constexpr COLORREF kPillColor = RGB(35, 29, 51);
-constexpr COLORREF kPillBorder = RGB(77, 61, 112);
-constexpr COLORREF kFocusBorder = RGB(151, 111, 255);
-constexpr COLORREF kButtonColor = RGB(111, 76, 220);
-constexpr COLORREF kButtonHover = RGB(132, 99, 242);
-constexpr COLORREF kTextColor = RGB(241, 237, 250);
-constexpr COLORREF kPlaceholderColor = RGB(157, 148, 177);
+constexpr COLORREF kBackground = RGB(18, 18, 20);
+constexpr COLORREF kPillColor = RGB(35, 35, 39);
+constexpr COLORREF kPillBorder = RGB(68, 68, 74);
+constexpr COLORREF kTextColor = RGB(245, 245, 247);
+constexpr COLORREF kPlaceholderColor = RGB(155, 155, 162);
 
 constexpr int kOuterPadding = 3;
-constexpr int kEditLeft = 20;
-constexpr int kEditRightPadding = 91;
-constexpr int kButtonWidth = 70;
+constexpr int kEditLeft = 164;
+constexpr int kEditRightPadding = 12;
 
 // Settings (gear) button, to the right of the address pill.
 constexpr int kGearAreaWidth = 52;
 constexpr int kGearSize = 32;
-constexpr COLORREF kGearHoverFill = RGB(52, 42, 78);
+constexpr COLORREF kGearHoverFill = RGB(52, 52, 58);
 
 // Draws a gear (8 teeth, centre hole) with plain GDI so it does not depend on
 // any font having a gear glyph.
@@ -411,8 +408,11 @@ void SearchEngine::SetOnNavigate(
 
 void SearchEngine::SetOnSettings(
     SettingsCallback callback) {
-
     onSettings_ = std::move(callback);
+}
+
+void SearchEngine::SetOnNavigation(NavigationCallback callback) {
+    onNavigation_ = std::move(callback);
 }
 
 RECT SearchEngine::GearRect(const RECT& client) const {
@@ -463,7 +463,7 @@ void SearchEngine::Paint(HDC hdc) {
     HPEN pillPen = CreatePen(
         PS_SOLID,
         editFocused_ ? 2 : 1,
-        editFocused_ ? kFocusBorder : kPillBorder);
+        editFocused_ ? Theme::Accent() : kPillBorder);
 
     HGDIOBJ oldBrush = SelectObject(hdc, pillBrush);
     HGDIOBJ oldPen = SelectObject(hdc, pillPen);
@@ -483,63 +483,21 @@ void SearchEngine::Paint(HDC hdc) {
     DeleteObject(pillBrush);
     DeleteObject(pillPen);
 
-    const int buttonLeft = barRight - kButtonWidth - 9;
-    const int buttonTop = 8;
-    const int buttonBottom = client.bottom - 8;
-
-    RECT button{
-        buttonLeft,
-        buttonTop,
-        barRight - 9,
-        buttonBottom
-    };
-
-    HBRUSH buttonBrush = CreateSolidBrush(kButtonColor);
-    HGDIOBJ previousBrush = SelectObject(hdc, buttonBrush);
-
-    HPEN buttonPen = CreatePen(PS_NULL, 0, kButtonColor);
-    HGDIOBJ previousPen = SelectObject(hdc, buttonPen);
-
-    RoundRect(
-        hdc,
-        button.left,
-        button.top,
-        button.right,
-        button.bottom,
-        18,
-        18);
-
-    SelectObject(hdc, previousBrush);
-    SelectObject(hdc, previousPen);
-
-    DeleteObject(buttonBrush);
-    DeleteObject(buttonPen);
-
+    // Compact native navigation controls: back, home, reload and forward.
+    const int cy = client.bottom / 2;
+    const COLORREF navColor = Theme::Accent();
+    HPEN navPen = CreatePen(PS_SOLID, 2, navColor);
+    HGDIOBJ oldNavPen = SelectObject(hdc, navPen);
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, RGB(255, 255, 255));
-
-    HFONT buttonFont = CreateFontW(
-        14, 0, 0, 0,
-        FW_SEMIBOLD,
-        FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY,
-        DEFAULT_PITCH | FF_DONTCARE,
-        L"Segoe UI");
-
-    HGDIOBJ oldFont = SelectObject(hdc, buttonFont);
-
-    DrawTextW(
-        hdc,
-        L"Go",
-        -1,
-        &button,
-        DT_SINGLELINE | DT_CENTER | DT_VCENTER);
-
-    SelectObject(hdc, oldFont);
-    DeleteObject(buttonFont);
+    const int centers[] = {25, 61, 97, 133};
+    MoveToEx(hdc, centers[0] + 5, cy - 6, nullptr); LineTo(hdc, centers[0] - 2, cy); LineTo(hdc, centers[0] + 5, cy + 6);
+    MoveToEx(hdc, centers[1] - 8, cy - 1, nullptr); LineTo(hdc, centers[1], cy - 9); LineTo(hdc, centers[1] + 8, cy - 1);
+    LineTo(hdc, centers[1] + 6, cy - 1); LineTo(hdc, centers[1] + 6, cy + 8); LineTo(hdc, centers[1] - 6, cy + 8); LineTo(hdc, centers[1] - 6, cy - 1);
+    Arc(hdc, centers[2] - 7, cy - 7, centers[2] + 7, cy + 7, centers[2] + 7, cy, centers[2], cy - 7);
+    MoveToEx(hdc, centers[2] + 1, cy - 8, nullptr); LineTo(hdc, centers[2] + 7, cy - 8); LineTo(hdc, centers[2] + 7, cy - 2);
+    MoveToEx(hdc, centers[3] - 5, cy - 6, nullptr); LineTo(hdc, centers[3] + 2, cy); LineTo(hdc, centers[3] - 5, cy + 6);
+    SelectObject(hdc, oldNavPen);
+    DeleteObject(navPen);
 
     // Settings button: a round gear that lights up on hover.
     RECT gear = GearRect(client);
@@ -549,7 +507,7 @@ void SearchEngine::Paint(HDC hdc) {
     HPEN gearPen = CreatePen(
         PS_SOLID,
         1,
-        gearHover_ ? kFocusBorder : kPillBorder);
+        gearHover_ ? Theme::Accent() : kPillBorder);
 
     HGDIOBJ gearOldBrush = SelectObject(hdc, gearBrush);
     HGDIOBJ gearOldPen = SelectObject(hdc, gearPen);
@@ -586,8 +544,9 @@ LRESULT CALLBACK SearchEngine::EditProc(
         GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
     if (self) {
-        if (message == WM_KEYDOWN && wParam == VK_RETURN) {
-            self->Navigate();
+        if (message == WM_KEYDOWN && wParam == VK_RETURN) { self->Navigate(); return 0; }
+        if (message == WM_KEYDOWN && wParam == 'A' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+            SendMessageW(hwnd, EM_SETSEL, 0, -1);
             return 0;
         }
 
@@ -671,10 +630,9 @@ LRESULT CALLBACK SearchEngine::WindowProc(
             return 0;
         }
 
-        const int barRight = self->width_ - kGearAreaWidth;
-
-        if (x >= barRight - kButtonWidth - 12 && x < barRight) {
-            self->Navigate();
+        if (x >= 8 && x < 151) {
+            const int index = std::clamp((x - 8) / 36, 0, 3);
+            if (self->onNavigation_) self->onNavigation_(index);
             return 0;
         }
 
