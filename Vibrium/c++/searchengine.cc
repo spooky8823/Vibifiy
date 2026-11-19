@@ -216,7 +216,7 @@ void SearchEngine::LayoutControls() {
 
     const int editWidth = std::max(
         50,
-        width_ - kGearAreaWidth - kEditLeft - kEditRightPadding);
+        std::min(width_ - kGearAreaWidth, 1100) - kEditLeft - kEditRightPadding);
 
     const int editHeight = std::max(18, height_ - 16);
     const int editY = (height_ - editHeight) / 2;
@@ -450,7 +450,7 @@ void SearchEngine::Paint(HDC hdc) {
     DeleteObject(background);
 
     // Everything except the gear button is laid out inside [0, barRight].
-    const int barRight = client.right - kGearAreaWidth;
+    const int barRight = std::min(client.right - kGearAreaWidth, 1100);
 
     RECT pill{
         kOuterPadding,
