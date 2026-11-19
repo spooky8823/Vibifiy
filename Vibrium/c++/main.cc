@@ -1204,7 +1204,11 @@ private:
             else encoded += ch;
         }
 
-        return L"file:///" + encoded;
+        wchar_t accent[32]{};
+        const COLORREF color = Theme::Accent();
+        swprintf_s(accent, L"?vibriumAccent=%02X%02X%02X",
+            GetRValue(color), GetGValue(color), GetBValue(color));
+        return L"file:///" + encoded + accent;
     }
 
     static LRESULT CALLBACK WindowProc(
