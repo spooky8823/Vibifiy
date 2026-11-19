@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cwchar>
 #include <filesystem>
 #include <memory>
 #include <string>
