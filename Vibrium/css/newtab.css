@@ -1,5 +1,5 @@
 :root{
-  --p:#7B5CF0;--pl:#9D7FFF;--pp:#E8E0FF;--pd:#5A3FA0;
+  --p:var(--vibrium-accent,#7B5CF0);--pl:color-mix(in srgb,var(--p) 72%, white);--pp:color-mix(in srgb,var(--p) 14%, white);--pd:color-mix(in srgb,var(--p) 72%, black);
   --bg:#FAFAFE;--sf:#F4F1FF;--s2:#EDE8FF;--tx:#1A1035;--tm:#5A3FA0;
   --br:rgba(123,92,240,0.15);--sh:0 2px 20px rgba(123,92,240,0.1);
   /* SOLID BACKGROUNDS INSTEAD OF GLASS */
