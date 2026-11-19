@@ -43,6 +43,7 @@ public:
     void SetTabTitle(int index, const std::wstring& title);
 
     HWND GetHandle() const;
+    static void SetSystemAccentColor(COLORREF color);
 
 private:
     struct Tab {
@@ -64,12 +65,13 @@ private:
     static constexpr int TAB_MIN_WIDTH = 120;
     static constexpr int TAB_MAX_WIDTH = 220;
     static constexpr int NEW_TAB_WIDTH = 44;
+    static constexpr int WINDOW_CONTROLS_WIDTH = 138;
 
     static constexpr COLORREF COLOR_WINDOW_BG = RGB(19, 15, 29);
     static constexpr COLORREF COLOR_TAB = RGB(35, 29, 49);
     static constexpr COLORREF COLOR_ACTIVE = RGB(62, 47, 91);
     static constexpr COLORREF COLOR_HOVER = RGB(75, 58, 108);
-    static constexpr COLORREF COLOR_ACCENT = RGB(151, 111, 255);
+    static COLORREF systemAccentColor_;
     static constexpr COLORREF COLOR_TEXT = RGB(243, 238, 252);
     static constexpr COLORREF COLOR_MUTED = RGB(164, 153, 183);
 
