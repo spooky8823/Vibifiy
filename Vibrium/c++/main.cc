@@ -469,6 +469,21 @@ public:
             settingsPage_.reset();
         }
 
+        if (settingsPage_) {
+            settingsPage_->SetOnThemeChanged([this](COLORREF color) {
+                wchar_t script[128]{};
+                swprintf_s(script, L"document.documentElement.style.setProperty('--vibrium-accent', '#%02X%02X%02X');",
+                    GetRValue(color), GetGValue(color), GetBValue(color));
+                for (auto& tab : tabs_) {
+                    if (tab.browser) {
+                        tab.browser->GetMainFrame()->ExecuteJavaScript(script, tab.browser->GetMainFrame()->GetURL(), 0);
+                    }
+                }
+                if (tabBar_) InvalidateRect(tabBar_->GetHandle(), nullptr, TRUE);
+                if (searchBar_) InvalidateRect(searchBar_->GetHandle(), nullptr, TRUE);
+            });
+        }
+
         SetTimer(
             hwnd_,
             kMemoryTimer,
