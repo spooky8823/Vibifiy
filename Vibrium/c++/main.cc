@@ -354,6 +354,7 @@ class MainWindow {
 public:
     bool Create(HINSTANCE instance) {
         instance_ = instance;
+        Theme::Load();
 
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
@@ -387,7 +388,6 @@ public:
             return false;
         }
 
-        Theme::Load();
         TabBar::SetSystemAccentColor(Theme::Accent());
 
         ShowWindow(hwnd_, SW_SHOW);
