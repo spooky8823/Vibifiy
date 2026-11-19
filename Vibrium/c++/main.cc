@@ -11,6 +11,14 @@
 #include <windowsx.h>
 #include <dwmapi.h>
 
+// Common-controls macros collide with identically named CEF DOM methods.
+#ifdef GetNextSibling
+#undef GetNextSibling
+#endif
+#ifdef GetFirstChild
+#undef GetFirstChild
+#endif
+
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
