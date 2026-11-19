@@ -270,6 +270,10 @@ public:
         CefRefPtr<CefBrowser> browser,
         const CefString& title) override;
 
+    void OnFullscreenModeChange(
+        CefRefPtr<CefBrowser> browser,
+        bool fullscreen) override;
+
     bool OnBeforeDownload(
         CefRefPtr<CefBrowser> browser,
         CefRefPtr<CefDownloadItem> item,
@@ -991,6 +995,73 @@ public:
     // --------------------------------------------------------
 
 
+    void SetVideoFullscreen(int tabId, bool fullscreen) {
+        if (!hwnd_) {
+            return;
+        }
+
+        if (fullscreen) {
+            if (videoFullscreen_ || tabId != GetActiveTabId()) {
+                return;
+            }
+
+            videoFullscreen_ = true;
+            fullscreenTabId_ = tabId;
+            windowedStyle_ = GetWindowLongPtrW(hwnd_, GWL_STYLE);
+            windowedExStyle_ = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+            windowedPlacement_ = {};
+            windowedPlacement_.length = sizeof(windowedPlacement_);
+            GetWindowPlacement(hwnd_, &windowedPlacement_);
+
+            MONITORINFO monitor{};
+            monitor.cbSize = sizeof(monitor);
+            HMONITOR target = MonitorFromWindow(
+                hwnd_, MONITOR_DEFAULTTONEAREST);
+
+            if (GetMonitorInfoW(target, &monitor)) {
+                SetWindowLongPtrW(
+                    hwnd_,
+                    GWL_STYLE,
+                    WS_POPUP | WS_VISIBLE);
+
+                SetWindowPos(
+                    hwnd_,
+                    HWND_TOPMOST,
+                    monitor.rcMonitor.left,
+                    monitor.rcMonitor.top,
+                    monitor.rcMonitor.right - monitor.rcMonitor.left,
+                    monitor.rcMonitor.bottom - monitor.rcMonitor.top,
+                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+            } else {
+                videoFullscreen_ = false;
+                fullscreenTabId_ = -1;
+                return;
+            }
+        } else {
+            if (!videoFullscreen_ || tabId != fullscreenTabId_) {
+                return;
+            }
+
+            videoFullscreen_ = false;
+            fullscreenTabId_ = -1;
+
+            SetWindowLongPtrW(hwnd_, GWL_STYLE, windowedStyle_);
+            SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, windowedExStyle_);
+            SetWindowPlacement(hwnd_, &windowedPlacement_);
+
+            SetWindowPos(
+                hwnd_,
+                (windowedExStyle_ & WS_EX_TOPMOST)
+                    ? HWND_TOPMOST
+                    : HWND_NOTOPMOST,
+                0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED |
+                    SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+        }
+
+        ResizeUI();
+    }
+
     void ResizeUI() {
         if (!hwnd_) {
             return;
@@ -1003,11 +1074,17 @@ public:
         const int height = client.bottom;
 
         if (tabBar_) {
+            ShowWindow(
+                tabBar_->GetHandle(),
+                videoFullscreen_ ? SW_HIDE : SW_SHOW);
             tabBar_->Resize(
                 0, 0, width, kTabBarHeight);
         }
 
         if (searchBar_) {
+            ShowWindow(
+                searchBar_->GetHandle(),
+                videoFullscreen_ ? SW_HIDE : SW_SHOW);
             searchBar_->Resize(
                 0, kTabBarHeight,
                 width, kSearchBarHeight);
@@ -1031,11 +1108,12 @@ public:
         RECT client{};
         GetClientRect(hwnd_, &client);
 
+        const int top = videoFullscreen_ ? 0 : kBrowserTop;
         rect.left = 0;
-        rect.top = kBrowserTop;
+        rect.top = top;
         rect.right = client.right;
         rect.bottom = std::max(
-            kBrowserTop,
+            top,
             static_cast<int>(client.bottom));
     }
 
@@ -1211,6 +1289,12 @@ private:
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;
 
+    bool videoFullscreen_ = false;
+    int fullscreenTabId_ = -1;
+    LONG_PTR windowedStyle_ = 0;
+    LONG_PTR windowedExStyle_ = 0;
+    WINDOWPLACEMENT windowedPlacement_{};
+
     std::unique_ptr<TabBar> tabBar_;
     std::unique_ptr<SearchEngine> searchBar_;
     std::unique_ptr<SettingsPage> settingsPage_;
@@ -1234,6 +1318,12 @@ void BrowserClient::OnAfterCreated(
     CefRefPtr<CefBrowser> browser) {
 
     owner_->OnBrowserCreated(tabId_, browser);
+}
+
+void BrowserClient::OnFullscreenModeChange(
+    CefRefPtr<CefBrowser> browser,
+    bool fullscreen) {
+    owner_->SetVideoFullscreen(tabId_, fullscreen);
 }
 
 void BrowserClient::OnBeforeClose(
