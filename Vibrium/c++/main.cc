@@ -1462,9 +1462,137 @@ private:
     friend class BrowserClient;
 };
 
+// Downloads and decodes a page-provided PNG favicon asynchronously.
+class FaviconRequestClient final : public CefURLRequestClient {
+public:
+    using Completion = std::function<void(HBITMAP)>;
+
+    explicit FaviconRequestClient(Completion completion)
+        : completion_(std::move(completion)) {}
+
+    void Start(CefRefPtr<CefRequest> request) {
+        request_ = CefURLRequest::Create(request, this, nullptr);
+    }
+
+    void OnRequestComplete(CefRefPtr<CefURLRequest> request) override {
+        HBITMAP bitmap = nullptr;
+        if (request && request->GetRequestStatus() == UR_SUCCESS &&
+            !data_.empty()) {
+            CefRefPtr<CefImage> image = CefImage::CreateImage();
+            if (image && image->AddPNG(1.0f, data_.data(), data_.size())) {
+                int width = 0;
+                int height = 0;
+                CefRefPtr<CefBinaryValue> pixels = image->GetAsBitmap(
+                    1.0f,
+                    CEF_COLOR_TYPE_BGRA_8888,
+                    CEF_ALPHA_TYPE_PREMULTIPLIED,
+                    width,
+                    height);
+                if (pixels && width > 0 && height > 0 &&
+                    width <= 256 && height <= 256) {
+                    BITMAPINFO info{};
+                    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                    info.bmiHeader.biWidth = width;
+                    info.bmiHeader.biHeight = -height;
+                    info.bmiHeader.biPlanes = 1;
+                    info.bmiHeader.biBitCount = 32;
+                    info.bmiHeader.biCompression = BI_RGB;
+
+                    void* bits = nullptr;
+                    HDC screen = GetDC(nullptr);
+                    bitmap = CreateDIBSection(
+                        screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+                    ReleaseDC(nullptr, screen);
+
+                    const size_t byteCount =
+                        static_cast<size_t>(width) *
+                        static_cast<size_t>(height) * 4;
+                    if (!bitmap || !bits ||
+                        pixels->GetSize() < byteCount ||
+                        pixels->GetData(bits, byteCount, 0) != byteCount) {
+                        if (bitmap) DeleteObject(bitmap);
+                        bitmap = nullptr;
+                    }
+                }
+            }
+        }
+
+        if (completion_) {
+            completion_(bitmap);
+            completion_ = nullptr;
+        }
+        request_ = nullptr;
+    }
+
+    void OnUploadProgress(
+        CefRefPtr<CefURLRequest>, int64_t, int64_t) override {}
+
+    void OnDownloadProgress(
+        CefRefPtr<CefURLRequest>, int64_t, int64_t) override {}
+
+    void OnDownloadData(
+        CefRefPtr<CefURLRequest>,
+        const void* data,
+        size_t dataLength) override {
+        constexpr size_t kMaxFaviconBytes = 512 * 1024;
+        if (!data || dataLength == 0 ||
+            data_.size() + dataLength > kMaxFaviconBytes) {
+            return;
+        }
+        const auto* bytes = static_cast<const char*>(data);
+        data_.append(bytes, dataLength);
+    }
+
+    bool GetAuthCredentials(
+        bool,
+        const CefString&,
+        int,
+        const CefString&,
+        const CefString&,
+        CefRefPtr<CefAuthCallback>) override {
+        return false;
+    }
+
+private:
+    std::string data_;
+    Completion completion_;
+    CefRefPtr<CefURLRequest> request_;
+
+    IMPLEMENT_REFCOUNTING(FaviconRequestClient);
+};
+
 // ------------------------------------------------------------
 // CEF callbacks
 // ------------------------------------------------------------
+
+void BrowserClient::OnFaviconURLChange(
+    CefRefPtr<CefBrowser>,
+    const std::vector<CefString>& iconUrls) {
+    if (iconUrls.empty()) {
+        return;
+    }
+
+    const std::wstring iconUrl = iconUrls.front().ToWString();
+    if (iconUrl.rfind(L"https://", 0) != 0 &&
+        iconUrl.rfind(L"http://", 0) != 0) {
+        return;
+    }
+
+    CefRefPtr<CefRequest> request = CefRequest::Create();
+    request->SetURL(iconUrls.front());
+    request->SetMethod("GET");
+
+    CefRefPtr<FaviconRequestClient> client =
+        new FaviconRequestClient(
+            [owner = owner_, tabId = tabId_](HBITMAP bitmap) {
+                if (owner) {
+                    owner->OnFaviconReady(tabId, bitmap);
+                } else if (bitmap) {
+                    DeleteObject(bitmap);
+                }
+            });
+    client->Start(request);
+}
 
 void BrowserClient::OnAfterCreated(
     CefRefPtr<CefBrowser> browser) {
