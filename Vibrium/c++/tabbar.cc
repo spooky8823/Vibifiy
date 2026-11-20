@@ -323,12 +323,9 @@ void TabBar::Paint(HDC hdc) {
     RECT client{};
     GetClientRect(hwnd_, &client);
 
-    // A restrained accent tint carries the chosen Windows/manual colour
-    // across the whole integrated title-bar strip without hurting contrast.
-    const COLORREF barBackground = RGB(
-        (GetRValue(COLOR_WINDOW_BG) * 3 + GetRValue(systemAccentColor_)) / 4,
-        (GetGValue(COLOR_WINDOW_BG) * 3 + GetGValue(systemAccentColor_)) / 4,
-        (GetBValue(COLOR_WINDOW_BG) * 3 + GetBValue(systemAccentColor_)) / 4);
+    // Match the native DWM caption colour exactly so the tab overlay and
+    // the system caption buttons sit on one continuous accent-coloured row.
+    const COLORREF barBackground = systemAccentColor_;
     HBRUSH backgroundBrush =
         CreateSolidBrush(barBackground);
 
