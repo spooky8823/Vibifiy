@@ -393,25 +393,6 @@ void TabBar::Paint(HDC hdc) {
         DeleteObject(closePen);
     }
 
-    // Native window controls are drawn inside the custom title bar.
-    const int controlY = TAB_HEIGHT / 2;
-    const int controlCenters[] = { client.right - 115, client.right - 69, client.right - 23 };
-    SetTextColor(hdc, COLOR_TEXT);
-    for (int i = 0; i < 3; ++i) {
-        const int cx = controlCenters[i];
-        if (i == 0) {
-            MoveToEx(hdc, cx - 5, controlY + 4, nullptr);
-            LineTo(hdc, cx + 5, controlY + 4);
-        } else if (i == 1) {
-            Rectangle(hdc, cx - 5, controlY - 5, cx + 5, controlY + 5);
-        } else {
-            MoveToEx(hdc, cx - 5, controlY - 5, nullptr);
-            LineTo(hdc, cx + 5, controlY + 5);
-            MoveToEx(hdc, cx + 5, controlY - 5, nullptr);
-            LineTo(hdc, cx - 5, controlY + 5);
-        }
-    }
-
     // Rounded new-tab button.
     const int tabWidth = GetTabWidth();
 
@@ -472,19 +453,6 @@ void TabBar::HandleClick(int x, int y) {
 
     RECT client{};
     GetClientRect(hwnd_, &client);
-    if (x >= client.right - 46) {
-        SendMessageW(parent_, WM_SYSCOMMAND, SC_CLOSE, 0);
-        return;
-    }
-    if (x >= client.right - 92) {
-        SendMessageW(parent_, WM_SYSCOMMAND,
-            IsZoomed(parent_) ? SC_RESTORE : SC_MAXIMIZE, 0);
-        return;
-    }
-    if (x >= client.right - 138) {
-        SendMessageW(parent_, WM_SYSCOMMAND, SC_MINIMIZE, 0);
-        return;
-    }
 
     for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
         const RECT rect = GetTabRect(i);
