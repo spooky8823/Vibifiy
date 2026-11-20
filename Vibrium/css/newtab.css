@@ -7,6 +7,18 @@
   --glass-border:color-mix(in srgb,var(--p) 22%, transparent);
   --glass-shadow:0 4px 12px color-mix(in srgb,var(--p) 14%, transparent);
   --glass-blur:none;
+  --vibrium-accent-wave:
+    radial-gradient(ellipse 112% 56% at 50% 118%,
+      color-mix(in srgb, var(--p) 78%, #07101b) 0%,
+      color-mix(in srgb, var(--p) 52%, #101522) 38%,
+      transparent 74%),
+    radial-gradient(ellipse 82% 44% at 4% 108%,
+      color-mix(in srgb, var(--p) 48%, transparent) 0%,
+      transparent 72%),
+    radial-gradient(ellipse 76% 42% at 100% 2%,
+      color-mix(in srgb, var(--p) 28%, transparent) 0%,
+      transparent 74%),
+    linear-gradient(145deg, #080b12 0%, #111725 54%, #080b12 100%);
 }
 body.dark{
   --bg:#000000; /* Pure black background */
@@ -563,6 +575,10 @@ body.dark .bg-upload-btn{background:rgba(50,30,90,0.9);}
 
 .bg-default-6 {
     background: linear-gradient(135deg, #ffffff, #e8e0ff, #c4b5fd);
+}
+
+.bg-default-7 {
+    background: var(--vibrium-accent-wave);
 }
 
 .bg-default-6 span {
