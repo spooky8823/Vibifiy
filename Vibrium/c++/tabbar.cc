@@ -11,10 +11,18 @@ namespace {
         L"VibriumTabBar";
 
     constexpr int TAB_GAP = 7;
-    constexpr int TAB_TOP = 3;
-    constexpr int TAB_BOTTOM = 3;
+    constexpr int TAB_TOP = 2;
+    constexpr int TAB_BOTTOM = 2;
     constexpr int TAB_CORNER = 11;
     constexpr int TAB_STRIP_EXTRA_HEIGHT = 9;
+
+    COLORREF BlendColor(COLORREF base, COLORREF accent, int accentPercent) {
+        const int basePercent = 100 - accentPercent;
+        return RGB(
+            (GetRValue(base) * basePercent + GetRValue(accent) * accentPercent) / 100,
+            (GetGValue(base) * basePercent + GetGValue(accent) * accentPercent) / 100,
+            (GetBValue(base) * basePercent + GetBValue(accent) * accentPercent) / 100);
+    }
 }
 
 COLORREF TabBar::systemAccentColor_ = GetSysColor(COLOR_HIGHLIGHT);
@@ -382,7 +390,8 @@ void TabBar::Paint(HDC hdc) {
     RECT client{};
     GetClientRect(hwnd_, &client);
 
-    const COLORREF barBackground = systemAccentColor_;
+    // A dark accent tint, rather than a fully saturated caption background.
+    const COLORREF barBackground = BlendColor(COLOR_WINDOW_BG, systemAccentColor_, 24);
     HBRUSH backgroundBrush = CreateSolidBrush(barBackground);
     FillRect(hdc, &client, backgroundBrush);
     DeleteObject(backgroundBrush);
@@ -399,7 +408,9 @@ void TabBar::Paint(HDC hdc) {
     for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
         RECT rect = GetTabRect(i);
         const bool active = (i == activeTab_);
-        const COLORREF surface = active ? COLOR_ACTIVE : COLOR_TAB;
+        const COLORREF surface = active
+            ? BlendColor(COLOR_ACTIVE, systemAccentColor_, 18)
+            : COLOR_TAB;
 
         HBRUSH tabBrush = CreateSolidBrush(surface);
         HPEN tabPen = CreatePen(PS_SOLID, 1,
@@ -465,9 +476,9 @@ void TabBar::Paint(HDC hdc) {
         DeleteObject(closePen);
 
         if (active) {
-            RECT accent{rect.left + 14, rect.bottom - 2,
+            RECT accent{rect.left + 14, rect.bottom - 3,
                 rect.right - 14, rect.bottom};
-            HBRUSH accentBrush = CreateSolidBrush(RGB(255, 255, 255));
+            HBRUSH accentBrush = CreateSolidBrush(systemAccentColor_);
             FillRect(hdc, &accent, accentBrush);
             DeleteObject(accentBrush);
         }
