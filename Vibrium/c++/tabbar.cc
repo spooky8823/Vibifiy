@@ -11,9 +11,10 @@ namespace {
         L"VibriumTabBar";
 
     constexpr int TAB_GAP = 7;
-    constexpr int TAB_TOP = 2;
-    constexpr int TAB_BOTTOM = 2;
-    constexpr int TAB_CORNER = 12;
+    constexpr int TAB_TOP = 3;
+    constexpr int TAB_BOTTOM = 3;
+    constexpr int TAB_CORNER = 11;
+    constexpr int TAB_STRIP_EXTRA_HEIGHT = 9;
 }
 
 COLORREF TabBar::systemAccentColor_ = GetSysColor(COLOR_HIGHLIGHT);
@@ -96,8 +97,9 @@ void TabBar::Resize(
         ? 0
         : windowRect.top;
     const int measuredCaptionHeight = clientOrigin.y - captionTop;
-    const int captionHeight =
+    const int nativeCaptionHeight =
         measuredCaptionHeight > 1 ? measuredCaptionHeight : 1;
+    const int captionHeight = nativeCaptionHeight + TAB_STRIP_EXTRA_HEIGHT;
 
     // Ask DWM for the actual system-caption button bounds. This is DPI-aware
     // and avoids drawing the tab overlay over the native minimize/maximize/
@@ -214,7 +216,22 @@ void TabBar::SetTabTitle(
 
     tabs_[index].title =
         title.empty() ? L"New Tab" : title;
+    if (tabs_[index].iconText == L"•" && !title.empty()) {
+        tabs_[index].iconText = title.substr(0, 1);
+    }
 
+    if (hwnd_) {
+        InvalidateRect(hwnd_, nullptr, TRUE);
+    }
+}
+
+void TabBar::SetTabIconText(
+    int index,
+    const std::wstring& text) {
+    if (index < 0 || index >= static_cast<int>(tabs_.size())) {
+        return;
+    }
+    tabs_[index].iconText = text.empty() ? L"•" : text.substr(0, 2);
     if (hwnd_) {
         InvalidateRect(hwnd_, nullptr, TRUE);
     }
@@ -229,15 +246,13 @@ int TabBar::GetTabWidth() const {
     GetClientRect(hwnd_, &client);
 
     const int availableWidth =
-        client.right - client.left - NEW_TAB_WIDTH - 12;
-
+        client.right - client.left - NEW_TAB_WIDTH - 18;
     const int calculatedWidth =
         availableWidth / static_cast<int>(tabs_.size());
-
-    return std::clamp(
-        calculatedWidth,
-        TAB_MIN_WIDTH,
-        TAB_MAX_WIDTH);
+    if (calculatedWidth < TAB_MIN_WIDTH) {
+        return calculatedWidth > 88 ? calculatedWidth : 88;
+    }
+    return calculatedWidth < TAB_MAX_WIDTH ? calculatedWidth : TAB_MAX_WIDTH;
 }
 
 RECT TabBar::GetTabRect(int index) const {
@@ -339,167 +354,104 @@ void TabBar::Paint(HDC hdc) {
     RECT client{};
     GetClientRect(hwnd_, &client);
 
-    // Match the native DWM caption colour exactly so the tab overlay and
-    // the system caption buttons sit on one continuous accent-coloured row.
     const COLORREF barBackground = systemAccentColor_;
-    HBRUSH backgroundBrush =
-        CreateSolidBrush(barBackground);
-
+    HBRUSH backgroundBrush = CreateSolidBrush(barBackground);
     FillRect(hdc, &client, backgroundBrush);
     DeleteObject(backgroundBrush);
-
     SetBkMode(hdc, TRANSPARENT);
 
     HFONT font = CreateFontW(
-        14, 0, 0, 0,
-        FW_MEDIUM,
-        FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY,
-        DEFAULT_PITCH | FF_DONTCARE,
+        14, 0, 0, 0, FW_MEDIUM,
+        FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
         L"Segoe UI");
-
-    HFONT oldFont = static_cast<HFONT>(
-        SelectObject(hdc, font));
+    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, font));
 
     for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
         RECT rect = GetTabRect(i);
-
         const bool active = (i == activeTab_);
+        const COLORREF surface = active ? COLOR_ACTIVE : COLOR_TAB;
 
-        const COLORREF tabColor =
-            active ? COLOR_ACTIVE : COLOR_TAB;
-
-        HBRUSH tabBrush = CreateSolidBrush(tabColor);
-
-        HPEN tabPen = CreatePen(
-            PS_SOLID,
-            1,
-            active ? systemAccentColor_ : COLOR_TAB);
-
+        HBRUSH tabBrush = CreateSolidBrush(surface);
+        HPEN tabPen = CreatePen(PS_SOLID, 1,
+            active ? RGB(100, 100, 108) : RGB(74, 74, 82));
         HGDIOBJ oldBrush = SelectObject(hdc, tabBrush);
         HGDIOBJ oldPen = SelectObject(hdc, tabPen);
-
-        RoundRect(
-            hdc,
-            rect.left,
-            rect.top,
-            rect.right,
-            rect.bottom,
-            TAB_CORNER,
-            TAB_CORNER);
-
+        RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom,
+            TAB_CORNER, TAB_CORNER);
         SelectObject(hdc, oldBrush);
         SelectObject(hdc, oldPen);
-
         DeleteObject(tabBrush);
         DeleteObject(tabPen);
 
-        // Small violet active indicator.
+        // Compact favicon-style monogram until the page's real favicon is available.
+        const int iconSize = 20;
+        const int iconX = rect.left + 10;
+        const int iconY = (rect.top + rect.bottom - iconSize) / 2;
+        HBRUSH iconBrush = CreateSolidBrush(
+            active ? systemAccentColor_ : RGB(67, 67, 75));
+        HPEN iconPen = CreatePen(PS_SOLID, 1,
+            active ? systemAccentColor_ : RGB(67, 67, 75));
+        HGDIOBJ oldIconBrush = SelectObject(hdc, iconBrush);
+        HGDIOBJ oldIconPen = SelectObject(hdc, iconPen);
+        RoundRect(hdc, iconX, iconY, iconX + iconSize, iconY + iconSize, 7, 7);
+        SelectObject(hdc, oldIconBrush);
+        SelectObject(hdc, oldIconPen);
+        DeleteObject(iconBrush);
+        DeleteObject(iconPen);
+
+        SetTextColor(hdc, RGB(255, 255, 255));
+        RECT iconTextRect{iconX, iconY, iconX + iconSize, iconY + iconSize};
+        DrawTextW(hdc, tabs_[i].iconText.c_str(), -1, &iconTextRect,
+            DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS);
+
+        SetTextColor(hdc, active ? COLOR_TEXT : RGB(205, 205, 212));
+        RECT titleRect = rect;
+        titleRect.left = iconX + iconSize + 9;
+        titleRect.right -= 34;
+        DrawTextW(hdc, tabs_[i].title.c_str(), -1, &titleRect,
+            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+
+        const int closeX = rect.right - 17;
+        const int closeY = (rect.top + rect.bottom) / 2;
+        HPEN closePen = CreatePen(PS_SOLID, 1,
+            active ? RGB(235, 235, 240) : COLOR_MUTED);
+        HPEN oldClosePen = static_cast<HPEN>(SelectObject(hdc, closePen));
+        MoveToEx(hdc, closeX - 4, closeY - 4, nullptr);
+        LineTo(hdc, closeX + 4, closeY + 4);
+        MoveToEx(hdc, closeX + 4, closeY - 4, nullptr);
+        LineTo(hdc, closeX - 4, closeY + 4);
+        SelectObject(hdc, oldClosePen);
+        DeleteObject(closePen);
+
         if (active) {
-            RECT accent{
-                rect.left + 13,
-                rect.bottom - 3,
-                rect.right - 13,
-                rect.bottom - 1
-            };
-
-            HBRUSH accentBrush =
-                CreateSolidBrush(systemAccentColor_);
-
+            RECT accent{rect.left + 14, rect.bottom - 2,
+                rect.right - 14, rect.bottom};
+            HBRUSH accentBrush = CreateSolidBrush(RGB(255, 255, 255));
             FillRect(hdc, &accent, accentBrush);
             DeleteObject(accentBrush);
         }
-
-        SetTextColor(
-            hdc,
-            active ? COLOR_TEXT : COLOR_MUTED);
-
-        RECT titleRect = rect;
-        titleRect.left += 13;
-        titleRect.right -= 35;
-
-        DrawTextW(
-            hdc,
-            tabs_[i].title.c_str(),
-            -1,
-            &titleRect,
-            DT_SINGLELINE |
-            DT_VCENTER |
-            DT_END_ELLIPSIS);
-
-        // Close button.
-        const int closeX = rect.right - 18;
-        const int closeY = (rect.top + rect.bottom) / 2;
-
-        HPEN closePen = CreatePen(
-            PS_SOLID,
-            1,
-            active ? COLOR_TEXT : COLOR_MUTED);
-
-        HPEN oldClosePen = static_cast<HPEN>(
-            SelectObject(hdc, closePen));
-
-        MoveToEx(hdc, closeX - 4, closeY - 4, nullptr);
-        LineTo(hdc, closeX + 4, closeY + 4);
-
-        MoveToEx(hdc, closeX + 4, closeY - 4, nullptr);
-        LineTo(hdc, closeX - 4, closeY + 4);
-
-        SelectObject(hdc, oldClosePen);
-        DeleteObject(closePen);
     }
 
-    // Rounded new-tab button.
     const int tabWidth = GetTabWidth();
-
-    const int newTabX =
-        5 + static_cast<int>(tabs_.size()) *
+    const int newTabX = 5 + static_cast<int>(tabs_.size()) *
         (tabWidth + TAB_GAP) + 2;
-
-    RECT newTabRect{
-        newTabX,
-        3,
-        newTabX + 30,
-        client.bottom - 3
-    };
-
-    HBRUSH newTabBrush =
-        CreateSolidBrush(COLOR_TAB);
-
-    HPEN newTabPen =
-        CreatePen(PS_SOLID, 1, systemAccentColor_);
-
+    RECT newTabRect{newTabX, 5, newTabX + 32, client.bottom - 5};
+    HBRUSH newTabBrush = CreateSolidBrush(COLOR_TAB);
+    HPEN newTabPen = CreatePen(PS_SOLID, 1, RGB(95, 95, 105));
     HGDIOBJ oldNewBrush = SelectObject(hdc, newTabBrush);
     HGDIOBJ oldNewPen = SelectObject(hdc, newTabPen);
-
-    RoundRect(
-        hdc,
-        newTabRect.left,
-        newTabRect.top,
-        newTabRect.right,
-        newTabRect.bottom,
-        13,
-        13);
-
+    RoundRect(hdc, newTabRect.left, newTabRect.top,
+        newTabRect.right, newTabRect.bottom, 12, 12);
     SelectObject(hdc, oldNewBrush);
     SelectObject(hdc, oldNewPen);
-
     DeleteObject(newTabBrush);
     DeleteObject(newTabPen);
 
     SetTextColor(hdc, COLOR_TEXT);
-
-    DrawTextW(
-        hdc,
-        L"+",
-        -1,
-        &newTabRect,
-        DT_SINGLELINE |
-        DT_CENTER |
-        DT_VCENTER);
+    DrawTextW(hdc, L"+", -1, &newTabRect,
+        DT_SINGLELINE | DT_CENTER | DT_VCENTER);
 
     SelectObject(hdc, oldFont);
     DeleteObject(font);
