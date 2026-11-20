@@ -777,13 +777,32 @@ public:
             tab.browser->GetHost()->GetWindowHandle();
 
         if (window) {
+            const int pageWidth = std::max(0, rect.right - rect.left);
+            const int pageHeight = std::max(0, rect.bottom - rect.top);
+
             MoveWindow(
                 window,
                 rect.left,
                 rect.top,
-                rect.right - rect.left,
-                rect.bottom - rect.top,
+                pageWidth,
+                pageHeight,
                 TRUE);
+
+            // Clip the CEF child window to a subtle rounded rectangle. The
+            // region is recreated on resize so it always matches the viewport.
+            if (pageWidth > 0 && pageHeight > 0) {
+                constexpr int pageCornerRadius = 12;
+                HRGN pageRegion = CreateRoundRectRgn(
+                    0,
+                    0,
+                    pageWidth + 1,
+                    pageHeight + 1,
+                    pageCornerRadius,
+                    pageCornerRadius);
+                if (pageRegion && !SetWindowRgn(window, pageRegion, TRUE)) {
+                    DeleteObject(pageRegion);
+                }
+            }
 
             ShowWindow(window, SW_SHOW);
         }
@@ -1175,13 +1194,21 @@ public:
         RECT client{};
         GetClientRect(hwnd_, &client);
 
+        // Keep a tiny two-pixel breathing edge around the page viewport.
+        // It prevents the rounded browser surface from being clipped against
+        // the host window while remaining visually unobtrusive.
+        constexpr int pageInset = 2;
         const int top = videoFullscreen_ ? 0 : kBrowserTop;
-        rect.left = 0;
-        rect.top = top;
-        rect.right = client.right;
+        rect.left = videoFullscreen_ ? 0 : pageInset;
+        rect.top = videoFullscreen_ ? 0 : top + pageInset;
+        rect.right = std::max(
+            rect.left,
+            static_cast<int>(client.right) -
+                (videoFullscreen_ ? 0 : pageInset));
         rect.bottom = std::max(
-            top,
-            static_cast<int>(client.bottom));
+            rect.top,
+            static_cast<int>(client.bottom) -
+                (videoFullscreen_ ? 0 : pageInset));
     }
 
     // --------------------------------------------------------
