@@ -19,6 +19,15 @@ namespace {
 
 COLORREF TabBar::systemAccentColor_ = GetSysColor(COLOR_HIGHLIGHT);
 
+TabBar::~TabBar() {
+    for (auto& tab : tabs_) {
+        if (tab.iconBitmap) {
+            DeleteObject(tab.iconBitmap);
+            tab.iconBitmap = nullptr;
+        }
+    }
+}
+
 void TabBar::SetSystemAccentColor(COLORREF color) {
     systemAccentColor_ = color;
 }
@@ -151,6 +160,9 @@ void TabBar::RemoveTab(int index) {
         return;
     }
 
+    if (tabs_[index].iconBitmap) {
+        DeleteObject(tabs_[index].iconBitmap);
+    }
     tabs_.erase(tabs_.begin() + index);
 
     if (tabs_.empty()) {
@@ -232,6 +244,22 @@ void TabBar::SetTabIconText(
         return;
     }
     tabs_[index].iconText = text.empty() ? L"•" : text.substr(0, 2);
+    if (hwnd_) {
+        InvalidateRect(hwnd_, nullptr, TRUE);
+    }
+}
+
+void TabBar::SetTabIconBitmap(int index, HBITMAP bitmap) {
+    if (index < 0 || index >= static_cast<int>(tabs_.size())) {
+        if (bitmap) DeleteObject(bitmap);
+        return;
+    }
+
+    if (tabs_[index].iconBitmap) {
+        DeleteObject(tabs_[index].iconBitmap);
+    }
+    tabs_[index].iconBitmap = bitmap;
+
     if (hwnd_) {
         InvalidateRect(hwnd_, nullptr, TRUE);
     }
@@ -385,26 +413,37 @@ void TabBar::Paint(HDC hdc) {
         DeleteObject(tabBrush);
         DeleteObject(tabPen);
 
-        // Compact favicon-style monogram until the page's real favicon is available.
         const int iconSize = 20;
         const int iconX = rect.left + 10;
         const int iconY = (rect.top + rect.bottom - iconSize) / 2;
-        HBRUSH iconBrush = CreateSolidBrush(
-            active ? systemAccentColor_ : RGB(67, 67, 75));
-        HPEN iconPen = CreatePen(PS_SOLID, 1,
-            active ? systemAccentColor_ : RGB(67, 67, 75));
-        HGDIOBJ oldIconBrush = SelectObject(hdc, iconBrush);
-        HGDIOBJ oldIconPen = SelectObject(hdc, iconPen);
-        RoundRect(hdc, iconX, iconY, iconX + iconSize, iconY + iconSize, 7, 7);
-        SelectObject(hdc, oldIconBrush);
-        SelectObject(hdc, oldIconPen);
-        DeleteObject(iconBrush);
-        DeleteObject(iconPen);
+        if (tabs_[i].iconBitmap) {
+            HDC iconDC = CreateCompatibleDC(hdc);
+            HGDIOBJ oldIcon = SelectObject(iconDC, tabs_[i].iconBitmap);
+            BITMAP iconInfo{};
+            GetObjectW(tabs_[i].iconBitmap, sizeof(iconInfo), &iconInfo);
+            BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+            AlphaBlend(hdc, iconX, iconY, iconSize, iconSize,
+                iconDC, 0, 0, iconInfo.bmWidth, iconInfo.bmHeight, blend);
+            SelectObject(iconDC, oldIcon);
+            DeleteDC(iconDC);
+        } else {
+            HBRUSH iconBrush = CreateSolidBrush(
+                active ? systemAccentColor_ : RGB(67, 67, 75));
+            HPEN iconPen = CreatePen(PS_SOLID, 1,
+                active ? systemAccentColor_ : RGB(67, 67, 75));
+            HGDIOBJ oldIconBrush = SelectObject(hdc, iconBrush);
+            HGDIOBJ oldIconPen = SelectObject(hdc, iconPen);
+            RoundRect(hdc, iconX, iconY, iconX + iconSize, iconY + iconSize, 7, 7);
+            SelectObject(hdc, oldIconBrush);
+            SelectObject(hdc, oldIconPen);
+            DeleteObject(iconBrush);
+            DeleteObject(iconPen);
 
-        SetTextColor(hdc, RGB(255, 255, 255));
-        RECT iconTextRect{iconX, iconY, iconX + iconSize, iconY + iconSize};
-        DrawTextW(hdc, tabs_[i].iconText.c_str(), -1, &iconTextRect,
-            DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS);
+            SetTextColor(hdc, RGB(255, 255, 255));
+            RECT iconTextRect{iconX, iconY, iconX + iconSize, iconY + iconSize};
+            DrawTextW(hdc, tabs_[i].iconText.c_str(), -1, &iconTextRect,
+                DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS);
+        }
 
         SetTextColor(hdc, active ? COLOR_TEXT : RGB(205, 205, 212));
         RECT titleRect = rect;
