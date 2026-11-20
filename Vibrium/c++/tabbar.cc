@@ -84,9 +84,7 @@ void TabBar::Resize(
     }
 
     RECT windowRect{};
-    RECT clientRect{};
     GetWindowRect(parent_, &windowRect);
-    GetClientRect(parent_, &clientRect);
 
     POINT clientOrigin{0, 0};
     ClientToScreen(parent_, &clientOrigin);
@@ -104,13 +102,12 @@ void TabBar::Resize(
         windowRect.top,
         overlayWidth,
         captionHeight,
-        SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        SWP_NOACTIVATE);
 
     InvalidateRect(hwnd_, nullptr, TRUE);
     (void)x;
     (void)y;
     (void)height;
-    (void)clientRect;
 }
 
 int TabBar::AddTab(const std::wstring& title) {
@@ -234,7 +231,9 @@ RECT TabBar::GetTabRect(int index) const {
     rect.left = 5 + index * (tabWidth + TAB_GAP);
     rect.top = TAB_TOP;
     rect.right = rect.left + tabWidth;
-    rect.bottom = TAB_HEIGHT - TAB_BOTTOM;
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    rect.bottom = client.bottom - TAB_BOTTOM;
 
     return rect;
 }
@@ -447,7 +446,7 @@ void TabBar::Paint(HDC hdc) {
         newTabX,
         3,
         newTabX + 30,
-        TAB_HEIGHT - 3
+        client.bottom - 3
     };
 
     HBRUSH newTabBrush =
@@ -490,12 +489,11 @@ void TabBar::Paint(HDC hdc) {
 }
 
 void TabBar::HandleClick(int x, int y) {
-    if (y < 0 || y > TAB_HEIGHT) {
-        return;
-    }
-
     RECT client{};
     GetClientRect(hwnd_, &client);
+    if (y < 0 || y >= client.bottom) {
+        return;
+    }
 
     for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
         const RECT rect = GetTabRect(i);
