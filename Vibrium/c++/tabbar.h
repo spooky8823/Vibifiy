@@ -61,11 +61,9 @@ private:
     TabCallback onTabClosed_;
     std::function<void()> onNewTab_;
 
-    static constexpr int TAB_HEIGHT = 42;
     static constexpr int TAB_MIN_WIDTH = 120;
     static constexpr int TAB_MAX_WIDTH = 220;
     static constexpr int NEW_TAB_WIDTH = 44;
-    static constexpr int WINDOW_CONTROLS_WIDTH = 138;
 
     static constexpr COLORREF COLOR_WINDOW_BG = RGB(30, 30, 32);
     static constexpr COLORREF COLOR_TAB = RGB(42, 42, 45);
