@@ -61,7 +61,7 @@ constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
 constexpr int kTabBarHeight = 36;
 constexpr int kCaptionButtonsWidth = 138;
 constexpr int kSearchBarHeight = 44;
-constexpr int kBrowserTop = kTabBarHeight + kSearchBarHeight;
+constexpr int kBrowserTop = kSearchBarHeight;
 
 class MainWindow;
 
@@ -404,11 +404,9 @@ public:
     void ApplyTitleBarTheme() {
         if (!hwnd_) return;
 
-        // Keep native Windows caption buttons while the tab strip occupies
-        // the title-bar row. DWM paints the caption with the selected accent.
-        const MARGINS frame{0, kTabBarHeight, 0, 0};
-        DwmExtendFrameIntoClientArea(hwnd_, &frame);
-
+        // Keep the real Windows non-client title bar. DWM paints its native
+        // caption buttons; the tab strip is a separate, non-activating overlay
+        // positioned over the left side of that same row.
         const COLORREF accent = Theme::Accent();
         DwmSetWindowAttribute(
             hwnd_, DWMWA_CAPTION_COLOR, &accent, sizeof(accent));
@@ -446,7 +444,7 @@ public:
                 hwnd_,
                 instance_,
                 0,
-                kTabBarHeight,
+                0,
                 1280,
                 kSearchBarHeight)) {
             return false;
@@ -1155,7 +1153,7 @@ public:
                 searchBar_->GetHandle(),
                 videoFullscreen_ ? SW_HIDE : SW_SHOW);
             searchBar_->Resize(
-                0, kTabBarHeight,
+                0, 0,
                 width, kSearchBarHeight);
         }
 
@@ -1274,73 +1272,17 @@ private:
         case WM_CREATE:
             return self->InitializeUI() ? 0 : -1;
 
-        case WM_NCCALCSIZE:
-            if (wParam) {
-                // Extend the client area into the native caption so the tab
-                // strip occupies that same row instead of creating a second bar.
-                return 0;
-            }
-            break;
-
-        // Forward non-client paint and pointer messages so DWM can render and
-        // operate its native minimize, maximize and close buttons.
-        case WM_NCPAINT:
-        case WM_NCACTIVATE:
-        case WM_NCMOUSEMOVE:
-        case WM_NCMOUSELEAVE:
-        case WM_NCLBUTTONDOWN:
-        case WM_NCLBUTTONUP:
-        case WM_NCRBUTTONUP: {
-            LRESULT dwmResult = 0;
-            if (DwmDefWindowProc(hwnd, message, wParam, lParam, &dwmResult)) {
-                return dwmResult;
-            }
-            break;
-        }
+        // Leave WM_NCCALCSIZE and all non-client messages to Windows. This
+        // preserves the genuine title bar, resize frame and caption buttons.
 
         case WM_ERASEBKGND: {
             HDC hdc = reinterpret_cast<HDC>(wParam);
             RECT client{};
             GetClientRect(hwnd, &client);
-
-            // Fill the caption-button reservation with the accent colour.
-            // Child controls paint the address row and browser content below.
-            RECT captionRow{0, 0, client.right, kTabBarHeight};
-            HBRUSH accentBrush = CreateSolidBrush(Theme::Accent());
-            FillRect(hdc, &captionRow, accentBrush);
-            DeleteObject(accentBrush);
-
-            RECT contentArea{0, kTabBarHeight, client.right, client.bottom};
             HBRUSH contentBrush = CreateSolidBrush(RGB(18, 18, 20));
-            FillRect(hdc, &contentArea, contentBrush);
+            FillRect(hdc, &client, contentBrush);
             DeleteObject(contentBrush);
             return 1;
-        }
-
-        case WM_NCHITTEST: {
-            LRESULT dwmResult = 0;
-            if (DwmDefWindowProc(hwnd, message, wParam, lParam, &dwmResult)) {
-                return dwmResult;
-            }
-            if (!self->videoFullscreen_ && !IsZoomed(hwnd)) {
-                POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-                RECT window{};
-                GetWindowRect(hwnd, &window);
-                constexpr int resizeBorder = 8;
-                const bool left = point.x < window.left + resizeBorder;
-                const bool right = point.x >= window.right - resizeBorder;
-                const bool top = point.y < window.top + resizeBorder;
-                const bool bottom = point.y >= window.bottom - resizeBorder;
-                if (top && left) return HTTOPLEFT;
-                if (top && right) return HTTOPRIGHT;
-                if (bottom && left) return HTBOTTOMLEFT;
-                if (bottom && right) return HTBOTTOMRIGHT;
-                if (left) return HTLEFT;
-                if (right) return HTRIGHT;
-                if (top) return HTTOP;
-                if (bottom) return HTBOTTOM;
-            }
-            return HTCLIENT;
         }
 
         case WM_DWMCOLORIZATIONCOLORCHANGED: {
@@ -1365,6 +1307,7 @@ private:
             return 0;
 
         case WM_SIZE:
+        case WM_MOVE:
             self->ResizeUI();
             return 0;
 
