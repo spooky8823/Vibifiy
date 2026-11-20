@@ -10,8 +10,8 @@ namespace {
         L"VibriumTabBar";
 
     constexpr int TAB_GAP = 7;
-    constexpr int TAB_TOP = 5;
-    constexpr int TAB_BOTTOM = 5;
+    constexpr int TAB_TOP = 2;
+    constexpr int TAB_BOTTOM = 2;
     constexpr int TAB_CORNER = 12;
 }
 
@@ -45,13 +45,15 @@ bool TabBar::Create(
         return false;
     }
 
+    // An owned, non-activating popup lets the tabs sit over the native
+    // Windows caption without replacing the caption or its system buttons.
     hwnd_ = CreateWindowExW(
-        0,
+        WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         TABBAR_CLASS_NAME,
         L"",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-        x,
-        y,
+        WS_POPUP,
+        0,
+        0,
         width,
         height,
         parent_,
@@ -59,7 +61,12 @@ bool TabBar::Create(
         instance_,
         this);
 
-    return hwnd_ != nullptr;
+    if (!hwnd_) {
+        return false;
+    }
+
+    Resize(x, y, width, height);
+    return true;
 }
 
 void TabBar::Resize(
@@ -72,8 +79,38 @@ void TabBar::Resize(
         return;
     }
 
-    MoveWindow(hwnd_, x, y, width, height, TRUE);
+    if (!parent_ || !hwnd_) {
+        return;
+    }
+
+    RECT windowRect{};
+    RECT clientRect{};
+    GetWindowRect(parent_, &windowRect);
+    GetClientRect(parent_, &clientRect);
+
+    POINT clientOrigin{0, 0};
+    ClientToScreen(parent_, &clientOrigin);
+
+    const int captionHeight =
+        std::max(1, clientOrigin.y - windowRect.top);
+    const int overlayWidth = std::max(0, width);
+
+    // The overlay starts at the left edge of the native caption and stops
+    // before the system caption buttons on the right.
+    SetWindowPos(
+        hwnd_,
+        HWND_TOP,
+        clientOrigin.x,
+        windowRect.top,
+        overlayWidth,
+        captionHeight,
+        SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
     InvalidateRect(hwnd_, nullptr, TRUE);
+    (void)x;
+    (void)y;
+    (void)height;
+    (void)clientRect;
 }
 
 int TabBar::AddTab(const std::wstring& title) {
@@ -178,7 +215,7 @@ int TabBar::GetTabWidth() const {
     GetClientRect(hwnd_, &client);
 
     const int availableWidth =
-        client.right - client.left - NEW_TAB_WIDTH - WINDOW_CONTROLS_WIDTH - 12;
+        client.right - client.left - NEW_TAB_WIDTH - 12;
 
     const int calculatedWidth =
         availableWidth / static_cast<int>(tabs_.size());
@@ -257,6 +294,9 @@ LRESULT TabBar::HandleMessage(
 
     case WM_ERASEBKGND:
         return 1;
+
+    case WM_MOUSEACTIVATE:
+        return MA_NOACTIVATE;
 
     case WM_SIZE:
         InvalidateRect(hwnd_, nullptr, TRUE);
@@ -408,9 +448,9 @@ void TabBar::Paint(HDC hdc) {
 
     RECT newTabRect{
         newTabX,
-        6,
+        3,
         newTabX + 30,
-        TAB_HEIGHT - 6
+        TAB_HEIGHT - 3
     };
 
     HBRUSH newTabBrush =
