@@ -375,7 +375,7 @@ public:
             0,
             kWindowClass,
             kWindowTitle,
-            WS_OVERLAPPEDWINDOW & ~WS_CAPTION,
+            WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             1280,
@@ -390,11 +390,34 @@ public:
         }
 
         TabBar::SetSystemAccentColor(Theme::Accent());
+        ApplyTitleBarTheme();
 
         ShowWindow(hwnd_, SW_SHOW);
         UpdateWindow(hwnd_);
 
         return true;
+    }
+
+    void ApplyTitleBarTheme() {
+        if (!hwnd_) return;
+
+        // Keep native Windows caption buttons while the tab strip occupies
+        // the title-bar row. DWM paints the caption with the selected accent.
+        const MARGINS frame{0, kTabBarHeight, 0, 0};
+        DwmExtendFrameIntoClientArea(hwnd_, &frame);
+
+        const COLORREF accent = Theme::Accent();
+        DwmSetWindowAttribute(
+            hwnd_, DWMWA_CAPTION_COLOR, &accent, sizeof(accent));
+
+        const COLORREF captionText = RGB(255, 255, 255);
+        DwmSetWindowAttribute(
+            hwnd_, DWMWA_TEXT_COLOR, &captionText, sizeof(captionText));
+
+        SetWindowPos(
+            hwnd_, nullptr, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+            SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
 
     // --------------------------------------------------------
@@ -1249,11 +1272,17 @@ private:
 
         case WM_NCCALCSIZE:
             if (wParam) {
-                return 0; // Extend the client area into the former title bar.
+                // Extend the client area into the native caption so the tab
+                // strip occupies that same row instead of creating a second bar.
+                return 0;
             }
             break;
 
         case WM_NCHITTEST: {
+            LRESULT dwmResult = 0;
+            if (DwmDefWindowProc(hwnd, message, wParam, lParam, &dwmResult)) {
+                return dwmResult;
+            }
             if (!self->videoFullscreen_ && !IsZoomed(hwnd)) {
                 POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
                 RECT window{};
