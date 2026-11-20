@@ -41,6 +41,7 @@ public:
     void SetOnTabClosed(TabCallback callback);
     void SetOnNewTab(std::function<void()> callback);
     void SetTabTitle(int index, const std::wstring& title);
+    void SetTabIconText(int index, const std::wstring& text);
 
     HWND GetHandle() const;
     static void SetSystemAccentColor(COLORREF color);
@@ -48,6 +49,7 @@ public:
 private:
     struct Tab {
         std::wstring title;
+        std::wstring iconText = L"•";
     };
 
     HWND hwnd_ = nullptr;
@@ -61,14 +63,14 @@ private:
     TabCallback onTabClosed_;
     std::function<void()> onNewTab_;
 
-    static constexpr int TAB_MIN_WIDTH = 120;
-    static constexpr int TAB_MAX_WIDTH = 220;
-    static constexpr int NEW_TAB_WIDTH = 44;
+    static constexpr int TAB_MIN_WIDTH = 154;
+    static constexpr int TAB_MAX_WIDTH = 252;
+    static constexpr int NEW_TAB_WIDTH = 42;
 
     static constexpr COLORREF COLOR_WINDOW_BG = RGB(30, 30, 32);
-    static constexpr COLORREF COLOR_TAB = RGB(42, 42, 45);
-    static constexpr COLORREF COLOR_ACTIVE = RGB(55, 55, 59);
-    static constexpr COLORREF COLOR_HOVER = RGB(68, 68, 73);
+    static constexpr COLORREF COLOR_TAB = RGB(35, 35, 39);
+    static constexpr COLORREF COLOR_ACTIVE = RGB(54, 54, 60);
+    static constexpr COLORREF COLOR_HOVER = RGB(48, 48, 54);
     static COLORREF systemAccentColor_;
     static constexpr COLORREF COLOR_TEXT = RGB(243, 238, 252);
     static constexpr COLORREF COLOR_MUTED = RGB(158, 158, 166);
