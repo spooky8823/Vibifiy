@@ -364,8 +364,10 @@ public:
         wc.hInstance = instance_;
         wc.lpszClassName = kWindowClass;
         wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        wc.hbrBackground =
-            reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        // The client area extends into the caption for the integrated tab row.
+        // Paint that area explicitly; COLOR_WINDOW would leave an ugly white
+        // rectangle behind the native caption buttons.
+        wc.hbrBackground = nullptr;
 
         if (!RegisterClassExW(&wc) &&
             GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
@@ -1279,6 +1281,41 @@ private:
                 return 0;
             }
             break;
+
+        // Forward non-client paint and pointer messages so DWM can render and
+        // operate its native minimize, maximize and close buttons.
+        case WM_NCPAINT:
+        case WM_NCACTIVATE:
+        case WM_NCMOUSEMOVE:
+        case WM_NCMOUSELEAVE:
+        case WM_NCLBUTTONDOWN:
+        case WM_NCLBUTTONUP:
+        case WM_NCRBUTTONUP: {
+            LRESULT dwmResult = 0;
+            if (DwmDefWindowProc(hwnd, message, wParam, lParam, &dwmResult)) {
+                return dwmResult;
+            }
+            break;
+        }
+
+        case WM_ERASEBKGND: {
+            HDC hdc = reinterpret_cast<HDC>(wParam);
+            RECT client{};
+            GetClientRect(hwnd, &client);
+
+            // Fill the caption-button reservation with the accent colour.
+            // Child controls paint the address row and browser content below.
+            RECT captionRow{0, 0, client.right, kTabBarHeight};
+            HBRUSH accentBrush = CreateSolidBrush(Theme::Accent());
+            FillRect(hdc, &captionRow, accentBrush);
+            DeleteObject(accentBrush);
+
+            RECT contentArea{0, kTabBarHeight, client.right, client.bottom};
+            HBRUSH contentBrush = CreateSolidBrush(RGB(18, 18, 20));
+            FillRect(hdc, &contentArea, contentBrush);
+            DeleteObject(contentBrush);
+            return 1;
+        }
 
         case WM_NCHITTEST: {
             LRESULT dwmResult = 0;
