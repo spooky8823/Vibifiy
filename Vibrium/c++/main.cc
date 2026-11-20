@@ -58,10 +58,11 @@ constexpr UINT kFinalizeShutdownMessage = WM_APP + 1;
 constexpr UINT kMemoryCheckInterval = 15000;
 constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
 
-constexpr int kTabBarHeight = 36;
+constexpr int kTabBarHeight = 45;
+constexpr int kTabBarClientOverlap = 9;
 constexpr int kCaptionButtonsWidth = 138;
 constexpr int kSearchBarHeight = 44;
-constexpr int kBrowserTop = kSearchBarHeight;
+constexpr int kBrowserTop = kTabBarClientOverlap + kSearchBarHeight;
 
 class MainWindow;
 
@@ -444,7 +445,7 @@ public:
                 hwnd_,
                 instance_,
                 0,
-                0,
+                kTabBarClientOverlap,
                 1280,
                 kSearchBarHeight)) {
             return false;
@@ -1174,7 +1175,7 @@ public:
                 searchBar_->GetHandle(),
                 videoFullscreen_ ? SW_HIDE : SW_SHOW);
             searchBar_->Resize(
-                0, 0,
+                0, kTabBarClientOverlap,
                 width, kSearchBarHeight);
         }
 
