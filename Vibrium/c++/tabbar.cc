@@ -109,7 +109,7 @@ void TabBar::Resize(
             DWMWA_CAPTION_BUTTON_BOUNDS,
             &captionButtons,
             sizeof(captionButtons)))) {
-        overlayWidth = std::max(0, captionButtons.left - 2);
+        overlayWidth = captionButtons.left > 2 ? captionButtons.left - 2 : 0;
     }
 
     SetWindowPos(
