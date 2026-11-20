@@ -252,7 +252,8 @@ const defaultBackgrounds = {
     'default-3': 'linear-gradient(135deg, #081c15, #2d6a4f, #95d5b2)',
     'default-4': 'linear-gradient(135deg, #641220, #e85d04, #ffba08)',
     'default-5': 'radial-gradient(circle at 30% 40%, #682c91, #17102d 55%, #050510)',
-    'default-6': 'linear-gradient(135deg, #ffffff, #e8e0ff, #c4b5fd)'
+    'default-6': 'linear-gradient(135deg, #ffffff, #e8e0ff, #c4b5fd)',
+    'accent-wave': 'var(--vibrium-accent-wave)'
 };
 
 function openBackgroundPicker() {
@@ -581,9 +582,19 @@ function applyBackgroundImage() {
         }
     }
 
+    // Use the accent-reactive wave on first launch unless the user chose
+    // another background. The CSS gradient reads the current browser accent.
+    const oldBackground = localStorage.getItem('bgImage');
+    if (!oldBackground) {
+        localStorage.setItem('backgroundType', 'default');
+        localStorage.setItem('defaultBackground', 'accent-wave');
+        document.body.style.backgroundImage = defaultBackgrounds['accent-wave'];
+        document.body.classList.remove('has-bg-image');
+        return;
+    }
+
     // Support an older background saved by the previous version.
 
-    const oldBackground = localStorage.getItem('bgImage');
 
     if (oldBackground) {
         document.body.style.backgroundImage = `url("${oldBackground}")`;
