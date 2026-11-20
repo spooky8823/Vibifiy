@@ -89,9 +89,10 @@ void TabBar::Resize(
     POINT clientOrigin{0, 0};
     ClientToScreen(parent_, &clientOrigin);
 
+    const int measuredCaptionHeight = clientOrigin.y - windowRect.top;
     const int captionHeight =
-        std::max(1, clientOrigin.y - windowRect.top);
-    const int overlayWidth = std::max(0, width);
+        measuredCaptionHeight > 1 ? measuredCaptionHeight : 1;
+    const int overlayWidth = width > 0 ? width : 0;
 
     // The overlay starts at the left edge of the native caption and stops
     // before the system caption buttons on the right.
