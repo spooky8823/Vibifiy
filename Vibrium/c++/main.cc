@@ -59,6 +59,7 @@ constexpr UINT kMemoryCheckInterval = 15000;
 constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
 
 constexpr int kTabBarHeight = 36;
+constexpr int kCaptionButtonsWidth = 138;
 constexpr int kSearchBarHeight = 44;
 constexpr int kBrowserTop = kTabBarHeight + kSearchBarHeight;
 
@@ -432,7 +433,7 @@ public:
                 instance_,
                 0,
                 0,
-                1280,
+                1280 - kCaptionButtonsWidth,
                 kTabBarHeight)) {
             return false;
         }
@@ -503,6 +504,7 @@ public:
                         tab.browser->GetMainFrame()->ExecuteJavaScript(script, tab.browser->GetMainFrame()->GetURL(), 0);
                     }
                 }
+                ApplyTitleBarTheme();
                 if (tabBar_) InvalidateRect(tabBar_->GetHandle(), nullptr, TRUE);
                 if (searchBar_) InvalidateRect(searchBar_->GetHandle(), nullptr, TRUE);
             });
@@ -1143,7 +1145,7 @@ public:
                 tabBar_->GetHandle(),
                 videoFullscreen_ ? SW_HIDE : SW_SHOW);
             tabBar_->Resize(
-                0, 0, width, kTabBarHeight);
+                0, 0, std::max(0, width - kCaptionButtonsWidth), kTabBarHeight);
         }
 
         if (searchBar_) {
@@ -1308,6 +1310,7 @@ private:
             const DWORD color = static_cast<DWORD>(wParam);
             Theme::SetSystemAccentColor(RGB(GetRValue(color), GetGValue(color), GetBValue(color)));
             TabBar::SetSystemAccentColor(Theme::Accent());
+            self->ApplyTitleBarTheme();
             if (self->tabBar_) InvalidateRect(self->tabBar_->GetHandle(), nullptr, TRUE);
             if (self->searchBar_) InvalidateRect(self->searchBar_->GetHandle(), nullptr, TRUE);
             if (self->settingsPage_) InvalidateRect(self->settingsPage_->handle(), nullptr, TRUE);
