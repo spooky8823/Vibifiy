@@ -1,6 +1,7 @@
 #include "tabbar.h"
 
 #include <windowsx.h>
+#include <dwmapi.h>
 
 #include <algorithm>
 #include <string>
@@ -89,21 +90,36 @@ void TabBar::Resize(
     POINT clientOrigin{0, 0};
     ClientToScreen(parent_, &clientOrigin);
 
-    const int measuredCaptionHeight = clientOrigin.y - windowRect.top;
+    // A maximized window's invisible resize frame can extend above and
+    // beyond the monitor. The visible caption itself begins at screen y=0.
+    const int captionTop = IsZoomed(parent_)
+        ? 0
+        : windowRect.top;
+    const int measuredCaptionHeight = clientOrigin.y - captionTop;
     const int captionHeight =
         measuredCaptionHeight > 1 ? measuredCaptionHeight : 1;
-    const int overlayWidth = width > 0 ? width : 0;
 
-    // The overlay starts at the left edge of the native caption and stops
-    // before the system caption buttons on the right.
+    // Ask DWM for the actual system-caption button bounds. This is DPI-aware
+    // and avoids drawing the tab overlay over the native minimize/maximize/
+    // close buttons (which made the minimize glyph look clipped or missing).
+    RECT captionButtons{};
+    int overlayWidth = width > 0 ? width : 0;
+    if (SUCCEEDED(DwmGetWindowAttribute(
+            parent_,
+            DWMWA_CAPTION_BUTTON_BOUNDS,
+            &captionButtons,
+            sizeof(captionButtons)))) {
+        overlayWidth = std::max(0, captionButtons.left - 2);
+    }
+
     SetWindowPos(
         hwnd_,
         HWND_TOP,
-        clientOrigin.x,
-        windowRect.top,
+        windowRect.left,
+        captionTop,
         overlayWidth,
         captionHeight,
-        SWP_NOACTIVATE);
+        SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 
     InvalidateRect(hwnd_, nullptr, TRUE);
     (void)x;
