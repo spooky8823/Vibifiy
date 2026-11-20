@@ -777,8 +777,10 @@ public:
             tab.browser->GetHost()->GetWindowHandle();
 
         if (window) {
-            const int pageWidth = std::max(0, rect.right - rect.left);
-            const int pageHeight = std::max(0, rect.bottom - rect.top);
+            const int rawPageWidth = rect.right - rect.left;
+            const int pageWidth = rawPageWidth > 0 ? rawPageWidth : 0;
+            const int rawPageHeight = rect.bottom - rect.top;
+            const int pageHeight = rawPageHeight > 0 ? rawPageHeight : 0;
 
             MoveWindow(
                 window,
@@ -1201,14 +1203,15 @@ public:
         const int top = videoFullscreen_ ? 0 : kBrowserTop;
         rect.left = videoFullscreen_ ? 0 : pageInset;
         rect.top = videoFullscreen_ ? 0 : top + pageInset;
-        rect.right = std::max(
-            rect.left,
+        const int availableRight =
             static_cast<int>(client.right) -
-                (videoFullscreen_ ? 0 : pageInset));
-        rect.bottom = std::max(
-            rect.top,
+            (videoFullscreen_ ? 0 : pageInset);
+        rect.right = availableRight > rect.left ? availableRight : rect.left;
+        const int availableBottom =
             static_cast<int>(client.bottom) -
-                (videoFullscreen_ ? 0 : pageInset));
+            (videoFullscreen_ ? 0 : pageInset);
+        rect.bottom =
+            availableBottom > rect.top ? availableBottom : rect.top;
     }
 
     // --------------------------------------------------------
