@@ -283,8 +283,14 @@ void TabBar::Paint(HDC hdc) {
     RECT client{};
     GetClientRect(hwnd_, &client);
 
+    // A restrained accent tint carries the chosen Windows/manual colour
+    // across the whole integrated title-bar strip without hurting contrast.
+    const COLORREF barBackground = RGB(
+        (GetRValue(COLOR_WINDOW_BG) * 3 + GetRValue(systemAccentColor_)) / 4,
+        (GetGValue(COLOR_WINDOW_BG) * 3 + GetGValue(systemAccentColor_)) / 4,
+        (GetBValue(COLOR_WINDOW_BG) * 3 + GetBValue(systemAccentColor_)) / 4);
     HBRUSH backgroundBrush =
-        CreateSolidBrush(COLOR_WINDOW_BG);
+        CreateSolidBrush(barBackground);
 
     FillRect(hdc, &client, backgroundBrush);
     DeleteObject(backgroundBrush);
