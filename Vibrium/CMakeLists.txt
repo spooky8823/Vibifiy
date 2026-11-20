@@ -64,6 +64,7 @@ target_link_libraries(vibrium PRIVATE
     advapi32
     dwmapi
     gdi32
+    msimg32
     comctl32
     comdlg32
     crypt32
