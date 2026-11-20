@@ -15,7 +15,7 @@ public:
     using TabCallback = std::function<void(int)>;
 
     TabBar() = default;
-    ~TabBar() = default;
+    ~TabBar();
 
     TabBar(const TabBar&) = delete;
     TabBar& operator=(const TabBar&) = delete;
@@ -42,6 +42,7 @@ public:
     void SetOnNewTab(std::function<void()> callback);
     void SetTabTitle(int index, const std::wstring& title);
     void SetTabIconText(int index, const std::wstring& text);
+    void SetTabIconBitmap(int index, HBITMAP bitmap);
 
     HWND GetHandle() const;
     static void SetSystemAccentColor(COLORREF color);
@@ -50,6 +51,7 @@ private:
     struct Tab {
         std::wstring title;
         std::wstring iconText = L"•";
+        HBITMAP iconBitmap = nullptr;
     };
 
     HWND hwnd_ = nullptr;
