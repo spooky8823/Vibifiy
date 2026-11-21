@@ -36,6 +36,9 @@ class SettingsPage {
 
   bool Create(HWND parent, HINSTANCE instance);
   void SetOnThemeChanged(std::function<void(COLORREF)> callback) { onThemeChanged_ = std::move(callback); }
+  // Called after the user confirms "Update Vibrium Browser". The owner starts
+  // the updater and closes the browser.
+  void SetOnUpdateRequested(std::function<void()> callback) { onUpdateRequested_ = std::move(callback); }
 
   // Positions the page over `bounds` (parent client coordinates), shows it and
   // starts the live refresh timer.
@@ -74,6 +77,7 @@ class SettingsPage {
   void PaintSidebar(HDC hdc);
   void PaintConsole(HDC hdc);
   void PaintAppearance(HDC hdc);
+  void PaintUpdates(HDC hdc);
   void PaintLog(HDC hdc);
 
   void Refresh(bool force);
@@ -121,6 +125,9 @@ class SettingsPage {
   RECT palette_[6]{};
   RECT systemAccentRect_{};
   RECT customAccentRect_{};
+  RECT updateCard_{};
+  RECT updateButton_{};
+  std::wstring installedBuild_;
   RECT notice_{};
   RECT searchBox_{};
   RECT chipsBox_{};
@@ -156,6 +163,7 @@ class SettingsPage {
   int scrollY_ = 0;
   std::wstring flash_;
   std::function<void(COLORREF)> onThemeChanged_;
+  std::function<void()> onUpdateRequested_;
 };
 
 }  // namespace vibrium

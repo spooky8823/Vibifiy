@@ -12,6 +12,7 @@
 #include "adblock/adblock_service.h"
 #include "theme.h"
 #include "tabbar.h"
+#include "update_launcher.h"
 
 namespace vibrium {
 namespace {
@@ -51,13 +52,14 @@ constexpr int kHitSearch = 400;
 constexpr int kHitPalette = 500;  // + palette index
 constexpr int kHitSystemAccent = 506;
 constexpr int kHitCustomAccent = 507;
+constexpr int kHitUpdate = 600;
 
 struct SectionDef {
   const wchar_t* name;
 };
 // To add a settings page: add an entry here, then handle its index in
 // SettingsPage::Paint / OnClick (like the console).
-constexpr SectionDef kSections[] = {{L"Console"}, {L"Appearance"}};
+constexpr SectionDef kSections[] = {{L"Console"}, {L"Appearance"}, {L"Updates"}};
 constexpr int kSectionCount =
     static_cast<int>(sizeof(kSections) / sizeof(kSections[0]));
 
@@ -385,6 +387,13 @@ void SettingsPage::Layout() {
   if (activeSection_ == 1) {
     hits_.push_back({systemAccentRect_, kHitSystemAccent});
     hits_.push_back({customAccentRect_, kHitCustomAccent});
+    return;
+  }
+  if (activeSection_ == 2) {
+    installedBuild_ = vibrium::InstalledBuildLabel();
+    updateCard_ = RECT{cx, 112, right, 112 + 176};
+    updateButton_ = RECT{cx + 22, updateCard_.bottom - 22 - 42, cx + 22 + 250, updateCard_.bottom - 22};
+    hits_.push_back({updateButton_, kHitUpdate});
     return;
   }
 
@@ -745,6 +754,15 @@ void SettingsPage::OnClick(int id) {
     case kHitExport:
       ExportToFile();
       break;
+    case kHitUpdate:
+      if (MessageBoxW(hwnd_,
+                      L"Vibrium will close, download the latest build and reopen automatically.\n\n"
+                      L"Open tabs will be closed. Continue?",
+                      L"Update Vibrium Browser", MB_OKCANCEL | MB_ICONQUESTION) == IDOK &&
+          onUpdateRequested_) {
+        onUpdateRequested_();
+      }
+      break;
     case kHitClear:
       AdblockService::Get().ClearStats();
       Refresh(true);
@@ -767,6 +785,7 @@ void SettingsPage::Paint(HDC hdc, const RECT& client) {
   PaintSidebar(hdc);
   if (activeSection_ == 0) PaintConsole(hdc);
   else if (activeSection_ == 1) PaintAppearance(hdc);
+  else if (activeSection_ == 2) PaintUpdates(hdc);
 }
 
 void SettingsPage::PaintSidebar(HDC hdc) {
@@ -819,6 +838,28 @@ void SettingsPage::PaintAppearance(HDC hdc) {
   DrawLabel(hdc, L"Custom colour...", customAccentRect_, fontUi_, RGB(255,255,255), DT_SINGLELINE|DT_CENTER|DT_VCENTER);
   std::wstring mode = Theme::IsManual() ? L"Using a custom Vibrium accent" : L"Following your Windows accent colour";
   DrawLabel(hdc, mode, RECT{systemAccentRect_.left, 282, systemAccentRect_.right+260, 310}, fontUi_, kMuted, DT_SINGLELINE|DT_VCENTER|DT_LEFT);
+}
+
+void SettingsPage::PaintUpdates(HDC hdc) {
+  DrawLabel(hdc, L"Updates", title_, fontTitle_, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+  DrawLabel(hdc, L"Install the newest Vibrium build made by CI. Nothing is compiled on this computer.", subtitle_,
+            fontUi_, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+  FillRound(hdc, updateCard_, 14, kPanel, kBorder);
+  DrawLabel(hdc, L"INSTALLED BUILD", RECT{updateCard_.left + 22, updateCard_.top + 16, updateCard_.right - 22, updateCard_.top + 34},
+            fontSmall_, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+  DrawLabel(hdc, installedBuild_, RECT{updateCard_.left + 22, updateCard_.top + 34, updateCard_.right - 22, updateCard_.top + 62},
+            fontBrand_, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+  DrawLabel(hdc, L"Vibrium closes, downloads and installs the latest build, then reopens by itself.",
+            RECT{updateCard_.left + 22, updateCard_.top + 70, updateCard_.right - 22, updateCard_.top + 92}, fontLabel_,
+            kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+  const bool hover = hoverId_ == kHitUpdate;
+  const COLORREF fill = hover ? Theme::Mix(Theme::Accent(), RGB(255, 255, 255), 14) : Theme::Accent();
+  FillRound(hdc, updateButton_, 14, fill, fill);
+  DrawLabel(hdc, L"Update Vibrium Browser", updateButton_, fontUi_, RGB(255, 255, 255),
+            DT_SINGLELINE | DT_VCENTER | DT_CENTER);
+  if (!flash_.empty()) {
+    DrawLabel(hdc, flash_, footer_, fontLabel_, Theme::Accent(), DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+  }
 }
 
 void SettingsPage::PaintConsole(HDC hdc) {
