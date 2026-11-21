@@ -61,7 +61,7 @@ constexpr UINT kFinalizeShutdownMessage = WM_APP + 1;
 constexpr UINT kMemoryCheckInterval = 15000;
 constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
 
-constexpr int kTabBarHeight = 45;
+constexpr int kTabBarHeight = 40;
 constexpr int kTabBarClientOverlap = 9;
 constexpr int kCaptionButtonsWidth = 138;
 constexpr int kSearchBarHeight = 44;
