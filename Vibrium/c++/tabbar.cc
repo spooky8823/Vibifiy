@@ -5,6 +5,8 @@
 #include <algorithm>
 using std::min;
 using std::max;
+#include <unknwn.h>
+#include <objidl.h>
 #include <gdiplus.h>
 
 #include "tabbar_geometry.h"
