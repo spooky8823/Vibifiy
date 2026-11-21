@@ -10,10 +10,11 @@ namespace {
     constexpr wchar_t TABBAR_CLASS_NAME[] =
         L"VibriumTabBar";
 
-    constexpr int TAB_GAP = 7;
-    constexpr int TAB_TOP = 2;
-    constexpr int TAB_BOTTOM = 2;
-    constexpr int TAB_CORNER = 11;
+    constexpr int TAB_GAP = 2;
+    constexpr int TAB_START = 8;
+    constexpr int TAB_TOP = 4;
+    constexpr int TAB_BOTTOM = 0;
+    constexpr int TAB_CORNER = 12;
     constexpr int TAB_STRIP_EXTRA_HEIGHT = 9;
 
     COLORREF BlendColor(COLORREF base, COLORREF accent, int accentPercent) {
@@ -122,7 +123,7 @@ void TabBar::Resize(
     // caption-button area. We draw wider, vertically centered controls there
     // so they align with the tabs instead of sitting in the short DWM caption.
     const int overlayWidth = windowRect.right - windowRect.left;
-    const int tabRowHeight = 45;
+    const int tabRowHeight = 40;
     const int overlayHeight = std::max(
         nativeCaptionHeight + TAB_STRIP_EXTRA_HEIGHT,
         tabRowHeight);
@@ -270,21 +271,15 @@ void TabBar::SetTabIconBitmap(int index, HBITMAP bitmap) {
 }
 
 int TabBar::GetTabWidth() const {
-    if (!hwnd_ || tabs_.empty()) {
-        return TAB_MIN_WIDTH;
-    }
-
+    if (!hwnd_ || tabs_.empty()) return TAB_MIN_WIDTH;
     RECT client{};
     GetClientRect(hwnd_, &client);
-
-    const int availableWidth =
-        client.right - client.left - NEW_TAB_WIDTH - 18 - (46 * 3);
-    const int calculatedWidth =
-        availableWidth / static_cast<int>(tabs_.size());
-    if (calculatedWidth < TAB_MIN_WIDTH) {
-        return calculatedWidth > 88 ? calculatedWidth : 88;
-    }
-    return calculatedWidth < TAB_MAX_WIDTH ? calculatedWidth : TAB_MAX_WIDTH;
+    constexpr int captionWidth = 46 * 3;
+    constexpr int newTabArea = NEW_TAB_WIDTH + 12;
+    const int count = static_cast<int>(tabs_.size());
+    const int gaps = std::max(0, count - 1) * TAB_GAP;
+    const int available = client.right - TAB_START - captionWidth - newTabArea - 8 - gaps;
+    return std::clamp(available / count, TAB_MIN_WIDTH, TAB_MAX_WIDTH);
 }
 
 RECT TabBar::GetTabRect(int index) const {
@@ -292,7 +287,7 @@ RECT TabBar::GetTabRect(int index) const {
 
     RECT rect{};
 
-    rect.left = 5 + index * (tabWidth + TAB_GAP);
+    rect.left = TAB_START + index * (tabWidth + TAB_GAP);
     rect.top = TAB_TOP;
     rect.right = rect.left + tabWidth;
     RECT client{};
