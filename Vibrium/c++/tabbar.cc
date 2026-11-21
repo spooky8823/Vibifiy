@@ -5,6 +5,7 @@
 #include <algorithm>
 using std::min;
 using std::max;
+// GDI+ headers need IUnknown/IStream, which WIN32_LEAN_AND_MEAN strips out.
 #include <unknwn.h>
 #include <objidl.h>
 #include <gdiplus.h>
@@ -13,6 +14,7 @@ using std::max;
 
 #include <algorithm>
 #include <string>
+#include <vector>
 
 namespace {
     constexpr wchar_t TABBAR_CLASS_NAME[] =
@@ -26,6 +28,8 @@ namespace {
     constexpr int CAPTION_BUTTON_WIDTH = 46;
     constexpr int CAPTION_BUTTON_COUNT = 3;
     constexpr int BASELINE = 2;
+    constexpr int CAPTION_GAP = 8;        // space before the window controls
+    constexpr int CLOSE_MIN_WIDTH = 100;  // narrower tabs hide the close button
 
     // Gdiplus is started once for the process and shut down at exit.
     void EnsureGdiplus() {
@@ -181,7 +185,24 @@ void TabBar::Resize(
     // The overlay covers the full caption row, including the native
     // caption-button area. We draw wider, vertically centered controls there
     // so they align with the tabs instead of sitting in the short DWM caption.
-    const int overlayWidth = windowRect.right - windowRect.left;
+    // GetWindowRect includes the invisible resize border (and, when maximized,
+    // hangs past the monitor). Use the visible frame so the bar never sticks
+    // out of the window and the caption buttons are not clipped.
+    RECT frame = windowRect;
+    if (FAILED(DwmGetWindowAttribute(parent_, DWMWA_EXTENDED_FRAME_BOUNDS,
+            &frame, sizeof(frame)))) {
+        frame = windowRect;
+    }
+    if (IsZoomed(parent_)) {
+        MONITORINFO mi{};
+        mi.cbSize = sizeof(mi);
+        if (GetMonitorInfoW(MonitorFromWindow(parent_, MONITOR_DEFAULTTONEAREST), &mi)) {
+            frame.left = std::max(frame.left, mi.rcMonitor.left);
+            frame.right = std::min(frame.right, mi.rcMonitor.right);
+        }
+    }
+    const int overlayLeft = frame.left;
+    const int overlayWidth = frame.right - frame.left;
     const int tabRowHeight = 40;
     const int overlayHeight = std::max(
         nativeCaptionHeight + TAB_STRIP_EXTRA_HEIGHT,
@@ -190,7 +211,7 @@ void TabBar::Resize(
     SetWindowPos(
         hwnd_,
         HWND_TOP,
-        windowRect.left,
+        overlayLeft,
         captionTop,
         overlayWidth,
         overlayHeight,
@@ -335,36 +356,34 @@ int TabBar::GetBarHeight() const {
     return client.bottom > 0 ? client.bottom : 40;
 }
 
-int TabBar::GetTabWidth() const {
-    if (!hwnd_ || tabs_.empty()) return TAB_MIN_WIDTH;
+vibrium::tabgeo::Layout TabBar::GetLayout() const {
     RECT client{};
-    GetClientRect(hwnd_, &client);
-    const int slant = vibrium::tabgeo::Slant(GetBarHeight());
-    const int captionWidth = CAPTION_BUTTON_WIDTH * CAPTION_BUTTON_COUNT;
-    const int newTabArea = NEW_TAB_SIZE + NEW_TAB_MARGIN + 12;
-    const int available = client.right - TAB_START - captionWidth - newTabArea - 8;
-    return vibrium::tabgeo::FitWidth(available, static_cast<int>(tabs_.size()),
-        slant, TAB_GAP, TAB_MIN_WIDTH, TAB_MAX_WIDTH);
+    if (hwnd_) GetClientRect(hwnd_, &client);
+    return vibrium::tabgeo::ComputeLayout(
+        client.right, GetBarHeight(), static_cast<int>(tabs_.size()),
+        TAB_START, TAB_GAP, NEW_TAB_SIZE, NEW_TAB_MARGIN,
+        CAPTION_BUTTON_WIDTH * CAPTION_BUTTON_COUNT, CAPTION_GAP,
+        TAB_MAX_WIDTH);
+}
+
+int TabBar::GetTabWidth() const {
+    return GetLayout().width;
 }
 
 RECT TabBar::GetTabRect(int index) const {
-    const int h = GetBarHeight();
-    const int slant = vibrium::tabgeo::Slant(h);
-    const int w = GetTabWidth();
+    const auto layout = GetLayout();
     RECT rect{};
-    rect.left = vibrium::tabgeo::TabLeft(index, TAB_START, w, slant, TAB_GAP);
+    rect.left = TAB_START + index * layout.pitch;
     rect.top = 0;
-    rect.right = rect.left + w;
-    rect.bottom = h;
+    rect.right = rect.left + layout.width;
+    rect.bottom = GetBarHeight();
     return rect;
 }
 
 RECT TabBar::GetNewTabRect() const {
     const int h = GetBarHeight();
-    const int count = static_cast<int>(tabs_.size());
-    const int lastRight = count > 0 ? GetTabRect(count - 1).right : TAB_START;
     RECT r{};
-    r.left = lastRight + NEW_TAB_MARGIN;
+    r.left = GetLayout().plusLeft;
     r.right = r.left + NEW_TAB_SIZE;
     r.top = (h - NEW_TAB_SIZE - 6) / 2;   // floats slightly above centre
     r.bottom = r.top + NEW_TAB_SIZE;
@@ -591,22 +610,31 @@ void TabBar::Paint(HDC hdc) {
     const int pad = S + 12;   // keeps content inside the slanted sides
     for (int i = 0; i < count; ++i) {
         const RECT rect = GetTabRect(i);
-        const int closeX = rect.right - pad - 9;
+        const bool roomy = (rect.right - rect.left) >= CLOSE_MIN_WIDTH;
+        const bool showClose = roomy || i == activeTab_;
+        // Narrow tabs (many tabs open) keep only a centred close button on
+        // the active tab, like Chrome.
+        const int closeX = roomy ? rect.right - pad - 9
+                                 : (rect.left + rect.right) / 2;
         const int midY = H / 2;
 
         SetTextColor(hdc, RGB(238, 238, 238));
         RECT titleRect{rect.left + pad, 0, closeX - 14, H};
-        DrawTextW(hdc, tabs_[i].title.c_str(), -1, &titleRect,
-            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+        if (roomy && titleRect.right - titleRect.left >= 20) {
+            DrawTextW(hdc, tabs_[i].title.c_str(), -1, &titleRect,
+                DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+        }
 
-        HPEN closePen = CreatePen(PS_SOLID, 1, RGB(225, 225, 225));
-        HPEN oldClosePen = static_cast<HPEN>(SelectObject(hdc, closePen));
-        MoveToEx(hdc, closeX - 4, midY - 4, nullptr);
-        LineTo(hdc, closeX + 5, midY + 5);
-        MoveToEx(hdc, closeX + 4, midY - 4, nullptr);
-        LineTo(hdc, closeX - 5, midY + 5);
-        SelectObject(hdc, oldClosePen);
-        DeleteObject(closePen);
+        if (showClose) {
+            HPEN closePen = CreatePen(PS_SOLID, 1, RGB(225, 225, 225));
+            HPEN oldClosePen = static_cast<HPEN>(SelectObject(hdc, closePen));
+            MoveToEx(hdc, closeX - 4, midY - 4, nullptr);
+            LineTo(hdc, closeX + 5, midY + 5);
+            MoveToEx(hdc, closeX + 4, midY - 4, nullptr);
+            LineTo(hdc, closeX - 5, midY + 5);
+            SelectObject(hdc, oldClosePen);
+            DeleteObject(closePen);
+        }
     }
 
     // "+" glyph drawn as two strokes so it stays crisp and centred.
@@ -685,15 +713,28 @@ void TabBar::HandleClick(int x, int y) {
 
     const int slant = vibrium::tabgeo::Slant(client.bottom);
     const int pad = slant + 12;
-    for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
+    const int tabCount = static_cast<int>(tabs_.size());
+
+    // Topmost first: the active tab is painted last, then later tabs sit
+    // above earlier ones (matters once tabs overlap).
+    std::vector<int> order;
+    if (activeTab_ >= 0 && activeTab_ < tabCount) order.push_back(activeTab_);
+    for (int i = tabCount - 1; i >= 0; --i) {
+        if (i != activeTab_) order.push_back(i);
+    }
+
+    for (int i : order) {
         // Tabs are slanted, so hit-test the real polygon, not the box.
         if (!TabContains(i, x, y)) {
             continue;
         }
 
         const RECT rect = GetTabRect(i);
-        const int closeX = rect.right - pad - 9;
-        if (x >= closeX - 10 && x <= closeX + 10) {
+        const bool roomy = (rect.right - rect.left) >= CLOSE_MIN_WIDTH;
+        const bool showClose = roomy || i == activeTab_;
+        const int closeX = roomy ? rect.right - pad - 9
+                                 : (rect.left + rect.right) / 2;
+        if (showClose && x >= closeX - 10 && x <= closeX + 10) {
             if (onTabClosed_) {
                 onTabClosed_(i);
             }

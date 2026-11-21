@@ -6,6 +6,8 @@
 
 #include <windows.h>
 
+#include "tabbar_geometry.h"
+
 #include <functional>
 #include <string>
 #include <vector>
@@ -96,4 +98,5 @@ private:
     bool TabContains(int index, int x, int y) const;  // slanted hit-test
     int GetTabWidth() const;
     int GetBarHeight() const;
+    vibrium::tabgeo::Layout GetLayout() const;   // tab spacing + "+" position
 };

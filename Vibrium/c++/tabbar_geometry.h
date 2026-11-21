@@ -63,4 +63,34 @@ inline bool Contains(const TabShape& t, float x, float y, int h, int s) {
     return x >= t.left + off && x <= t.right - off;
 }
 
+// Horizontal layout of the whole strip: tab width, spacing, and where the "+"
+// button sits. The "+" follows the last tab (like Chrome) until the tabs have
+// used all the room, then stays pinned just left of the window controls while
+// the tabs shrink (and finally overlap) so nothing runs under the controls.
+struct Layout {
+    int width;     // width of each tab's bounding box
+    int pitch;     // distance between left edges of neighbouring tabs
+    int plusLeft;  // left edge of the "+" button
+};
+
+inline Layout ComputeLayout(int clientWidth, int barHeight, int count,
+                            int start, int gap, int plusSize, int plusMargin,
+                            int captionWidth, int captionGap, int maxWidth) {
+    const int s = Slant(barHeight);
+    const int pinnedPlusLeft = clientWidth - captionWidth - captionGap - plusSize;
+    const int avail = pinnedPlusLeft - plusMargin - start;
+    Layout l{2 * s + 8, 0, start};
+    if (count < 1) return l;
+    l.width = FitWidth(avail, count, s, gap, 2 * s + 8, maxWidth);
+    l.pitch = Pitch(l.width, s, gap);
+    if (count > 1 && l.width + (count - 1) * l.pitch > avail) {
+        l.pitch = (avail - l.width) / (count - 1);   // overlap evenly
+        if (l.pitch < 1) l.pitch = 1;
+    }
+    const int lastRight = start + (count - 1) * l.pitch + l.width;
+    const int natural = lastRight + plusMargin;
+    l.plusLeft = natural < pinnedPlusLeft ? natural : pinnedPlusLeft;
+    return l;
+}
+
 }  // namespace vibrium::tabgeo
