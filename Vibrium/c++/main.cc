@@ -441,7 +441,7 @@ public:
                 instance_,
                 0,
                 0,
-                1280 - kCaptionButtonsWidth,
+                1280,
                 kTabBarHeight)) {
             return false;
         }
@@ -1193,7 +1193,7 @@ public:
                 tabBar_->GetHandle(),
                 videoFullscreen_ ? SW_HIDE : SW_SHOW);
             tabBar_->Resize(
-                0, 0, std::max(0, width - kCaptionButtonsWidth), kTabBarHeight);
+                0, 0, width, kTabBarHeight);
         }
 
         if (searchBar_) {
