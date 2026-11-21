@@ -500,7 +500,7 @@ void TabBar::Paint(HDC hdc) {
         DT_SINGLELINE | DT_CENTER | DT_VCENTER);
 
     // Windows caption controls: three equal-width targets spanning the
-    // same 45px row as the tabs, with larger line icons for clear visibility.
+    // same 40px row as the tabs, with larger line icons for clear visibility.
     constexpr int captionButtonWidth = 46;
     constexpr int captionButtonCount = 3;
     const int captionStart = client.right -
