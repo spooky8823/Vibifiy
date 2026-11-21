@@ -118,18 +118,14 @@ void TabBar::Resize(
         measuredCaptionHeight > 1 ? measuredCaptionHeight : 1;
     const int captionHeight = nativeCaptionHeight + TAB_STRIP_EXTRA_HEIGHT;
 
-    // Ask DWM for the actual system-caption button bounds. This is DPI-aware
-    // and avoids drawing the tab overlay over the native minimize/maximize/
-    // close buttons (which made the minimize glyph look clipped or missing).
-    RECT captionButtons{};
-    int overlayWidth = width > 0 ? width : 0;
-    if (SUCCEEDED(DwmGetWindowAttribute(
-            parent_,
-            DWMWA_CAPTION_BUTTON_BOUNDS,
-            &captionButtons,
-            sizeof(captionButtons)))) {
-        overlayWidth = captionButtons.left > 2 ? captionButtons.left - 2 : 0;
-    }
+    // The overlay covers the full caption row, including the native
+    // caption-button area. We draw wider, vertically centered controls there
+    // so they align with the tabs instead of sitting in the short DWM caption.
+    const int overlayWidth = windowRect.right - windowRect.left;
+    const int tabRowHeight = 45;
+    const int overlayHeight = std::max(
+        nativeCaptionHeight + TAB_STRIP_EXTRA_HEIGHT,
+        tabRowHeight);
 
     SetWindowPos(
         hwnd_,
@@ -137,7 +133,7 @@ void TabBar::Resize(
         windowRect.left,
         captionTop,
         overlayWidth,
-        captionHeight,
+        overlayHeight,
         SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 
     InvalidateRect(hwnd_, nullptr, TRUE);
@@ -503,6 +499,50 @@ void TabBar::Paint(HDC hdc) {
     DrawTextW(hdc, L"+", -1, &newTabRect,
         DT_SINGLELINE | DT_CENTER | DT_VCENTER);
 
+    // Windows caption controls: three equal-width targets spanning the
+    // same 45px row as the tabs, with larger line icons for clear visibility.
+    constexpr int captionButtonWidth = 46;
+    constexpr int captionButtonCount = 3;
+    const int captionStart = client.right -
+        captionButtonWidth * captionButtonCount;
+    const int centerY = client.bottom / 2;
+
+    for (int button = 0; button < captionButtonCount; ++button) {
+        const int centerX = captionStart +
+            button * captionButtonWidth + captionButtonWidth / 2;
+        COLORREF glyphColor = RGB(235, 235, 240);
+        if (button == 2) glyphColor = RGB(255, 255, 255);
+        HPEN glyphPen = CreatePen(PS_SOLID, 2, glyphColor);
+        HGDIOBJ oldGlyphPen = SelectObject(hdc, glyphPen);
+
+        if (button == 0) {
+            // Minimize: broad, centered horizontal stroke.
+            MoveToEx(hdc, centerX - 8, centerY + 6, nullptr);
+            LineTo(hdc, centerX + 8, centerY + 6);
+        } else if (button == 1) {
+            if (IsZoomed(parent_)) {
+                // Restore: two offset, clearly visible window outlines.
+                Rectangle(hdc, centerX - 5, centerY - 7,
+                    centerX + 8, centerY + 5);
+                MoveToEx(hdc, centerX - 8, centerY - 3, nullptr);
+                LineTo(hdc, centerX - 8, centerY + 8);
+                LineTo(hdc, centerX + 4, centerY + 8);
+            } else {
+                Rectangle(hdc, centerX - 7, centerY - 7,
+                    centerX + 8, centerY + 8);
+            }
+        } else {
+            // Close: larger X, balanced against the wider caption targets.
+            MoveToEx(hdc, centerX - 7, centerY - 7, nullptr);
+            LineTo(hdc, centerX + 7, centerY + 7);
+            MoveToEx(hdc, centerX + 7, centerY - 7, nullptr);
+            LineTo(hdc, centerX - 7, centerY + 7);
+        }
+
+        SelectObject(hdc, oldGlyphPen);
+        DeleteObject(glyphPen);
+    }
+
     SelectObject(hdc, oldFont);
     DeleteObject(font);
 }
@@ -511,6 +551,23 @@ void TabBar::HandleClick(int x, int y) {
     RECT client{};
     GetClientRect(hwnd_, &client);
     if (y < 0 || y >= client.bottom) {
+        return;
+    }
+
+    constexpr int captionButtonWidth = 46;
+    constexpr int captionButtonCount = 3;
+    const int captionStart = client.right -
+        captionButtonWidth * captionButtonCount;
+    if (x >= captionStart) {
+        const int button = (x - captionStart) / captionButtonWidth;
+        if (button == 0) {
+            SendMessageW(parent_, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+        } else if (button == 1) {
+            SendMessageW(parent_, WM_SYSCOMMAND,
+                IsZoomed(parent_) ? SC_RESTORE : SC_MAXIMIZE, 0);
+        } else if (button == 2) {
+            SendMessageW(parent_, WM_SYSCOMMAND, SC_CLOSE, 0);
+        }
         return;
     }
 
