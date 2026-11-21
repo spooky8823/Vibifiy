@@ -39,6 +39,7 @@
 #include "tabbar.h"
 #include "searchengine.h"
 #include "settings_page.h"
+#include "update_launcher.h"
 #include "theme.h"
 #include "adblock/adblock_service.h"
 #include "adblock/request_policy.h"
@@ -502,6 +503,16 @@ public:
         }
 
         if (settingsPage_) {
+            settingsPage_->SetOnUpdateRequested([this]() {
+                std::wstring error;
+                if (!StartUpdater(&error)) {
+                    MessageBoxW(hwnd_, error.c_str(), L"Vibrium update", MB_OK | MB_ICONERROR);
+                    return;
+                }
+                // The updater waits for this process to exit, then installs
+                // the newest build and starts Vibrium again.
+                RequestClose();
+            });
             settingsPage_->SetOnThemeChanged([this](COLORREF color) {
                 wchar_t script[128]{};
                 swprintf_s(script, L"document.documentElement.style.setProperty('--vibrium-accent', '#%02X%02X%02X');",

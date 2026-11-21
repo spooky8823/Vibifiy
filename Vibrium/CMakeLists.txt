@@ -27,6 +27,8 @@ add_executable(vibrium WIN32
     c++/settings_page.h
     c++/browsermenu.cc
     c++/browsermenu.h
+    c++/update_launcher.cc
+    c++/update_launcher.h
 )
 
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/vibrium_adblock.cmake")
@@ -81,3 +83,11 @@ if(TARGET libcef_dll_wrapper)
         CXX_STANDARD_REQUIRED ON
     )
 endif()
+
+# Helper started by "Update Vibrium Browser": waits for the browser to exit,
+# downloads the newest CI build, swaps the files in and relaunches. Static CRT,
+# no CEF dependency, shipped next to vibrium.exe by CI.
+add_executable(vibrium_updater WIN32 c++/updater/updater_main.cc)
+target_compile_definitions(vibrium_updater PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_link_libraries(vibrium_updater PRIVATE winhttp bcrypt comctl32 user32 gdi32 shell32)
+

@@ -130,6 +130,8 @@ jobs:
     runs-on: windows-latest
     needs: rust-tests
     timeout-minutes: 60
+    permissions:
+      contents: write
 
     env:
       CEF_ROOT: ${{ github.workspace }}/Vibrium/third_party/cef
@@ -287,7 +289,7 @@ jobs:
         run: |
           cmake --build Vibrium/build `
             --config Release `
-            --target vibrium `
+            --target vibrium vibrium_updater `
             --parallel
 
           if ($LASTEXITCODE -ne 0) {
@@ -388,6 +390,24 @@ jobs:
 
           Copy-Item $exe.FullName $package
 
+          # Updater used by "Update Vibrium Browser" (Settings > Updates).
+          $updater = Get-ChildItem "Vibrium/build" `
+            -Filter "vibrium_updater.exe" `
+            -Recurse |
+            Select-Object -First 1
+          if (!$updater) {
+            throw "vibrium_updater.exe was not found."
+          }
+          Copy-Item $updater.FullName $package
+
+          # Identifies this build so the updater can tell whether it is current.
+          @(
+            "commit=$env:GITHUB_SHA",
+            "run=$env:GITHUB_RUN_ID",
+            "branch=$env:GITHUB_REF_NAME",
+            "built=$((Get-Date).ToUniversalTime().ToString('o'))"
+          ) | Set-Content -Path "$package/BUILD_INFO.txt" -Encoding ascii
+
           # Copy CEF runtime files
           $release = Join-Path $env:CEF_ROOT "Release"
           $resources = Join-Path $env:CEF_ROOT "Resources"
@@ -438,6 +458,8 @@ jobs:
           # Verify packaged files
           $required = @(
             "$package/vibrium.exe",
+            "$package/vibrium_updater.exe",
+            "$package/BUILD_INFO.txt",
             "$package/libcef.dll",
             "$package/icudtl.dat",
             "$package/html/newtab.html"
@@ -644,6 +666,32 @@ jobs:
           path: Vibrium_snapshot2026-10-31.zip
           if-no-files-found: error
           retention-days: 30
+
+      # Rolling release the in-app updater downloads from (public, no token
+      # needed). Only tested builds of main are published.
+      - name: Publish rolling release (vibrium-latest)
+        if: success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $zip = "Vibrium_snapshot.zip"
+          Copy-Item "Vibrium_snapshot2026-10-31.zip" $zip -Force
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path "$zip.sha256" -Value $hash -NoNewline -Encoding ascii
+          Copy-Item "Vibrium_snapshot2026-10-31/BUILD_INFO.txt" "BUILD_INFO.txt" -Force
+
+          gh release view vibrium-latest *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create vibrium-latest --target main --prerelease `
+              --title "Vibrium latest build" `
+              --notes "Rolling release refreshed by CI on every successful build of main. Used by the in-app updater."
+            if ($LASTEXITCODE -ne 0) { throw "Could not create the vibrium-latest release." }
+          }
+          # Zip first, checksum and build info last, so readers see a matching set sooner.
+          gh release upload vibrium-latest $zip "$zip.sha256" BUILD_INFO.txt --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not upload release assets." }
 
       - name: Upload diagnostics
         if: always()
