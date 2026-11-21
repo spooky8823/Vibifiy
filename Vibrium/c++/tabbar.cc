@@ -278,7 +278,7 @@ int TabBar::GetTabWidth() const {
     GetClientRect(hwnd_, &client);
 
     const int availableWidth =
-        client.right - client.left - NEW_TAB_WIDTH - 18;
+        client.right - client.left - NEW_TAB_WIDTH - 18 - (46 * 3);
     const int calculatedWidth =
         availableWidth / static_cast<int>(tabs_.size());
     if (calculatedWidth < TAB_MIN_WIDTH) {
