@@ -387,7 +387,7 @@ void TabBar::Paint(HDC hdc) {
     GetClientRect(hwnd_, &client);
 
     // A dark accent tint, rather than a fully saturated caption background.
-    const COLORREF barBackground = BlendColor(COLOR_WINDOW_BG, systemAccentColor_, 24);
+    const COLORREF barBackground = BlendColor(RGB(32, 33, 36), systemAccentColor_, 12);
     HBRUSH backgroundBrush = CreateSolidBrush(barBackground);
     FillRect(hdc, &client, backgroundBrush);
     DeleteObject(backgroundBrush);
@@ -404,9 +404,13 @@ void TabBar::Paint(HDC hdc) {
     for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
         RECT rect = GetTabRect(i);
         const bool active = (i == activeTab_);
+        if (!active) {
+            rect.top = 8;
+            rect.bottom = client.bottom - 4;
+        }
         const COLORREF surface = active
-            ? BlendColor(COLOR_ACTIVE, systemAccentColor_, 18)
-            : COLOR_TAB;
+            ? BlendColor(RGB(45, 46, 50), systemAccentColor_, 8)
+            : BlendColor(barBackground, RGB(18, 18, 20), 12);
 
         HBRUSH tabBrush = CreateSolidBrush(surface);
         HPEN tabPen = CreatePen(PS_SOLID, 1,
@@ -415,13 +419,20 @@ void TabBar::Paint(HDC hdc) {
         HGDIOBJ oldPen = SelectObject(hdc, tabPen);
         RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom,
             TAB_CORNER, TAB_CORNER);
+        if (active) {
+            // Chrome-style active tab: rounded shoulders, flat bottom that
+            // merges into the toolbar instead of looking like a floating pill.
+            RECT flatBottom{rect.left + 1, rect.bottom - 12,
+                rect.right - 1, rect.bottom};
+            FillRect(hdc, &flatBottom, tabBrush);
+        }
         SelectObject(hdc, oldBrush);
         SelectObject(hdc, oldPen);
         DeleteObject(tabBrush);
         DeleteObject(tabPen);
 
-        const int iconSize = 20;
-        const int iconX = rect.left + 10;
+        const int iconSize = 16;
+        const int iconX = rect.left + 12;
         const int iconY = (rect.top + rect.bottom - iconSize) / 2;
         if (tabs_[i].iconBitmap) {
             HDC iconDC = CreateCompatibleDC(hdc);
@@ -481,9 +492,11 @@ void TabBar::Paint(HDC hdc) {
     }
 
     const int tabWidth = GetTabWidth();
-    const int newTabX = 5 + static_cast<int>(tabs_.size()) *
-        (tabWidth + TAB_GAP) + 2;
-    RECT newTabRect{newTabX, 5, newTabX + 32, client.bottom - 5};
+    const int tabCount = static_cast<int>(tabs_.size());
+    const int lastTabRight = TAB_START + tabCount * tabWidth +
+        std::max(0, tabCount - 1) * TAB_GAP;
+    const int newTabX = lastTabRight + 8;
+    RECT newTabRect{newTabX, 7, newTabX + 32, 33};
     HBRUSH newTabBrush = CreateSolidBrush(COLOR_TAB);
     HPEN newTabPen = CreatePen(PS_SOLID, 1, RGB(95, 95, 105));
     HGDIOBJ oldNewBrush = SelectObject(hdc, newTabBrush);
@@ -599,12 +612,12 @@ void TabBar::HandleClick(int x, int y) {
     }
 
     const int tabWidth = GetTabWidth();
+    const int tabCount = static_cast<int>(tabs_.size());
+    const int lastTabRight = TAB_START + tabCount * tabWidth +
+        std::max(0, tabCount - 1) * TAB_GAP;
+    const int newTabX = lastTabRight + 8;
 
-    const int newTabX =
-        5 + static_cast<int>(tabs_.size()) *
-        (tabWidth + TAB_GAP) + 2;
-
-    if (x >= newTabX && x <= newTabX + 30) {
+    if (x >= newTabX && x <= newTabX + 32) {
         if (onNewTab_) {
             onNewTab_();
         }
