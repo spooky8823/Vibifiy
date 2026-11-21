@@ -2,6 +2,12 @@
 
 #include <windowsx.h>
 #include <dwmapi.h>
+#include <algorithm>
+using std::min;
+using std::max;
+#include <gdiplus.h>
+
+#include "tabbar_geometry.h"
 
 #include <algorithm>
 #include <string>
@@ -10,12 +16,63 @@ namespace {
     constexpr wchar_t TABBAR_CLASS_NAME[] =
         L"VibriumTabBar";
 
-    constexpr int TAB_GAP = 2;
-    constexpr int TAB_START = 8;
-    constexpr int TAB_TOP = 4;
-    constexpr int TAB_BOTTOM = 0;
-    constexpr int TAB_CORNER = 12;
+    constexpr int TAB_GAP = 3;          // gap along the slanted edges
+    constexpr int TAB_START = 14;
     constexpr int TAB_STRIP_EXTRA_HEIGHT = 9;
+    constexpr int NEW_TAB_SIZE = 30;
+    constexpr int NEW_TAB_MARGIN = 10;
+    constexpr int CAPTION_BUTTON_WIDTH = 46;
+    constexpr int CAPTION_BUTTON_COUNT = 3;
+    constexpr int BASELINE = 2;
+
+    // Gdiplus is started once for the process and shut down at exit.
+    void EnsureGdiplus() {
+        struct Init {
+            ULONG_PTR token = 0;
+            Init() {
+                Gdiplus::GdiplusStartupInput in;
+                Gdiplus::GdiplusStartup(&token, &in, nullptr);
+            }
+            ~Init() { Gdiplus::GdiplusShutdown(token); }
+        };
+        static Init init;
+    }
+
+    Gdiplus::Color ToColor(COLORREF c, BYTE alpha = 255) {
+        return Gdiplus::Color(alpha, GetRValue(c), GetGValue(c), GetBValue(c));
+    }
+
+    // Brighter "glow" variant of the accent used for outlines (same rule as
+    // the HTML mockup: keep hue, saturation >= 70%, lightness 52..68%).
+    COLORREF GlowColor(COLORREF c) {
+        const double r = GetRValue(c) / 255.0, g = GetGValue(c) / 255.0,
+                     b = GetBValue(c) / 255.0;
+        const double mx = std::max({r, g, b}), mn = std::min({r, g, b});
+        double l = (mx + mn) / 2, h = 0, s = 0;
+        const double d = mx - mn;
+        if (d > 0) {
+            s = d / (1 - std::abs(2 * l - 1));
+            if (mx == r) h = std::fmod((g - b) / d, 6.0);
+            else if (mx == g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
+            h = std::fmod(h * 60 + 360, 360.0);
+        }
+        s = std::max(s, 0.70);
+        l = std::min(std::max(l + 0.16, 0.52), 0.68);
+        const double cc = (1 - std::abs(2 * l - 1)) * s;
+        const double x = cc * (1 - std::abs(std::fmod(h / 60, 2.0) - 1));
+        const double m = l - cc / 2;
+        double rr = 0, gg = 0, bb = 0;
+        if (h < 60) { rr = cc; gg = x; }
+        else if (h < 120) { rr = x; gg = cc; }
+        else if (h < 180) { gg = cc; bb = x; }
+        else if (h < 240) { gg = x; bb = cc; }
+        else if (h < 300) { rr = x; bb = cc; }
+        else { rr = cc; bb = x; }
+        return RGB(static_cast<int>((rr + m) * 255 + 0.5),
+                   static_cast<int>((gg + m) * 255 + 0.5),
+                   static_cast<int>((bb + m) * 255 + 0.5));
+    }
 
     COLORREF BlendColor(COLORREF base, COLORREF accent, int accentPercent) {
         const int basePercent = 100 - accentPercent;
@@ -67,6 +124,7 @@ bool TabBar::Create(
 
     // An owned, non-activating popup lets the tabs sit over the native
     // Windows caption without replacing the caption or its system buttons.
+    EnsureGdiplus();
     hwnd_ = CreateWindowExW(
         WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         TABBAR_CLASS_NAME,
@@ -117,7 +175,6 @@ void TabBar::Resize(
     const int measuredCaptionHeight = clientOrigin.y - captionTop;
     const int nativeCaptionHeight =
         measuredCaptionHeight > 1 ? measuredCaptionHeight : 1;
-    const int captionHeight = nativeCaptionHeight + TAB_STRIP_EXTRA_HEIGHT;
 
     // The overlay covers the full caption row, including the native
     // caption-button area. We draw wider, vertically centered controls there
@@ -270,31 +327,56 @@ void TabBar::SetTabIconBitmap(int index, HBITMAP bitmap) {
     }
 }
 
+int TabBar::GetBarHeight() const {
+    RECT client{};
+    if (hwnd_) GetClientRect(hwnd_, &client);
+    return client.bottom > 0 ? client.bottom : 40;
+}
+
 int TabBar::GetTabWidth() const {
     if (!hwnd_ || tabs_.empty()) return TAB_MIN_WIDTH;
     RECT client{};
     GetClientRect(hwnd_, &client);
-    constexpr int captionWidth = 46 * 3;
-    constexpr int newTabArea = NEW_TAB_WIDTH + 12;
-    const int count = static_cast<int>(tabs_.size());
-    const int gaps = std::max(0, count - 1) * TAB_GAP;
-    const int available = client.right - TAB_START - captionWidth - newTabArea - 8 - gaps;
-    return std::clamp(available / count, TAB_MIN_WIDTH, TAB_MAX_WIDTH);
+    const int slant = vibrium::tabgeo::Slant(GetBarHeight());
+    const int captionWidth = CAPTION_BUTTON_WIDTH * CAPTION_BUTTON_COUNT;
+    const int newTabArea = NEW_TAB_SIZE + NEW_TAB_MARGIN + 12;
+    const int available = client.right - TAB_START - captionWidth - newTabArea - 8;
+    return vibrium::tabgeo::FitWidth(available, static_cast<int>(tabs_.size()),
+        slant, TAB_GAP, TAB_MIN_WIDTH, TAB_MAX_WIDTH);
 }
 
 RECT TabBar::GetTabRect(int index) const {
-    const int tabWidth = GetTabWidth();
-
+    const int h = GetBarHeight();
+    const int slant = vibrium::tabgeo::Slant(h);
+    const int w = GetTabWidth();
     RECT rect{};
-
-    rect.left = TAB_START + index * (tabWidth + TAB_GAP);
-    rect.top = TAB_TOP;
-    rect.right = rect.left + tabWidth;
-    RECT client{};
-    GetClientRect(hwnd_, &client);
-    rect.bottom = client.bottom - TAB_BOTTOM;
-
+    rect.left = vibrium::tabgeo::TabLeft(index, TAB_START, w, slant, TAB_GAP);
+    rect.top = 0;
+    rect.right = rect.left + w;
+    rect.bottom = h;
     return rect;
+}
+
+RECT TabBar::GetNewTabRect() const {
+    const int h = GetBarHeight();
+    const int count = static_cast<int>(tabs_.size());
+    const int lastRight = count > 0 ? GetTabRect(count - 1).right : TAB_START;
+    RECT r{};
+    r.left = lastRight + NEW_TAB_MARGIN;
+    r.right = r.left + NEW_TAB_SIZE;
+    r.top = (h - NEW_TAB_SIZE - 6) / 2;   // floats slightly above centre
+    r.bottom = r.top + NEW_TAB_SIZE;
+    return r;
+}
+
+bool TabBar::TabContains(int index, int x, int y) const {
+    const int h = GetBarHeight();
+    const int slant = vibrium::tabgeo::Slant(h);
+    const RECT r = GetTabRect(index);
+    const auto shape = vibrium::tabgeo::MakeShape(
+        r.left, r.right - r.left, h, slant, vibrium::tabgeo::IsFlipped(index));
+    return vibrium::tabgeo::Contains(shape,
+        static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f, h, slant);
 }
 
 LRESULT CALLBACK TabBar::WindowProc(
@@ -338,7 +420,17 @@ LRESULT TabBar::HandleMessage(
         PAINTSTRUCT ps{};
         HDC hdc = BeginPaint(hwnd_, &ps);
 
-        Paint(hdc);
+        // Double-buffer so the antialiased shapes never flicker.
+        RECT client{};
+        GetClientRect(hwnd_, &client);
+        HDC mem = CreateCompatibleDC(hdc);
+        HBITMAP bmp = CreateCompatibleBitmap(hdc, client.right, client.bottom);
+        HGDIOBJ oldBmp = SelectObject(mem, bmp);
+        Paint(mem);
+        BitBlt(hdc, 0, 0, client.right, client.bottom, mem, 0, 0, SRCCOPY);
+        SelectObject(mem, oldBmp);
+        DeleteObject(bmp);
+        DeleteDC(mem);
 
         EndPaint(hwnd_, &ps);
         return 0;
@@ -378,16 +470,114 @@ LRESULT TabBar::HandleMessage(
 }
 
 void TabBar::Paint(HDC hdc) {
+    using namespace Gdiplus;
+    namespace geo = vibrium::tabgeo;
+
     RECT client{};
     GetClientRect(hwnd_, &client);
+    const int W = client.right;
+    const int H = client.bottom;
+    const int S = geo::Slant(H);
+    const int tabW = GetTabWidth();
+    const int count = static_cast<int>(tabs_.size());
 
-    // A dark accent tint, rather than a fully saturated caption background.
-    const COLORREF barBackground = BlendColor(RGB(32, 33, 36), systemAccentColor_, 12);
-    HBRUSH backgroundBrush = CreateSolidBrush(barBackground);
-    FillRect(hdc, &client, backgroundBrush);
-    DeleteObject(backgroundBrush);
+    // Palette: everything derives from the accent colour.
+    const COLORREF accent = systemAccentColor_;
+    const COLORREF black = RGB(0, 0, 0);
+    const COLORREF barBg = BlendColor(black, accent, 34);
+    const COLORREF inactiveFill = BlendColor(black, accent, 62);
+    const COLORREF glow = GlowColor(accent);
+    const COLORREF inactiveEdge = BlendColor(inactiveFill, glow, 50);
+    const COLORREF activeFill = RGB(10, 10, 12);
+
+    auto shapeOf = [&](int i) {
+        const RECT r = GetTabRect(i);
+        return geo::MakeShape(r.left, tabW, H, S, geo::IsFlipped(i));
+    };
+
+    // Outline along the top and the two slanted sides (no bottom edge),
+    // inset so a thick pen stays inside the window and inside the tab.
+    auto outline = [&](Graphics& g, const geo::TabShape& t, COLORREF c, float lw) {
+        const float d = lw / 2.0f;
+        const float k = d * 1.21f;   // 1 / cos(34 deg): horizontal inset
+        auto xl = [&](float y) { return t.left + geo::EdgeOffset(t, y, H, S) + k; };
+        auto xr = [&](float y) { return t.right - geo::EdgeOffset(t, y, H, S) - k; };
+        PointF pts[4] = {
+            {xl(static_cast<float>(H)), static_cast<float>(H)},
+            {xl(d), d},
+            {xr(d), d},
+            {xr(static_cast<float>(H)), static_cast<float>(H)}};
+        Pen pen(ToColor(c), lw);
+        pen.SetLineJoin(LineJoinMiter);
+        g.DrawLines(&pen, pts, 4);
+    };
+
+    auto fillShape = [&](Graphics& g, const geo::TabShape& t, COLORREF c) {
+        PointF pts[4];
+        for (int k = 0; k < 4; ++k) pts[k] = {t.poly[k].x, t.poly[k].y};
+        SolidBrush brush(ToColor(c));
+        g.FillPolygon(&brush, pts, 4);
+    };
+
+    RECT plus = GetNewTabRect();
+
+    {
+        Graphics g(hdc);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
+        g.SetPixelOffsetMode(PixelOffsetModeHalf);
+
+        // 1. Darkened window bar (also behind the caption buttons).
+        SolidBrush bar(ToColor(barBg));
+        g.FillRectangle(&bar, 0, 0, W, H);
+
+        // 2. Inactive tabs, thin outline.
+        for (int i = 0; i < count; ++i) {
+            if (i == activeTab_) continue;
+            const auto t = shapeOf(i);
+            fillShape(g, t, inactiveFill);
+            outline(g, t, inactiveEdge, 1.0f);
+        }
+
+        // 3. Baseline across the whole bar, to both ends of the window.
+        SolidBrush line(ToColor(glow));
+        g.FillRectangle(&line, 0, H - BASELINE, W, BASELINE);
+
+        // 4. Active tab on top: its fill covers the baseline beneath it so it
+        //    merges with the page below; 2px accent outline around the rest.
+        if (activeTab_ >= 0 && activeTab_ < count) {
+            const auto t = shapeOf(activeTab_);
+            fillShape(g, t, activeFill);
+            outline(g, t, glow, 2.0f);
+        }
+
+        // 5. Floating rounded-square "+" button with a soft shadow.
+        auto roundRect = [&](GraphicsPath& p, float x, float y, float w, float h, float r) {
+            const float dd = r * 2;
+            p.AddArc(x, y, dd, dd, 180, 90);
+            p.AddArc(x + w - dd, y, dd, dd, 270, 90);
+            p.AddArc(x + w - dd, y + h - dd, dd, dd, 0, 90);
+            p.AddArc(x, y + h - dd, dd, dd, 90, 90);
+            p.CloseFigure();
+        };
+        const float px = static_cast<float>(plus.left);
+        const float py = static_cast<float>(plus.top);
+        const float ps = static_cast<float>(NEW_TAB_SIZE);
+        for (int i = 3; i >= 1; --i) {
+            SolidBrush shadow(Color(static_cast<BYTE>(28 + i * 6), 0, 0, 0));
+            GraphicsPath sp;
+            roundRect(sp, px - i, py + 2 - i + 1, ps + 2 * i, ps + 2 * i, 9.0f + i);
+            g.FillPath(&shadow, &sp);
+        }
+        GraphicsPath bp;
+        roundRect(bp, px + 0.5f, py + 0.5f, ps - 1, ps - 1, 9.0f);
+        SolidBrush plusFill(ToColor(activeFill));
+        Pen plusPen(ToColor(glow), 1.0f);
+        g.FillPath(&plusFill, &bp);
+        g.DrawPath(&plusPen, &bp);
+    }
+
+    // Text, close glyphs and caption buttons use plain GDI on top.
     SetBkMode(hdc, TRANSPARENT);
-
     HFONT font = CreateFontW(
         14, 0, 0, 0, FW_MEDIUM,
         FALSE, FALSE, FALSE, DEFAULT_CHARSET,
@@ -396,157 +586,71 @@ void TabBar::Paint(HDC hdc) {
         L"Segoe UI");
     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, font));
 
-    for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
-        RECT rect = GetTabRect(i);
-        const bool active = (i == activeTab_);
-        if (!active) {
-            rect.top = 8;
-            rect.bottom = client.bottom - 4;
-        }
-        const COLORREF surface = active
-            ? BlendColor(RGB(45, 46, 50), systemAccentColor_, 8)
-            : BlendColor(barBackground, RGB(18, 18, 20), 12);
+    const int pad = S + 12;   // keeps content inside the slanted sides
+    for (int i = 0; i < count; ++i) {
+        const RECT rect = GetTabRect(i);
+        const int closeX = rect.right - pad - 9;
+        const int midY = H / 2;
 
-        HBRUSH tabBrush = CreateSolidBrush(surface);
-        HPEN tabPen = CreatePen(PS_SOLID, 1,
-            active ? RGB(100, 100, 108) : RGB(74, 74, 82));
-        HGDIOBJ oldBrush = SelectObject(hdc, tabBrush);
-        HGDIOBJ oldPen = SelectObject(hdc, tabPen);
-        RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom,
-            TAB_CORNER, TAB_CORNER);
-        if (active) {
-            // Chrome-style active tab: rounded shoulders, flat bottom that
-            // merges into the toolbar instead of looking like a floating pill.
-            RECT flatBottom{rect.left + 1, rect.bottom - 12,
-                rect.right - 1, rect.bottom};
-            FillRect(hdc, &flatBottom, tabBrush);
-        }
-        SelectObject(hdc, oldBrush);
-        SelectObject(hdc, oldPen);
-        DeleteObject(tabBrush);
-        DeleteObject(tabPen);
-
-        const int iconSize = 16;
-        const int iconX = rect.left + 12;
-        const int iconY = (rect.top + rect.bottom - iconSize) / 2;
-        if (tabs_[i].iconBitmap) {
-            HDC iconDC = CreateCompatibleDC(hdc);
-            HGDIOBJ oldIcon = SelectObject(iconDC, tabs_[i].iconBitmap);
-            BITMAP iconInfo{};
-            GetObjectW(tabs_[i].iconBitmap, sizeof(iconInfo), &iconInfo);
-            BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
-            AlphaBlend(hdc, iconX, iconY, iconSize, iconSize,
-                iconDC, 0, 0, iconInfo.bmWidth, iconInfo.bmHeight, blend);
-            SelectObject(iconDC, oldIcon);
-            DeleteDC(iconDC);
-        } else {
-            HBRUSH iconBrush = CreateSolidBrush(
-                active ? systemAccentColor_ : RGB(67, 67, 75));
-            HPEN iconPen = CreatePen(PS_SOLID, 1,
-                active ? systemAccentColor_ : RGB(67, 67, 75));
-            HGDIOBJ oldIconBrush = SelectObject(hdc, iconBrush);
-            HGDIOBJ oldIconPen = SelectObject(hdc, iconPen);
-            RoundRect(hdc, iconX, iconY, iconX + iconSize, iconY + iconSize, 7, 7);
-            SelectObject(hdc, oldIconBrush);
-            SelectObject(hdc, oldIconPen);
-            DeleteObject(iconBrush);
-            DeleteObject(iconPen);
-
-            SetTextColor(hdc, RGB(255, 255, 255));
-            RECT iconTextRect{iconX, iconY, iconX + iconSize, iconY + iconSize};
-            DrawTextW(hdc, tabs_[i].iconText.c_str(), -1, &iconTextRect,
-                DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS);
-        }
-
-        SetTextColor(hdc, active ? COLOR_TEXT : RGB(205, 205, 212));
-        RECT titleRect = rect;
-        titleRect.left = iconX + iconSize + 9;
-        titleRect.right -= 34;
+        SetTextColor(hdc, RGB(238, 238, 238));
+        RECT titleRect{rect.left + pad, 0, closeX - 14, H};
         DrawTextW(hdc, tabs_[i].title.c_str(), -1, &titleRect,
-            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
 
-        const int closeX = rect.right - 17;
-        const int closeY = (rect.top + rect.bottom) / 2;
-        HPEN closePen = CreatePen(PS_SOLID, 1,
-            active ? RGB(235, 235, 240) : COLOR_MUTED);
+        HPEN closePen = CreatePen(PS_SOLID, 1, RGB(225, 225, 225));
         HPEN oldClosePen = static_cast<HPEN>(SelectObject(hdc, closePen));
-        MoveToEx(hdc, closeX - 4, closeY - 4, nullptr);
-        LineTo(hdc, closeX + 4, closeY + 4);
-        MoveToEx(hdc, closeX + 4, closeY - 4, nullptr);
-        LineTo(hdc, closeX - 4, closeY + 4);
+        MoveToEx(hdc, closeX - 4, midY - 4, nullptr);
+        LineTo(hdc, closeX + 5, midY + 5);
+        MoveToEx(hdc, closeX + 4, midY - 4, nullptr);
+        LineTo(hdc, closeX - 5, midY + 5);
         SelectObject(hdc, oldClosePen);
         DeleteObject(closePen);
-
-        if (active) {
-            RECT accent{rect.left + 14, rect.bottom - 3,
-                rect.right - 14, rect.bottom};
-            HBRUSH accentBrush = CreateSolidBrush(systemAccentColor_);
-            FillRect(hdc, &accent, accentBrush);
-            DeleteObject(accentBrush);
-        }
     }
 
-    const int tabWidth = GetTabWidth();
-    const int tabCount = static_cast<int>(tabs_.size());
-    const int lastTabRight = TAB_START + tabCount * tabWidth +
-        std::max(0, tabCount - 1) * TAB_GAP;
-    const int newTabX = lastTabRight + 8;
-    RECT newTabRect{newTabX, 7, newTabX + 32, 33};
-    HBRUSH newTabBrush = CreateSolidBrush(COLOR_TAB);
-    HPEN newTabPen = CreatePen(PS_SOLID, 1, RGB(95, 95, 105));
-    HGDIOBJ oldNewBrush = SelectObject(hdc, newTabBrush);
-    HGDIOBJ oldNewPen = SelectObject(hdc, newTabPen);
-    RoundRect(hdc, newTabRect.left, newTabRect.top,
-        newTabRect.right, newTabRect.bottom, 12, 12);
-    SelectObject(hdc, oldNewBrush);
-    SelectObject(hdc, oldNewPen);
-    DeleteObject(newTabBrush);
-    DeleteObject(newTabPen);
+    // "+" glyph drawn as two strokes so it stays crisp and centred.
+    {
+        const int cx = (plus.left + plus.right) / 2;
+        const int cy = (plus.top + plus.bottom) / 2;
+        HPEN plusPen = CreatePen(PS_SOLID, 2, RGB(245, 245, 245));
+        HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, plusPen));
+        MoveToEx(hdc, cx - 6, cy, nullptr);
+        LineTo(hdc, cx + 7, cy);
+        MoveToEx(hdc, cx, cy - 6, nullptr);
+        LineTo(hdc, cx, cy + 7);
+        SelectObject(hdc, oldPen);
+        DeleteObject(plusPen);
+    }
 
-    SetTextColor(hdc, COLOR_TEXT);
-    DrawTextW(hdc, L"+", -1, &newTabRect,
-        DT_SINGLELINE | DT_CENTER | DT_VCENTER);
-
-    // Windows caption controls: three equal-width targets spanning the
-    // same 40px row as the tabs, with larger line icons for clear visibility.
-    constexpr int captionButtonWidth = 46;
-    constexpr int captionButtonCount = 3;
-    const int captionStart = client.right -
-        captionButtonWidth * captionButtonCount;
-    const int centerY = client.bottom / 2;
-
-    for (int button = 0; button < captionButtonCount; ++button) {
+    // Windows caption controls, vertically centred in the bar.
+    const int captionStart = W - CAPTION_BUTTON_WIDTH * CAPTION_BUTTON_COUNT;
+    const int centerY = H / 2;
+    for (int button = 0; button < CAPTION_BUTTON_COUNT; ++button) {
         const int centerX = captionStart +
-            button * captionButtonWidth + captionButtonWidth / 2;
-        COLORREF glyphColor = RGB(235, 235, 240);
-        if (button == 2) glyphColor = RGB(255, 255, 255);
-        HPEN glyphPen = CreatePen(PS_SOLID, 2, glyphColor);
+            button * CAPTION_BUTTON_WIDTH + CAPTION_BUTTON_WIDTH / 2;
+        HPEN glyphPen = CreatePen(PS_SOLID, 1, RGB(240, 240, 240));
         HGDIOBJ oldGlyphPen = SelectObject(hdc, glyphPen);
+        HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
 
         if (button == 0) {
-            // Minimize: broad, centered horizontal stroke.
-            MoveToEx(hdc, centerX - 8, centerY + 6, nullptr);
-            LineTo(hdc, centerX + 8, centerY + 6);
+            MoveToEx(hdc, centerX - 5, centerY + 1, nullptr);
+            LineTo(hdc, centerX + 6, centerY + 1);
         } else if (button == 1) {
             if (IsZoomed(parent_)) {
-                // Restore: two offset, clearly visible window outlines.
-                Rectangle(hdc, centerX - 5, centerY - 7,
-                    centerX + 8, centerY + 5);
-                MoveToEx(hdc, centerX - 8, centerY - 3, nullptr);
-                LineTo(hdc, centerX - 8, centerY + 8);
-                LineTo(hdc, centerX + 4, centerY + 8);
+                Rectangle(hdc, centerX - 3, centerY - 5, centerX + 6, centerY + 4);
+                MoveToEx(hdc, centerX - 6, centerY - 2, nullptr);
+                LineTo(hdc, centerX - 6, centerY + 7);
+                LineTo(hdc, centerX + 3, centerY + 7);
             } else {
-                Rectangle(hdc, centerX - 7, centerY - 7,
-                    centerX + 8, centerY + 8);
+                Rectangle(hdc, centerX - 5, centerY - 5, centerX + 5, centerY + 5);
             }
         } else {
-            // Close: larger X, balanced against the wider caption targets.
-            MoveToEx(hdc, centerX - 7, centerY - 7, nullptr);
-            LineTo(hdc, centerX + 7, centerY + 7);
-            MoveToEx(hdc, centerX + 7, centerY - 7, nullptr);
-            LineTo(hdc, centerX - 7, centerY + 7);
+            MoveToEx(hdc, centerX - 5, centerY - 5, nullptr);
+            LineTo(hdc, centerX + 6, centerY + 6);
+            MoveToEx(hdc, centerX + 5, centerY - 5, nullptr);
+            LineTo(hdc, centerX - 6, centerY + 6);
         }
 
+        SelectObject(hdc, oldBrush);
         SelectObject(hdc, oldGlyphPen);
         DeleteObject(glyphPen);
     }
@@ -562,12 +666,10 @@ void TabBar::HandleClick(int x, int y) {
         return;
     }
 
-    constexpr int captionButtonWidth = 46;
-    constexpr int captionButtonCount = 3;
     const int captionStart = client.right -
-        captionButtonWidth * captionButtonCount;
+        CAPTION_BUTTON_WIDTH * CAPTION_BUTTON_COUNT;
     if (x >= captionStart) {
-        const int button = (x - captionStart) / captionButtonWidth;
+        const int button = (x - captionStart) / CAPTION_BUTTON_WIDTH;
         if (button == 0) {
             SendMessageW(parent_, WM_SYSCOMMAND, SC_MINIMIZE, 0);
         } else if (button == 1) {
@@ -579,20 +681,20 @@ void TabBar::HandleClick(int x, int y) {
         return;
     }
 
+    const int slant = vibrium::tabgeo::Slant(client.bottom);
+    const int pad = slant + 12;
     for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
-        const RECT rect = GetTabRect(i);
-
-        if (x < rect.left || x >= rect.right ||
-            y < rect.top || y >= rect.bottom) {
+        // Tabs are slanted, so hit-test the real polygon, not the box.
+        if (!TabContains(i, x, y)) {
             continue;
         }
 
-        // Close button hit area.
-        if (x >= rect.right - 32) {
+        const RECT rect = GetTabRect(i);
+        const int closeX = rect.right - pad - 9;
+        if (x >= closeX - 10 && x <= closeX + 10) {
             if (onTabClosed_) {
                 onTabClosed_(i);
             }
-
             return;
         }
 
@@ -606,13 +708,8 @@ void TabBar::HandleClick(int x, int y) {
         return;
     }
 
-    const int tabWidth = GetTabWidth();
-    const int tabCount = static_cast<int>(tabs_.size());
-    const int lastTabRight = TAB_START + tabCount * tabWidth +
-        std::max(0, tabCount - 1) * TAB_GAP;
-    const int newTabX = lastTabRight + 8;
-
-    if (x >= newTabX && x <= newTabX + 32) {
+    const RECT plus = GetNewTabRect();
+    if (x >= plus.left && x < plus.right && y >= plus.top && y < plus.bottom) {
         if (onNewTab_) {
             onNewTab_();
         }

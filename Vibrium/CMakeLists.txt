@@ -21,6 +21,7 @@ add_executable(vibrium WIN32
     c++/main.cc
     c++/tabbar.cc
     c++/tabbar.h
+    c++/tabbar_geometry.h
     c++/searchengine.cc
     c++/searchengine.h
     c++/settings_page.cc
@@ -66,6 +67,7 @@ target_link_libraries(vibrium PRIVATE
     advapi32
     dwmapi
     gdi32
+    gdiplus
     msimg32
     comctl32
     comdlg32
