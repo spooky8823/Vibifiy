@@ -75,6 +75,12 @@ constexpr int kCaptionButtonsWidth = 138;
 constexpr int kSearchBarTop = kTabBarHeight + 1;
 constexpr int kSearchBarHeight = 52;
 constexpr int kBrowserTop = kSearchBarTop + kSearchBarHeight;
+// Exact gap, in pixels, between the bottom edge of the tab strip and the top
+// edge of the address pill.
+constexpr int kTabToAddressGap = 3;
+// The address pill is drawn this many pixels inside the search bar window
+// (must match kOuterPadding in searchengine.cc).
+constexpr int kAddressPillInset = 1;
 
 class MainWindow;
 
@@ -1314,11 +1320,26 @@ public:
         }
 
         if (searchBar_) {
+            // The tab strip is an overlay that covers the native caption row,
+            // so the client area starts below the strip's top. Place the
+            // address bar relative to the strip's real bottom edge so the
+            // gap between the two is exactly kTabToAddressGap pixels.
+            if (tabBar_ && tabBar_->GetHandle()) {
+                RECT stripRect{};
+                GetWindowRect(tabBar_->GetHandle(), &stripRect);
+                POINT clientOrigin{0, 0};
+                ClientToScreen(hwnd_, &clientOrigin);
+                const int top = static_cast<int>(stripRect.bottom) +
+                    kTabToAddressGap - kAddressPillInset -
+                    static_cast<int>(clientOrigin.y);
+                searchBarTop_ = top > 0 ? top : 0;
+            }
+
             ShowWindow(
                 searchBar_->GetHandle(),
                 videoFullscreen_ ? SW_HIDE : SW_SHOW);
             searchBar_->Resize(
-                0, kSearchBarTop,
+                0, searchBarTop_,
                 width, kSearchBarHeight);
         }
 
@@ -1344,7 +1365,9 @@ public:
         // It prevents the rounded browser surface from being clipped against
         // the host window while remaining visually unobtrusive.
         constexpr int pageInset = 2;
-        const int top = videoFullscreen_ ? 0 : kBrowserTop;
+        const int top = videoFullscreen_
+            ? 0
+            : searchBarTop_ + kSearchBarHeight;
         rect.left = videoFullscreen_ ? 0 : pageInset;
         rect.top = videoFullscreen_ ? 0 : top + pageInset;
         const int availableRight =
@@ -1628,6 +1651,8 @@ private:
 
     std::unique_ptr<TabBar> tabBar_;
     std::unique_ptr<SearchEngine> searchBar_;
+    // Client-area Y of the address bar window; recomputed in ResizeUI().
+    int searchBarTop_ = kSearchBarTop;
     std::unique_ptr<SettingsPage> settingsPage_;
 
     std::vector<TabRecord> tabs_;
