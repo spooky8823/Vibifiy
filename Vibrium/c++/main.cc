@@ -10,6 +10,8 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <dwmapi.h>
+#include <unknwn.h>
+#include <objidl.h>
 #include <gdiplus.h>
 
 // Common-controls macros collide with identically named CEF DOM methods.
