@@ -19,7 +19,7 @@ constexpr COLORREF kPillBorder = RGB(68, 68, 74);
 constexpr COLORREF kTextColor = RGB(245, 245, 247);
 constexpr COLORREF kPlaceholderColor = RGB(155, 155, 162);
 
-constexpr int kOuterPadding = 5;
+constexpr int kOuterPadding = 1;
 constexpr int kNavigationWidth = 154;
 constexpr int kEditLeft = kNavigationWidth + 1; // 1px inside the address pill
 constexpr int kEditRightPadding = 1;
