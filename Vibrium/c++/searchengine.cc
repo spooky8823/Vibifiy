@@ -21,7 +21,7 @@ constexpr COLORREF kPlaceholderColor = RGB(155, 155, 162);
 
 constexpr int kOuterPadding = 5;
 constexpr int kNavigationWidth = 154;
-constexpr int kEditLeft = 164;
+constexpr int kEditLeft = 158; // 4px inside the address pill
 constexpr int kEditRightPadding = 14;
 
 // Settings (gear) button, to the right of the address pill.
@@ -172,7 +172,7 @@ bool SearchEngine::Create(
         L"",
         WS_CHILD | WS_VISIBLE |
         ES_AUTOHSCROLL |
-        ES_CENTER |
+        ES_LEFT |
         WS_TABSTOP,
         0,
         0,
