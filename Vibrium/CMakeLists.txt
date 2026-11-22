@@ -1,6 +1,10 @@
 ﻿cmake_minimum_required(VERSION 3.21)
 project(Vibrium LANGUAGES CXX)
 
+if(WIN32)
+    enable_language(RC)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -45,6 +49,8 @@ configure_file(
 add_executable(vibrium WIN32
     "${CMAKE_CURRENT_BINARY_DIR}/vibrium.rc"
     c++/main.cc
+    c++/resource.h
+    c++/vibrium.rc.in
     c++/tabbar.cc
     c++/tabbar.h
     c++/tabbar_geometry.h
