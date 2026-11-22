@@ -19,10 +19,10 @@ constexpr COLORREF kPillBorder = RGB(68, 68, 74);
 constexpr COLORREF kTextColor = RGB(245, 245, 247);
 constexpr COLORREF kPlaceholderColor = RGB(155, 155, 162);
 
-constexpr int kOuterPadding = 3;
+constexpr int kOuterPadding = 5;
 constexpr int kNavigationWidth = 154;
 constexpr int kEditLeft = 164;
-constexpr int kEditRightPadding = 12;
+constexpr int kEditRightPadding = 14;
 
 // Settings (gear) button, to the right of the address pill.
 constexpr int kGearAreaWidth = 52;
@@ -156,8 +156,8 @@ bool SearchEngine::Create(
     editBrush_ = CreateSolidBrush(kPillColor);
 
     font_ = CreateFontW(
-        16, 0, 0, 0,
-        FW_NORMAL,
+        18, 0, 0, 0,
+        FW_SEMIBOLD,
         FALSE, FALSE, FALSE,
         DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS,
@@ -172,6 +172,7 @@ bool SearchEngine::Create(
         L"",
         WS_CHILD | WS_VISIBLE |
         ES_AUTOHSCROLL |
+        ES_CENTER |
         WS_TABSTOP,
         0,
         0,
@@ -222,7 +223,7 @@ void SearchEngine::LayoutControls() {
     const int editWidth = std::max(
         50, addressRight - kEditLeft - kEditRightPadding);
 
-    const int editHeight = std::max(18, height_ - 16);
+    const int editHeight = std::max(22, height_ - 18);
     const int editY = (height_ - editHeight) / 2;
 
     MoveWindow(
