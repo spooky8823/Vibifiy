@@ -1,4 +1,3 @@
-
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -47,6 +46,7 @@
 #include "searchengine.h"
 #include "settings_page.h"
 #include "update_launcher.h"
+#include "accent_icon.h"
 #include "resource.h"
 #include "theme.h"
 #include "adblock/adblock_service.h"
@@ -1412,6 +1412,13 @@ private:
         if (windowIconSmall_ && windowIconSmall_ != windowIconLarge_) DestroyIcon(windowIconSmall_);
         windowIconLarge_ = large;
         windowIconSmall_ = iconSmall;
+
+        // The caption and the running taskbar button now show the accent. The
+        // pinned taskbar button, desktop / Start shortcuts and vibrium.exe read
+        // their icon from files, so update those too (debounced, off-thread).
+        if (!SelfTest::Get().enabled()) {
+            AccentIcon::Request(Theme::Accent());
+        }
     }
 
     std::wstring GetNewTabUrl() const {
@@ -1915,6 +1922,10 @@ int WINAPI wWinMain(
 
         CefRunMessageLoop();
         appExitCode = vibrium::SelfTest::Get().exit_code();
+
+        // Must run while GDI+ is alive (it is shut down by ~MainWindow below).
+        vibrium::AccentIcon::Shutdown(
+            vibrium::Theme::Accent(), !vibrium::SelfTest::Get().enabled());
     }
 
     // All browsers have delivered OnBeforeClose before the message loop exits.

@@ -61,6 +61,9 @@ add_executable(vibrium WIN32
     c++/tabbar.cc
     c++/tabbar.h
     c++/tabbar_geometry.h
+    c++/accent_icon.cc
+    c++/accent_icon.h
+    c++/ico_format.h
     c++/searchengine.cc
     c++/searchengine.h
     c++/settings_page.cc
@@ -131,4 +134,3 @@ endif()
 add_executable(vibrium_updater WIN32 "${CMAKE_CURRENT_BINARY_DIR}/vibrium.rc" c++/updater/updater_main.cc)
 target_compile_definitions(vibrium_updater PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 target_link_libraries(vibrium_updater PRIVATE winhttp bcrypt comctl32 user32 gdi32 shell32)
-

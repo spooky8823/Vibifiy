@@ -28,6 +28,7 @@
 #include <bcrypt.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <tlhelp32.h>
 #include <winhttp.h>
 
@@ -41,6 +42,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "../ico_format.h"
 
 namespace {
 
@@ -828,9 +831,148 @@ TempCopy RelaunchFromTemp(const Options& o) {
   return TempCopy::Started;
 }
 
+
+// ---- Icon patch mode -------------------------------------------------------
+// Started by the browser when it exits after the accent colour changed:
+//   vibrium_updater.exe --patch-icon "<vibrium.exe>" "<accent.ico>" --pid <pid> --accent <COLORREF>
+// A running exe cannot be modified, so this waits for the browser, replaces the
+// RT_GROUP_ICON / RT_ICON resources inside vibrium.exe with the accent-coloured
+// icon and records what it did so the browser does not repeat it.
+constexpr int kAppIconGroupId = 101;  // IDI_VIBRIUM in c++/resource.h
+constexpr WORD kFirstIconId = 1000;   // RT_ICON ids for the new images
+
+struct PatchArgs {
+  std::wstring exe;
+  std::wstring ico;
+  DWORD pid = 0;
+  DWORD accent = 0;
+};
+
+bool ParsePatchArgs(PatchArgs* a) {
+  int argc = 0;
+  LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  if (!argv) return false;
+  bool found = false;
+  for (int i = 1; i < argc; ++i) {
+    const std::wstring k = argv[i];
+    if (k == L"--patch-icon" && i + 2 < argc) {
+      a->exe = argv[++i];
+      a->ico = argv[++i];
+      found = true;
+    } else if (k == L"--pid" && i + 1 < argc) {
+      a->pid = (DWORD)wcstoul(argv[++i], nullptr, 10);
+    } else if (k == L"--accent" && i + 1 < argc) {
+      a->accent = (DWORD)wcstoul(argv[++i], nullptr, 10);
+    }
+  }
+  LocalFree(argv);
+  return found && !a->exe.empty() && !a->ico.empty();
+}
+
+bool ReadWholeFile(const std::wstring& path, std::vector<uint8_t>* out) {
+  HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                         nullptr);
+  if (f == INVALID_HANDLE_VALUE) return false;
+  LARGE_INTEGER size{};
+  bool ok = GetFileSizeEx(f, &size) && size.QuadPart > 0 && size.QuadPart < (64ll << 20);
+  if (ok) {
+    out->resize((size_t)size.QuadPart);
+    DWORD got = 0;
+    ok = ReadFile(f, out->data(), (DWORD)out->size(), &got, nullptr) && got == out->size();
+  }
+  CloseHandle(f);
+  return ok;
+}
+
+BOOL CALLBACK FirstLanguage(HMODULE, LPCWSTR, LPCWSTR, WORD lang, LONG_PTR param) {
+  *reinterpret_cast<WORD*>(param) = lang;
+  return FALSE;  // the first one is enough
+}
+
+// Reads the language and icon ids of the exe's current app icon so they can be
+// replaced in place instead of leaving a second, stale icon behind.
+void ReadExistingIcon(const std::wstring& exe, WORD* lang, std::vector<uint16_t>* oldIds) {
+  *lang = MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL);
+  HMODULE module = LoadLibraryExW(exe.c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE);
+  if (!module) return;
+  WORD found = 0;
+  // FirstLanguage stops the enumeration on purpose, so the return value is ignored.
+  EnumResourceLanguagesW(module, RT_GROUP_ICON, MAKEINTRESOURCEW(kAppIconGroupId), FirstLanguage,
+                         reinterpret_cast<LONG_PTR>(&found));
+  *lang = found;
+  if (HRSRC res = FindResourceExW(module, RT_GROUP_ICON, MAKEINTRESOURCEW(kAppIconGroupId), found)) {
+    if (HGLOBAL mem = LoadResource(module, res)) {
+      if (const void* data = LockResource(mem)) {
+        vibrium::ico::ParseGroupIconIds(static_cast<const uint8_t*>(data), SizeofResource(module, res), *oldIds);
+      }
+    }
+  }
+  FreeLibrary(module);
+}
+
+void RecordPatch(const std::wstring& exe, DWORD accent) {
+  WIN32_FILE_ATTRIBUTE_DATA d{};
+  if (!GetFileAttributesExW(exe.c_str(), GetFileExInfoStandard, &d)) return;
+  const unsigned long long stamp =
+      ((unsigned long long)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
+  HKEY key = nullptr;
+  if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Vibrium\\Appearance", 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key,
+                      nullptr) != ERROR_SUCCESS) {
+    return;
+  }
+  RegSetValueExW(key, L"ExeIconAccent", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&accent), sizeof(accent));
+  RegSetValueExW(key, L"ExeIconStamp", 0, REG_QWORD, reinterpret_cast<const BYTE*>(&stamp), sizeof(stamp));
+  RegCloseKey(key);
+}
+
+int RunIconPatch(const PatchArgs& a) {
+  HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\VibriumIconPatch");
+  if (mutex && GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+
+  const size_t slash = a.exe.find_last_of(L"\\/");
+  if (slash == std::wstring::npos) return 2;
+  Options o;
+  o.pid = a.pid;
+  o.installDir = a.exe.substr(0, slash);
+  // If the user already started Vibrium again, leave the exe alone; the next
+  // exit tries once more.
+  if (WaitForBrowserToExit(o) != ExitState::Closed) return 1;
+
+  std::vector<uint8_t> file;
+  std::vector<vibrium::ico::Image> images;
+  if (!ReadWholeFile(a.ico, &file) || !vibrium::ico::ParseIco(file.data(), file.size(), images)) return 3;
+
+  WORD lang = 0;
+  std::vector<uint16_t> oldIds;
+  ReadExistingIcon(a.exe, &lang, &oldIds);
+
+  HANDLE update = BeginUpdateResourceW(a.exe.c_str(), FALSE);
+  if (!update) return 4;
+  bool ok = true;
+  for (uint16_t id : oldIds) ok = ok && UpdateResourceW(update, RT_ICON, MAKEINTRESOURCEW(id), lang, nullptr, 0);
+  for (size_t i = 0; ok && i < images.size(); ++i) {
+    ok = UpdateResourceW(update, RT_ICON, MAKEINTRESOURCEW(kFirstIconId + i), lang, images[i].data.data(),
+                         (DWORD)images[i].data.size());
+  }
+  const std::vector<uint8_t> group = vibrium::ico::BuildGroupIcon(images, kFirstIconId);
+  ok = ok && UpdateResourceW(update, RT_GROUP_ICON, MAKEINTRESOURCEW(kAppIconGroupId), lang,
+                             const_cast<uint8_t*>(group.data()), (DWORD)group.size());
+  // FALSE writes the changes; TRUE discards them, so a failure leaves the exe untouched.
+  if (!EndUpdateResourceW(update, ok ? FALSE : TRUE) || !ok) return 5;
+
+  RecordPatch(a.exe, a.accent);
+  SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, a.exe.c_str(), nullptr);
+  SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+  return 0;
+}
+
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+  // Headless mode used by the browser to refresh the icon inside vibrium.exe.
+  PatchArgs patchArgs;
+  if (ParsePatchArgs(&patchArgs)) return RunIconPatch(patchArgs);
+
   if (!ParseArgs(&g_options)) {
     MessageBoxW(nullptr, L"This helper is started by Vibrium (Settings > Updates).", L"Vibrium updater",
                 MB_OK | MB_ICONINFORMATION);
