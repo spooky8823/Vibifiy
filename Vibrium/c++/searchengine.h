@@ -83,6 +83,13 @@ private:
     int width_ = 0;
     int height_ = 0;
 
+    // Connection state of the page whose URL is shown; drives the icon at
+    // the left of the address pill.
+    enum class Security { kNeutral, kSecure, kNotSecure };
+    static Security ClassifyUrl(const std::wstring& url);
+    void DrawSecurityIcon(HDC hdc, int cx, int cy) const;
+    Security security_ = Security::kNeutral;
+
     bool editFocused_ = false;
     bool gearHover_ = false;
     bool trackingMouse_ = false;

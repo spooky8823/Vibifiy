@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cwctype>
 #include <string>
 #include <vector>
 
@@ -21,8 +22,14 @@ constexpr COLORREF kPlaceholderColor = RGB(155, 155, 162);
 
 constexpr int kOuterPadding = 1;
 constexpr int kNavigationWidth = 154;
-constexpr int kEditLeftInset = 4; // URL starts 4px inside the address pill
+// Security icon (lock / warning / info) sits inside the pill's left end and
+// the URL text starts after it.
+constexpr int kIconCenterX = kNavigationWidth + 21;
+constexpr int kEditLeftInset = 38; // URL starts 38px inside the address pill
 constexpr int kEditLeft = kNavigationWidth + kEditLeftInset;
+constexpr COLORREF kSecureColor = RGB(125, 205, 145);
+constexpr COLORREF kNotSecureColor = RGB(245, 180, 60);
+constexpr COLORREF kNeutralIconColor = RGB(170, 170, 178);
 constexpr int kEditRightPadding = 1;
 
 // Settings (gear) button, to the right of the address pill.
@@ -276,10 +283,81 @@ void SearchEngine::Resize(
     InvalidateRect(hwnd_, nullptr, TRUE);
 }
 
+SearchEngine::Security SearchEngine::ClassifyUrl(const std::wstring& url) {
+    std::wstring lower;
+    lower.reserve(url.size());
+    for (wchar_t c : url) {
+        lower.push_back(static_cast<wchar_t>(std::towlower(c)));
+        if (lower.size() >= 8) break;
+    }
+    if (lower.rfind(L"https://", 0) == 0) return Security::kSecure;
+    if (lower.rfind(L"http://", 0) == 0) return Security::kNotSecure;
+    return Security::kNeutral;  // file://, about:, internal pages, empty
+}
+
 void SearchEngine::SetText(const std::wstring& text) {
     if (addressEdit_) {
         SetWindowTextW(addressEdit_, text.c_str());
     }
+
+    const Security state = ClassifyUrl(text);
+    if (state != security_) {
+        security_ = state;
+        if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+}
+
+void SearchEngine::DrawSecurityIcon(HDC hdc, int cx, int cy) const {
+    SetBkMode(hdc, TRANSPARENT);
+    HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+
+    if (security_ == Security::kSecure) {
+        // Closed padlock.
+        HPEN pen = CreatePen(PS_SOLID, 2, kSecureColor);
+        HBRUSH fill = CreateSolidBrush(kSecureColor);
+        HGDIOBJ oldPen = SelectObject(hdc, pen);
+        MoveToEx(hdc, cx - 4, cy - 1, nullptr);
+        LineTo(hdc, cx - 4, cy - 4);
+        Arc(hdc, cx - 4, cy - 8, cx + 4, cy, cx + 4, cy - 4, cx - 4, cy - 4);
+        MoveToEx(hdc, cx + 4, cy - 4, nullptr);
+        LineTo(hdc, cx + 4, cy - 1);
+        SelectObject(hdc, fill);
+        RoundRect(hdc, cx - 6, cy - 1, cx + 7, cy + 8, 3, 3);
+        SelectObject(hdc, oldPen);
+        DeleteObject(pen);
+        DeleteObject(fill);
+    } else if (security_ == Security::kNotSecure) {
+        // Warning triangle with an exclamation mark.
+        HPEN pen = CreatePen(PS_SOLID, 1, kNotSecureColor);
+        HBRUSH fill = CreateSolidBrush(kNotSecureColor);
+        HGDIOBJ oldPen = SelectObject(hdc, pen);
+        SelectObject(hdc, fill);
+        const POINT tri[3] = {{cx, cy - 8}, {cx + 8, cy + 7}, {cx - 8, cy + 7}};
+        Polygon(hdc, tri, 3);
+        HPEN mark = CreatePen(PS_SOLID, 2, kPillColor);
+        SelectObject(hdc, mark);
+        MoveToEx(hdc, cx, cy - 3, nullptr);
+        LineTo(hdc, cx, cy + 2);
+        MoveToEx(hdc, cx, cy + 4, nullptr);
+        LineTo(hdc, cx, cy + 5);
+        SelectObject(hdc, oldPen);
+        DeleteObject(mark);
+        DeleteObject(pen);
+        DeleteObject(fill);
+    } else {
+        // Neutral info circle (local files and browser pages).
+        HPEN pen = CreatePen(PS_SOLID, 2, kNeutralIconColor);
+        HGDIOBJ oldPen = SelectObject(hdc, pen);
+        Ellipse(hdc, cx - 7, cy - 7, cx + 8, cy + 8);
+        MoveToEx(hdc, cx, cy - 4, nullptr);
+        LineTo(hdc, cx, cy - 3);
+        MoveToEx(hdc, cx, cy, nullptr);
+        LineTo(hdc, cx, cy + 4);
+        SelectObject(hdc, oldPen);
+        DeleteObject(pen);
+    }
+
+    SelectObject(hdc, oldBrush);
 }
 
 std::wstring SearchEngine::GetText() const {
@@ -510,6 +588,9 @@ void SearchEngine::Paint(HDC hdc) {
 
     DeleteObject(pillBrush);
     DeleteObject(pillPen);
+
+    // Secure / not secure indicator inside the pill, left of the URL.
+    DrawSecurityIcon(hdc, kIconCenterX, client.bottom / 2);
 
     // Compact native navigation controls: back, home, reload and forward.
     const int cy = client.bottom / 2;

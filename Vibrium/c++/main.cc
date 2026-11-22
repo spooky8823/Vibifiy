@@ -73,7 +73,7 @@ constexpr int kTabBarHeight = 46;
 constexpr int kTabBarClientOverlap = 9;
 constexpr int kCaptionButtonsWidth = 138;
 constexpr int kSearchBarTop = kTabBarHeight + 1;
-constexpr int kSearchBarHeight = 52;
+constexpr int kSearchBarHeight = 47;  // was 52: 5px thinner
 constexpr int kBrowserTop = kSearchBarTop + kSearchBarHeight;
 // Exact gap, in pixels, between the bottom edge of the tab strip and the top
 // edge of the address pill.
