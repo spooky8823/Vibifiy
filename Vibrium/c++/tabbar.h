@@ -47,7 +47,7 @@ public:
     void SetTabIconBitmap(int index, HBITMAP bitmap);
 
     HWND GetHandle() const;
-    static void SetSystemAccentColor(COLORREF color);
+    static void SetAccentColor(COLORREF color);
 
 private:
     struct Tab {
@@ -75,7 +75,7 @@ private:
     static constexpr COLORREF COLOR_TAB = RGB(35, 35, 39);
     static constexpr COLORREF COLOR_ACTIVE = RGB(54, 54, 60);
     static constexpr COLORREF COLOR_HOVER = RGB(48, 48, 54);
-    static COLORREF systemAccentColor_;
+    static COLORREF accentColor_;
     static constexpr COLORREF COLOR_TEXT = RGB(243, 238, 252);
     static constexpr COLORREF COLOR_MUTED = RGB(158, 158, 166);
 
