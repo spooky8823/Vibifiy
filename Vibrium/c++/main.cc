@@ -376,14 +376,14 @@ HICON CreateAccentFlowerIcon(COLORREF accent) {
     auto path=std::filesystem::path(exe).parent_path()/L"icons"/L"appicon.png";
     Gdiplus::Bitmap source(path.c_str());
     if(source.GetLastStatus()!=Gdiplus::Ok) return nullptr;
-    Gdiplus::Bitmap image(size,size,Gdiplus::PixelFormat32bppARGB);
+    Gdiplus::Bitmap image(size,size,PixelFormat32bppARGB);
     Gdiplus::Graphics graphics(&image);
     graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
     if(graphics.DrawImage(&source,0,0,size,size)!=Gdiplus::Ok) return nullptr;
     Gdiplus::Rect rect(0,0,size,size);
     Gdiplus::BitmapData data{};
     if(image.LockBits(&rect,Gdiplus::ImageLockModeRead|Gdiplus::ImageLockModeWrite,
-       Gdiplus::PixelFormat32bppARGB,&data)!=Gdiplus::Ok) return nullptr;
+       PixelFormat32bppARGB,&data)!=Gdiplus::Ok) return nullptr;
     FlowerHsv target=FlowerRgbToHsv(GetRValue(accent),GetGValue(accent),GetBValue(accent));
     for(int y=0;y<size;++y){
         BYTE* row=static_cast<BYTE*>(data.Scan0)+static_cast<ptrdiff_t>(y)*data.Stride;
@@ -1374,14 +1374,14 @@ private:
         if (!hwnd_ || !gdiplusToken_) return;
         HICON large = CreateAccentFlowerIcon(Theme::Accent());
         if (!large) return;  // Keep the last valid icon if the source is unavailable.
-        HICON small = CopyIcon(large);
-        if (!small) small = large;
+        HICON iconSmall = CopyIcon(large);
+        if (!iconSmall) iconSmall = large;
         SendMessageW(hwnd_, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(large));
-        SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(small));
+        SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(iconSmall));
         if (windowIconLarge_) DestroyIcon(windowIconLarge_);
         if (windowIconSmall_ && windowIconSmall_ != windowIconLarge_) DestroyIcon(windowIconSmall_);
         windowIconLarge_ = large;
-        windowIconSmall_ = small;
+        windowIconSmall_ = iconSmall;
     }
 
     std::wstring GetNewTabUrl() const {
