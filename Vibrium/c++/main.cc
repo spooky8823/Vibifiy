@@ -46,6 +46,7 @@
 #include "searchengine.h"
 #include "settings_page.h"
 #include "update_launcher.h"
+#include "resource.h"
 #include "theme.h"
 #include "adblock/adblock_service.h"
 #include "adblock/request_policy.h"
@@ -473,6 +474,8 @@ public:
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = WindowProc;
         wc.hInstance = instance_;
+        wc.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_VIBRIUM));
+        wc.hIconSm = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_VIBRIUM));
         wc.lpszClassName = kWindowClass;
         wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         // The client area extends into the caption for the integrated tab row.
