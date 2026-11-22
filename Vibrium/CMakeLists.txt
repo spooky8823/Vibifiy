@@ -40,6 +40,13 @@ if(NOT VIBRIUM_ICON_RESULT EQUAL 0 OR NOT EXISTS "${VIBRIUM_ICON_ICO}")
         "${VIBRIUM_ICON_OUTPUT}\n${VIBRIUM_ICON_ERROR}")
 endif()
 file(TO_CMAKE_PATH "${VIBRIUM_ICON_ICO}" VIBRIUM_ICON_FILE)
+# The generated .rc is compiled from the build directory. Stage its header
+# beside it so the Windows resource compiler can resolve #include "resource.h".
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/c++/resource.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/resource.h"
+    COPYONLY
+)
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/c++/vibrium.rc.in"
     "${CMAKE_CURRENT_BINARY_DIR}/vibrium.rc"
