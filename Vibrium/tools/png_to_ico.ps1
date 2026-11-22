@@ -34,7 +34,7 @@ try {
 
 # ICO: one 256x256 32-bit DIB image. DIB height includes the XOR and AND masks.
 $pixelBytes = 256 * 256 * 4
-$maskStride = ((256 + 31) / 32) * 4
+$maskStride = [int]([Math]::Ceiling(256 / 32.0) * 4)
 $maskBytes = $maskStride * 256
 $imageBytes = 40 + $pixelBytes + $maskBytes
 $stream = [System.IO.File]::Create($OutputPath)
