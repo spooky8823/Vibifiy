@@ -63,6 +63,7 @@ private:
 
     void Paint(HDC hdc);
     void LayoutControls();
+    void ShowMoreMenu();
     RECT GearRect(const RECT& client) const;
     bool PointInGear(int x, int y) const;
 
@@ -94,6 +95,17 @@ private:
     Security security_ = Security::kNeutral;
 
     bool editFocused_ = false;
-    bool gearHover_ = false;
+    // Chrome-style circular hover highlight for the toolbar buttons.
+    // Buttons 0-3 are back, home, reload, forward; 4 is the three-dots menu.
+    static constexpr int kButtonCount = 5;
+    int HitButton(int x, int y) const;
+    POINT ButtonCenter(int index, const RECT& client) const;
+    void SetHot(int index);
+    void StepHover();
+
+    int hot_ = -1;            // button under the mouse (-1 = none)
+    int pressed_ = -1;        // button with the mouse held down
+    bool menuOpen_ = false;   // keeps the dots highlighted while the menu is up
+    float hover_[kButtonCount] = {};  // 0..1 highlight amount per button
     bool trackingMouse_ = false;
 };
