@@ -123,7 +123,7 @@ class SettingsPage {
   RECT subtitle_{};
   RECT cards_[5]{};
   RECT palette_[6]{};
-  RECT systemAccentRect_{};
+  RECT resetAccentRect_{};
   RECT customAccentRect_{};
   RECT updateCard_{};
   RECT updateButton_{};

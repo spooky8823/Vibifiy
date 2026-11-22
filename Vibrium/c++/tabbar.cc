@@ -89,7 +89,7 @@ namespace {
     }
 }
 
-COLORREF TabBar::systemAccentColor_ = GetSysColor(COLOR_HIGHLIGHT);
+COLORREF TabBar::accentColor_ = RGB(0, 120, 215);
 
 TabBar::~TabBar() {
     for (auto& tab : tabs_) {
@@ -100,8 +100,8 @@ TabBar::~TabBar() {
     }
 }
 
-void TabBar::SetSystemAccentColor(COLORREF color) {
-    systemAccentColor_ = color;
+void TabBar::SetAccentColor(COLORREF color) {
+    accentColor_ = color;
 }
 
 bool TabBar::Create(
@@ -503,7 +503,7 @@ void TabBar::Paint(HDC hdc) {
     const int count = static_cast<int>(tabs_.size());
 
     // Palette: everything derives from the accent colour.
-    const COLORREF accent = systemAccentColor_;
+    const COLORREF accent = accentColor_;
     const COLORREF black = RGB(0, 0, 0);
     const COLORREF barBg = BlendColor(black, accent, 34);
     const COLORREF inactiveFill = BlendColor(black, accent, 62);

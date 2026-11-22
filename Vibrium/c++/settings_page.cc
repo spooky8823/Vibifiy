@@ -50,7 +50,7 @@ constexpr int kHitExport = 302;
 constexpr int kHitClear = 303;
 constexpr int kHitSearch = 400;
 constexpr int kHitPalette = 500;  // + palette index
-constexpr int kHitSystemAccent = 506;
+constexpr int kHitResetAccent = 506;
 constexpr int kHitCustomAccent = 507;
 constexpr int kHitUpdate = 600;
 
@@ -382,10 +382,10 @@ void SettingsPage::Layout() {
     palette_[i] = RECT{left, 142, left + swatch, 142 + swatch};
     if (activeSection_ == 1) hits_.push_back({palette_[i], kHitPalette + i});
   }
-  systemAccentRect_ = RECT{cx, 220, cx + 190, 260};
+  resetAccentRect_ = RECT{cx, 220, cx + 190, 260};
   customAccentRect_ = RECT{cx + 204, 220, cx + 394, 260};
   if (activeSection_ == 1) {
-    hits_.push_back({systemAccentRect_, kHitSystemAccent});
+    hits_.push_back({resetAccentRect_, kHitResetAccent});
     hits_.push_back({customAccentRect_, kHitCustomAccent});
     return;
   }
@@ -696,16 +696,16 @@ void SettingsPage::OnClick(int id) {
   }
   if (id >= kHitPalette && id < kHitPalette + 6) {
     const COLORREF colors[6] = {RGB(0,120,215), RGB(0,153,102), RGB(16,124,16), RGB(232,90,35), RGB(190,70,160), RGB(100,100,110)};
-    Theme::SetManualAccent(colors[id - kHitPalette]);
-    TabBar::SetSystemAccentColor(Theme::Accent());
+    Theme::SetAccent(colors[id - kHitPalette]);
+    TabBar::SetAccentColor(Theme::Accent());
     if (onThemeChanged_) onThemeChanged_(Theme::Accent());
     InvalidateRect(hwnd_, nullptr, FALSE);
     EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0);
     return;
   }
-  if (id == kHitSystemAccent) {
-    Theme::UseSystemAccent();
-    TabBar::SetSystemAccentColor(Theme::Accent());
+  if (id == kHitResetAccent) {
+    Theme::ResetAccent();
+    TabBar::SetAccentColor(Theme::Accent());
     if (onThemeChanged_) onThemeChanged_(Theme::Accent());
     InvalidateRect(hwnd_, nullptr, FALSE);
     EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0);
@@ -720,8 +720,8 @@ void SettingsPage::OnClick(int id) {
     choose.rgbResult = Theme::Accent();
     choose.Flags = CC_FULLOPEN | CC_RGBINIT;
     if (ChooseColorW(&choose)) {
-      Theme::SetManualAccent(choose.rgbResult);
-      TabBar::SetSystemAccentColor(Theme::Accent());
+      Theme::SetAccent(choose.rgbResult);
+      TabBar::SetAccentColor(Theme::Accent());
       if (onThemeChanged_) onThemeChanged_(Theme::Accent());
       InvalidateRect(hwnd_, nullptr, FALSE);
       EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0);
@@ -827,17 +827,17 @@ void SettingsPage::PaintAppearance(HDC hdc) {
   const COLORREF colors[6] = {RGB(0,120,215), RGB(0,153,102), RGB(16,124,16), RGB(232,90,35), RGB(190,70,160), RGB(100,100,110)};
   const wchar_t* names[6] = {L"Blue", L"Teal", L"Green", L"Orange", L"Pink", L"Graphite"};
   for (int i=0;i<6;++i) {
-    const bool selected = Theme::Accent() == colors[i] && Theme::IsManual();
+    const bool selected = Theme::Accent() == colors[i];
     FillRound(hdc, palette_[i], 12, colors[i], selected ? kText : kBorderStrong, selected ? 3 : 1);
     RECT label{palette_[i].left-8,palette_[i].bottom+8,palette_[i].right+8,palette_[i].bottom+30};
     DrawLabel(hdc,names[i],label,fontUi_,kText,DT_SINGLELINE|DT_CENTER|DT_VCENTER);
   }
-  FillRound(hdc, systemAccentRect_, 12, kPanel3, kBorderStrong);
-  DrawLabel(hdc, L"Use Windows accent", systemAccentRect_, fontUi_, kText, DT_SINGLELINE|DT_CENTER|DT_VCENTER);
+  FillRound(hdc, resetAccentRect_, 12, kPanel3, kBorderStrong);
+  DrawLabel(hdc, L"Reset to default", resetAccentRect_, fontUi_, kText, DT_SINGLELINE|DT_CENTER|DT_VCENTER);
   FillRound(hdc, customAccentRect_, 12, Theme::Accent(), Theme::Accent());
   DrawLabel(hdc, L"Custom colour...", customAccentRect_, fontUi_, RGB(255,255,255), DT_SINGLELINE|DT_CENTER|DT_VCENTER);
-  std::wstring mode = Theme::IsManual() ? L"Using a custom Vibrium accent" : L"Following your Windows accent colour";
-  DrawLabel(hdc, mode, RECT{systemAccentRect_.left, 282, systemAccentRect_.right+260, 310}, fontUi_, kMuted, DT_SINGLELINE|DT_VCENTER|DT_LEFT);
+  std::wstring mode = Theme::IsManual() ? L"Using your saved Vibrium accent" : L"Using Vibrium's default accent. Windows colour settings are ignored.";
+  DrawLabel(hdc, mode, RECT{resetAccentRect_.left, 282, resetAccentRect_.right+260, 310}, fontUi_, kMuted, DT_SINGLELINE|DT_VCENTER|DT_LEFT);
 }
 
 void SettingsPage::PaintUpdates(HDC hdc) {

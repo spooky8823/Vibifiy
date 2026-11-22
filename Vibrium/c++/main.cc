@@ -10,6 +10,9 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <dwmapi.h>
+#include <unknwn.h>
+#include <objidl.h>
+#include <gdiplus.h>
 
 // Common-controls macros collide with identically named CEF DOM methods.
 #ifdef GetNextSibling
@@ -20,6 +23,9 @@
 #endif
 
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cwchar>
 #include <filesystem>
@@ -332,6 +338,93 @@ private:
 };
 
 // ------------------------------------------------------------
+// Generate the themed window/taskbar icon from the repository's original
+// PNG. Hue is taken directly from the selected accent; luminance and alpha
+// remain from the artwork so its petals and glow keep their depth.
+namespace {
+struct FlowerHsv { double h, s, v; };
+
+FlowerHsv FlowerRgbToHsv(BYTE r, BYTE g, BYTE b) {
+    double rf=r/255.0, gf=g/255.0, bf=b/255.0;
+    double mx=std::max({rf,gf,bf}), mn=std::min({rf,gf,bf}), d=mx-mn;
+    FlowerHsv out{0.0, mx==0.0?0.0:d/mx, mx};
+    if (d==0.0) return out;
+    if (mx==rf) out.h=60.0*std::fmod((gf-bf)/d,6.0);
+    else if (mx==gf) out.h=60.0*((bf-rf)/d+2.0);
+    else out.h=60.0*((rf-gf)/d+4.0);
+    if (out.h<0.0) out.h+=360.0;
+    return out;
+}
+
+void FlowerHsvToRgb(FlowerHsv c, BYTE& r, BYTE& g, BYTE& b) {
+    double chroma=c.v*c.s;
+    double x=chroma*(1.0-std::abs(std::fmod(c.h/60.0,2.0)-1.0));
+    double m=c.v-chroma, rf=0, gf=0, bf=0;
+    if(c.h<60){rf=chroma;gf=x;} else if(c.h<120){rf=x;gf=chroma;}
+    else if(c.h<180){gf=chroma;bf=x;} else if(c.h<240){gf=x;bf=chroma;}
+    else if(c.h<300){rf=x;bf=chroma;} else {rf=chroma;bf=x;}
+    r=static_cast<BYTE>(std::clamp((rf+m)*255.0,0.0,255.0));
+    g=static_cast<BYTE>(std::clamp((gf+m)*255.0,0.0,255.0));
+    b=static_cast<BYTE>(std::clamp((bf+m)*255.0,0.0,255.0));
+}
+
+HICON CreateAccentFlowerIcon(COLORREF accent) {
+    constexpr int size=256;
+    wchar_t exe[MAX_PATH*4]{};
+    DWORD n=GetModuleFileNameW(nullptr,exe,static_cast<DWORD>(std::size(exe)));
+    if(!n || n>=std::size(exe)) return nullptr;
+    auto path=std::filesystem::path(exe).parent_path()/L"icons"/L"appicon.png";
+    Gdiplus::Bitmap source(path.c_str());
+    if(source.GetLastStatus()!=Gdiplus::Ok) return nullptr;
+    Gdiplus::Bitmap image(size,size,Gdiplus::PixelFormat32bppARGB);
+    Gdiplus::Graphics graphics(&image);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    if(graphics.DrawImage(&source,0,0,size,size)!=Gdiplus::Ok) return nullptr;
+    Gdiplus::Rect rect(0,0,size,size);
+    Gdiplus::BitmapData data{};
+    if(image.LockBits(&rect,Gdiplus::ImageLockModeRead|Gdiplus::ImageLockModeWrite,
+       Gdiplus::PixelFormat32bppARGB,&data)!=Gdiplus::Ok) return nullptr;
+    FlowerHsv target=FlowerRgbToHsv(GetRValue(accent),GetGValue(accent),GetBValue(accent));
+    for(int y=0;y<size;++y){
+        BYTE* row=static_cast<BYTE*>(data.Scan0)+static_cast<ptrdiff_t>(y)*data.Stride;
+        for(int x=0;x<size;++x){
+            BYTE* p=row+x*4; BYTE a=p[3]; if(!a) continue;
+            FlowerHsv original=FlowerRgbToHsv(p[2],p[1],p[0]);
+            if(original.s<0.075 || original.v<0.035) continue; // neutral detail/background
+            original.h=target.h;
+            original.s*=target.s;
+            original.v*=0.72+0.28*target.v;
+            BYTE r=0,g=0,b=0; FlowerHsvToRgb(original,r,g,b);
+            p[0]=b;p[1]=g;p[2]=r;
+        }
+    }
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER); bi.bmiHeader.biWidth=size;
+    bi.bmiHeader.biHeight=-size; bi.bmiHeader.biPlanes=1;
+    bi.bmiHeader.biBitCount=32; bi.bmiHeader.biCompression=BI_RGB;
+    void* bits=nullptr;
+    HBITMAP color=CreateDIBSection(nullptr,&bi,DIB_RGB_COLORS,&bits,nullptr,0);
+    if(!color||!bits){if(color)DeleteObject(color);image.UnlockBits(&data);return nullptr;}
+    for(int y=0;y<size;++y){
+        const BYTE* src=static_cast<const BYTE*>(data.Scan0)+static_cast<ptrdiff_t>(y)*data.Stride;
+        BYTE* dst=static_cast<BYTE*>(bits)+y*size*4;
+        for(int x=0;x<size;++x){
+            BYTE a=src[x*4+3];dst[x*4+3]=a;
+            dst[x*4]=static_cast<BYTE>(src[x*4]*a/255);
+            dst[x*4+1]=static_cast<BYTE>(src[x*4+1]*a/255);
+            dst[x*4+2]=static_cast<BYTE>(src[x*4+2]*a/255);
+        }
+    }
+    image.UnlockBits(&data);
+    HBITMAP mask=CreateBitmap(size,size,1,1,nullptr);
+    if(mask){HDC dc=CreateCompatibleDC(nullptr);HGDIOBJ old=SelectObject(dc,mask);
+        PatBlt(dc,0,0,size,size,BLACKNESS);SelectObject(dc,old);DeleteDC(dc);}
+    ICONINFO ii{};ii.fIcon=TRUE;ii.hbmColor=color;ii.hbmMask=mask;
+    HICON icon=mask?CreateIconIndirect(&ii):nullptr;
+    DeleteObject(color);if(mask)DeleteObject(mask);return icon;
+}
+} // namespace
+
 // Tab state
 // ------------------------------------------------------------
 
@@ -362,9 +455,19 @@ struct TabRecord {
 
 class MainWindow {
 public:
+    ~MainWindow() {
+        if (windowIconSmall_) DestroyIcon(windowIconSmall_);
+        if (windowIconLarge_ && windowIconLarge_ != windowIconSmall_) DestroyIcon(windowIconLarge_);
+        if (gdiplusToken_) Gdiplus::GdiplusShutdown(gdiplusToken_);
+    }
+
     bool Create(HINSTANCE instance) {
         instance_ = instance;
         Theme::Load();
+        Gdiplus::GdiplusStartupInput gdiplusInput;
+        if (Gdiplus::GdiplusStartup(&gdiplusToken_, &gdiplusInput, nullptr) != Gdiplus::Ok) {
+            gdiplusToken_ = 0;  // Browser remains usable with the default icon.
+        }
 
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
@@ -400,8 +503,9 @@ public:
             return false;
         }
 
-        TabBar::SetSystemAccentColor(Theme::Accent());
+        TabBar::SetAccentColor(Theme::Accent());
         ApplyTitleBarTheme();
+        UpdateWindowIcon();
 
         ShowWindow(hwnd_, SW_SHOW);
         UpdateWindow(hwnd_);
@@ -523,6 +627,7 @@ public:
                     }
                 }
                 ApplyTitleBarTheme();
+                UpdateWindowIcon();
                 if (tabBar_) InvalidateRect(tabBar_->GetHandle(), nullptr, TRUE);
                 if (searchBar_) InvalidateRect(searchBar_->GetHandle(), nullptr, TRUE);
             });
@@ -1265,6 +1370,20 @@ public:
  }
 
 private:
+    void UpdateWindowIcon() {
+        if (!hwnd_ || !gdiplusToken_) return;
+        HICON large = CreateAccentFlowerIcon(Theme::Accent());
+        if (!large) return;  // Keep the last valid icon if the source is unavailable.
+        HICON small = CopyIcon(large);
+        if (!small) small = large;
+        SendMessageW(hwnd_, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(large));
+        SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(small));
+        if (windowIconLarge_) DestroyIcon(windowIconLarge_);
+        if (windowIconSmall_ && windowIconSmall_ != windowIconLarge_) DestroyIcon(windowIconSmall_);
+        windowIconLarge_ = large;
+        windowIconSmall_ = small;
+    }
+
     std::wstring GetNewTabUrl() const {
         if (SelfTest::Get().enabled()) {
             return SelfTest::Get().start_url();
@@ -1342,22 +1461,10 @@ private:
             return 1;
         }
 
-        case WM_DWMCOLORIZATIONCOLORCHANGED: {
-            const DWORD color = static_cast<DWORD>(wParam);
-            Theme::SetSystemAccentColor(RGB(GetRValue(color), GetGValue(color), GetBValue(color)));
-            TabBar::SetSystemAccentColor(Theme::Accent());
-            self->ApplyTitleBarTheme();
-            if (self->tabBar_) InvalidateRect(self->tabBar_->GetHandle(), nullptr, TRUE);
-            if (self->searchBar_) InvalidateRect(self->searchBar_->GetHandle(), nullptr, TRUE);
-            if (self->settingsPage_) InvalidateRect(self->settingsPage_->handle(), nullptr, TRUE);
-            wchar_t script[128]{};
-            swprintf_s(script, L"document.documentElement.style.setProperty('--vibrium-accent', '#%02X%02X%02X');",
-                GetRValue(Theme::Accent()), GetGValue(Theme::Accent()), GetBValue(Theme::Accent()));
-            for (auto& tab : self->tabs_) {
-                if (tab.browser) tab.browser->GetMainFrame()->ExecuteJavaScript(script, tab.browser->GetMainFrame()->GetURL(), 0);
-            }
+        case WM_DWMCOLORIZATIONCOLORCHANGED:
+            // Vibrium owns its accent palette. Windows accent changes must not
+            // alter the browser theme or its dynamically tinted app icon.
             return 0;
-        }
 
         case WM_SYSCOLORCHANGE:
             InvalidateRect(hwnd, nullptr, TRUE);
@@ -1451,6 +1558,9 @@ private:
 private:
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;
+    ULONG_PTR gdiplusToken_ = 0;
+    HICON windowIconSmall_ = nullptr;
+    HICON windowIconLarge_ = nullptr;
 
     bool videoFullscreen_ = false;
     int fullscreenTabId_ = -1;
