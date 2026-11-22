@@ -365,7 +365,7 @@ class MainWindow {
 public:
     ~MainWindow() {
         if (windowIconSmall_) DestroyIcon(windowIconSmall_);
-        if (windowIconLarge_) DestroyIcon(windowIconLarge_);
+        if (windowIconLarge_ && windowIconLarge_ != windowIconSmall_) DestroyIcon(windowIconLarge_);
         if (gdiplusToken_) Gdiplus::GdiplusShutdown(gdiplusToken_);
     }
 
@@ -413,6 +413,7 @@ public:
 
         TabBar::SetAccentColor(Theme::Accent());
         ApplyTitleBarTheme();
+        UpdateWindowIcon();
 
         ShowWindow(hwnd_, SW_SHOW);
         UpdateWindow(hwnd_);
