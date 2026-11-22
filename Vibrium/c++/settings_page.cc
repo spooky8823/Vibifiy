@@ -1,6 +1,7 @@
 #include "settings_page.h"
 
 #include <commdlg.h>
+#include <windowsx.h>
 
 #include <algorithm>
 #include <cstring>
