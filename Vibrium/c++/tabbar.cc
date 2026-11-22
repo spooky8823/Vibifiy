@@ -101,7 +101,7 @@ TabBar::~TabBar() {
 }
 
 void TabBar::SetAccentColor(COLORREF color) {
-    systemAccentColor_ = color;
+    accentColor_ = color;
 }
 
 bool TabBar::Create(
@@ -503,7 +503,7 @@ void TabBar::Paint(HDC hdc) {
     const int count = static_cast<int>(tabs_.size());
 
     // Palette: everything derives from the accent colour.
-    const COLORREF accent = systemAccentColor_;
+    const COLORREF accent = accentColor_;
     const COLORREF black = RGB(0, 0, 0);
     const COLORREF barBg = BlendColor(black, accent, 34);
     const COLORREF inactiveFill = BlendColor(black, accent, 62);
