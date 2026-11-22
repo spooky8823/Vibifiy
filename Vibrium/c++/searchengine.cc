@@ -50,6 +50,7 @@ constexpr int kGearSize = 32;
 constexpr COLORREF kGearHoverFill = RGB(52, 52, 58);
 
 constexpr int kNavIconSize = 22;     // back / home / forward PNGs
+constexpr int kReloadIconSize = 16;  // refresh.png is 16x16: draw it 1:1
 constexpr int kMoreIconSize = 22;    // three-dots PNG
 constexpr int kMenuWidth = 170;
 constexpr int kMenuItemHeight = 36;
@@ -744,9 +745,11 @@ void SearchEngine::Paint(HDC hdc) {
         MoveToEx(hdc, centers[1] - 8, cy - 1, nullptr); LineTo(hdc, centers[1], cy - 9); LineTo(hdc, centers[1] + 8, cy - 1);
         LineTo(hdc, centers[1] + 6, cy - 1); LineTo(hdc, centers[1] + 6, cy + 8); LineTo(hdc, centers[1] - 6, cy + 8); LineTo(hdc, centers[1] - 6, cy - 1);
     }
-    // Reload (still drawn by hand).
-    Arc(hdc, centers[2] - 7, cy - 7, centers[2] + 7, cy + 7, centers[2] + 7, cy, centers[2], cy - 7);
-    MoveToEx(hdc, centers[2] + 1, cy - 8, nullptr); LineTo(hdc, centers[2] + 7, cy - 8); LineTo(hdc, centers[2] + 7, cy - 2);
+    // Reload (refresh.png). It is a 16x16 image, so it is drawn 1:1 to stay crisp.
+    if (!DrawPngIcon(hdc, L"refresh.png", navColor, centers[2], cy, kReloadIconSize)) {
+        Arc(hdc, centers[2] - 7, cy - 7, centers[2] + 7, cy + 7, centers[2] + 7, cy, centers[2], cy - 7);
+        MoveToEx(hdc, centers[2] + 1, cy - 8, nullptr); LineTo(hdc, centers[2] + 7, cy - 8); LineTo(hdc, centers[2] + 7, cy - 2);
+    }
     // Forward (forward.png).
     if (!DrawPngIcon(hdc, L"forward.png", navColor, centers[3], cy, kNavIconSize)) {
         MoveToEx(hdc, centers[3] - 5, cy - 6, nullptr); LineTo(hdc, centers[3] + 2, cy); LineTo(hdc, centers[3] - 5, cy + 6);
