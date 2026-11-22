@@ -912,7 +912,8 @@ void SettingsPage::OnClick(int id) {
   if (id == kHitCustomAccent) {
     const COLORREF previous = Theme::Accent();
     auto preview = [this](COLORREF color) {
-      Theme::SetAccent(color);
+      Theme::accent = color;
+      Theme::manual = true;
       TabBar::SetAccentColor(color);
       if (onThemeChanged_) onThemeChanged_(color);
       InvalidateRect(hwnd_, nullptr, FALSE);
@@ -922,8 +923,10 @@ void SettingsPage::OnClick(int id) {
     };
     COLORREF chosen = previous;
     if (ShowModernColorWheel(hwnd_, previous, preview, &chosen)) {
+      Theme::SetAccent(chosen);
       preview(chosen);
     } else {
+      Theme::SetAccent(previous);
       preview(previous);
     }
     return;
