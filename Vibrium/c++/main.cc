@@ -72,8 +72,9 @@ constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
 constexpr int kTabBarHeight = 46;
 constexpr int kTabBarClientOverlap = 9;
 constexpr int kCaptionButtonsWidth = 138;
+constexpr int kSearchBarTop = kTabBarHeight + 2;
 constexpr int kSearchBarHeight = 52;
-constexpr int kBrowserTop = kTabBarClientOverlap + kSearchBarHeight;
+constexpr int kBrowserTop = kSearchBarTop + kSearchBarHeight;
 
 class MainWindow;
 
@@ -560,7 +561,7 @@ public:
                 hwnd_,
                 instance_,
                 0,
-                kTabBarClientOverlap,
+                kSearchBarTop,
                 1280,
                 kSearchBarHeight)) {
             return false;
@@ -1317,7 +1318,7 @@ public:
                 searchBar_->GetHandle(),
                 videoFullscreen_ ? SW_HIDE : SW_SHOW);
             searchBar_->Resize(
-                0, kTabBarClientOverlap,
+                0, kSearchBarTop,
                 width, kSearchBarHeight);
         }
 
