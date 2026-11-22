@@ -1381,6 +1381,10 @@ private:
         if (!iconSmall) iconSmall = large;
         SendMessageW(hwnd_, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(large));
         SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(iconSmall));
+        // Windows 7+ taskbar can request ICON_SMALL2 separately from ICON_SMALL.
+        // Update that slot too, otherwise the caption icon can change while
+        // the running taskbar button keeps showing the old cached artwork.
+        SendMessageW(hwnd_, WM_SETICON, ICON_SMALL2, reinterpret_cast<LPARAM>(iconSmall));
 
         // Explorer and the taskbar may query the window-class icons rather
         // than the per-window WM_SETICON values. Keep both sources in sync so
@@ -1456,6 +1460,19 @@ private:
         }
 
         switch (message) {
+        case WM_GETICON:
+            // Return the current accent-rendered icon for every icon size the
+            // shell may request. In particular, taskbar buttons often ask for
+            // ICON_SMALL2 rather than the caption's ICON_SMALL slot.
+            if (wParam == ICON_BIG && self->windowIconLarge_) {
+                return reinterpret_cast<LRESULT>(self->windowIconLarge_);
+            }
+            if ((wParam == ICON_SMALL || wParam == ICON_SMALL2) &&
+                self->windowIconSmall_) {
+                return reinterpret_cast<LRESULT>(self->windowIconSmall_);
+            }
+            break;
+
         case WM_CREATE:
             return self->InitializeUI() ? 0 : -1;
 
