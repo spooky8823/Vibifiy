@@ -231,7 +231,21 @@ void SearchEngine::LayoutControls() {
     const int editWidth = std::max(
         50, addressRight - kEditLeft - kEditRightPadding);
 
-    const int editHeight = std::max(22, height_ - 18);
+    // A single-line EDIT draws its text at the top of its client area, so make
+    // the control exactly one text line tall and centre it vertically inside
+    // the pill. That puts the URL in the middle of the pill's height instead of
+    // hugging its top-left corner.
+    int lineHeight = 20;
+    if (HDC dc = GetDC(addressEdit_)) {
+        HGDIOBJ oldFont = SelectObject(dc, font_);
+        TEXTMETRICW tm{};
+        if (GetTextMetricsW(dc, &tm)) {
+            lineHeight = tm.tmHeight;
+        }
+        SelectObject(dc, oldFont);
+        ReleaseDC(addressEdit_, dc);
+    }
+    const int editHeight = std::min(lineHeight, std::max(1, height_ - 2));
     const int editY = (height_ - editHeight) / 2;
 
     MoveWindow(
@@ -647,6 +661,13 @@ LRESULT CALLBACK SearchEngine::WindowProc(
         if (x >= 8 && x < 151) {
             const int index = std::clamp((x - 8) / 36, 0, 3);
             if (self->onNavigation_) self->onNavigation_(index);
+            return 0;
+        }
+
+        // The edit is now only one line tall, so clicks on the rest of the
+        // pill should still focus the address box.
+        if (x >= kNavigationWidth) {
+            SetFocus(self->addressEdit_);
             return 0;
         }
 

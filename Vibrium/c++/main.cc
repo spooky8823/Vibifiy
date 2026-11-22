@@ -77,7 +77,7 @@ constexpr int kSearchBarHeight = 52;
 constexpr int kBrowserTop = kSearchBarTop + kSearchBarHeight;
 // Exact gap, in pixels, between the bottom edge of the tab strip and the top
 // edge of the address pill.
-constexpr int kTabToAddressGap = 3;
+constexpr int kTabToAddressGap = 5;
 // The address pill is drawn this many pixels inside the search bar window
 // (must match kOuterPadding in searchengine.cc).
 constexpr int kAddressPillInset = 1;
