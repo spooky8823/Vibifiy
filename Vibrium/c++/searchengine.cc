@@ -21,8 +21,8 @@ constexpr COLORREF kPlaceholderColor = RGB(155, 155, 162);
 
 constexpr int kOuterPadding = 5;
 constexpr int kNavigationWidth = 154;
-constexpr int kEditLeft = kNavigationWidth + 3; // 3px inside the address pill
-constexpr int kEditRightPadding = 3;
+constexpr int kEditLeft = kNavigationWidth + 1; // 1px inside the address pill
+constexpr int kEditRightPadding = 1;
 
 // Settings (gear) button, to the right of the address pill.
 constexpr int kGearAreaWidth = 52;
@@ -172,7 +172,6 @@ bool SearchEngine::Create(
         L"",
         WS_CHILD | WS_VISIBLE |
         ES_AUTOHSCROLL |
-        ES_CENTER |
         WS_TABSTOP,
         0,
         0,
@@ -193,6 +192,14 @@ bool SearchEngine::Create(
         WM_SETFONT,
         reinterpret_cast<WPARAM>(font_),
         TRUE);
+
+    // Remove the EDIT control's default inner margins so the URL begins
+    // exactly one pixel inside the address pill's left edge.
+    SendMessageW(
+        addressEdit_,
+        EM_SETMARGINS,
+        EC_LEFTMARGIN | EC_RIGHTMARGIN,
+        MAKELPARAM(0, 0));
 
     SetWindowLongPtrW(
         addressEdit_,
