@@ -1,2 +1,2 @@
-#define IDI_VIBRIUM 101
+#include "resource.h"
 IDI_VIBRIUM ICON "@VIBRIUM_ICON_FILE@"
