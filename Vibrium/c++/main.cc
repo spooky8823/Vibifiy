@@ -12,6 +12,7 @@
 #include <dwmapi.h>
 #include <unknwn.h>
 #include <objidl.h>
+#include <shobjidl.h>
 #include <gdiplus.h>
 
 // Common-controls macros collide with identically named CEF DOM methods.
@@ -1392,6 +1393,20 @@ private:
         SetClassLongPtrW(hwnd_, GCLP_HICON, reinterpret_cast<LONG_PTR>(large));
         SetClassLongPtrW(hwnd_, GCLP_HICONSM, reinterpret_cast<LONG_PTR>(iconSmall));
         RedrawWindow(hwnd_, nullptr, nullptr, RDW_FRAME | RDW_INVALIDATE);
+
+        // Explorer can cache the taskbar button's icon after the window was
+        // first added. Re-register the existing button after changing its
+        // WM_SETICON values so the shell obtains the newly rendered accent.
+        ITaskbarList* taskbar = nullptr;
+        if (SUCCEEDED(CoCreateInstance(CLSID_TaskbarList, nullptr,
+                                      CLSCTX_INPROC_SERVER,
+                                      IID_PPV_ARGS(&taskbar)))) {
+            if (SUCCEEDED(taskbar->HrInit())) {
+                taskbar->DeleteTab(hwnd_);
+                taskbar->AddTab(hwnd_);
+            }
+            taskbar->Release();
+        }
 
         if (windowIconLarge_) DestroyIcon(windowIconLarge_);
         if (windowIconSmall_ && windowIconSmall_ != windowIconLarge_) DestroyIcon(windowIconSmall_);
