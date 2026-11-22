@@ -17,7 +17,33 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY
 
 add_subdirectory("${CEF_ROOT}" "${CMAKE_BINARY_DIR}/cef")
 
+# Generate a standard multi-size-compatible Windows icon resource from the
+# original artwork. The embedded ICO supplies Explorer/file/shortcut icons;
+# main.cc still creates the live accent-tinted window/taskbar icon at runtime.
+set(VIBRIUM_ICON_ICO "${CMAKE_CURRENT_BINARY_DIR}/vibrium_app.ico")
+execute_process(
+    COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/tools/png_to_ico.ps1"
+        -InputPath "${CMAKE_CURRENT_SOURCE_DIR}/icons/appicon.png"
+        -OutputPath "${VIBRIUM_ICON_ICO}"
+    RESULT_VARIABLE VIBRIUM_ICON_RESULT
+    OUTPUT_VARIABLE VIBRIUM_ICON_OUTPUT
+    ERROR_VARIABLE VIBRIUM_ICON_ERROR
+)
+if(NOT VIBRIUM_ICON_RESULT EQUAL 0 OR NOT EXISTS "${VIBRIUM_ICON_ICO}")
+    message(FATAL_ERROR
+        "Failed to generate Vibrium executable icon.\n"
+        "${VIBRIUM_ICON_OUTPUT}\n${VIBRIUM_ICON_ERROR}")
+endif()
+file(TO_CMAKE_PATH "${VIBRIUM_ICON_ICO}" VIBRIUM_ICON_FILE)
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/c++/vibrium.rc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/vibrium.rc"
+    @ONLY
+)
+
 add_executable(vibrium WIN32
+    "${CMAKE_CURRENT_BINARY_DIR}/vibrium.rc"
     c++/main.cc
     c++/tabbar.cc
     c++/tabbar.h
@@ -89,7 +115,7 @@ endif()
 # Helper started by "Update Vibrium Browser": waits for the browser to exit,
 # downloads the newest CI build, swaps the files in and relaunches. Static CRT,
 # no CEF dependency, shipped next to vibrium.exe by CI.
-add_executable(vibrium_updater WIN32 c++/updater/updater_main.cc)
+add_executable(vibrium_updater WIN32 "${CMAKE_CURRENT_BINARY_DIR}/vibrium.rc" c++/updater/updater_main.cc)
 target_compile_definitions(vibrium_updater PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 target_link_libraries(vibrium_updater PRIVATE winhttp bcrypt comctl32 user32 gdi32 shell32)
 
