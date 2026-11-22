@@ -72,7 +72,7 @@ constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
 constexpr int kTabBarHeight = 46;
 constexpr int kTabBarClientOverlap = 9;
 constexpr int kCaptionButtonsWidth = 138;
-constexpr int kSearchBarTop = kTabBarHeight + 3;
+constexpr int kSearchBarTop = kTabBarHeight + 1;
 constexpr int kSearchBarHeight = 52;
 constexpr int kBrowserTop = kSearchBarTop + kSearchBarHeight;
 
