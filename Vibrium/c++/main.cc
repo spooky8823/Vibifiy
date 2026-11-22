@@ -20,6 +20,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cwchar>
 #include <filesystem>
@@ -362,9 +363,19 @@ struct TabRecord {
 
 class MainWindow {
 public:
+    ~MainWindow() {
+        if (windowIconSmall_) DestroyIcon(windowIconSmall_);
+        if (windowIconLarge_) DestroyIcon(windowIconLarge_);
+        if (gdiplusToken_) Gdiplus::GdiplusShutdown(gdiplusToken_);
+    }
+
     bool Create(HINSTANCE instance) {
         instance_ = instance;
         Theme::Load();
+        Gdiplus::GdiplusStartupInput gdiplusInput;
+        if (Gdiplus::GdiplusStartup(&gdiplusToken_, &gdiplusInput, nullptr) != Gdiplus::Ok) {
+            gdiplusToken_ = 0;  // Browser remains usable with the default icon.
+        }
 
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
@@ -523,6 +534,7 @@ public:
                     }
                 }
                 ApplyTitleBarTheme();
+                UpdateWindowIcon();
                 if (tabBar_) InvalidateRect(tabBar_->GetHandle(), nullptr, TRUE);
                 if (searchBar_) InvalidateRect(searchBar_->GetHandle(), nullptr, TRUE);
             });
@@ -1265,6 +1277,20 @@ public:
  }
 
 private:
+    void UpdateWindowIcon() {
+        if (!hwnd_ || !gdiplusToken_) return;
+        HICON large = CreateAccentFlowerIcon(Theme::Accent());
+        if (!large) return;  // Keep the last valid icon if the source is unavailable.
+        HICON small = CopyIcon(large);
+        if (!small) small = large;
+        SendMessageW(hwnd_, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(large));
+        SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(small));
+        if (windowIconLarge_) DestroyIcon(windowIconLarge_);
+        if (windowIconSmall_ && windowIconSmall_ != windowIconLarge_) DestroyIcon(windowIconSmall_);
+        windowIconLarge_ = large;
+        windowIconSmall_ = small;
+    }
+
     std::wstring GetNewTabUrl() const {
         if (SelfTest::Get().enabled()) {
             return SelfTest::Get().start_url();
@@ -1451,6 +1477,9 @@ private:
 private:
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;
+    ULONG_PTR gdiplusToken_ = 0;
+    HICON windowIconSmall_ = nullptr;
+    HICON windowIconLarge_ = nullptr;
 
     bool videoFullscreen_ = false;
     int fullscreenTabId_ = -1;
