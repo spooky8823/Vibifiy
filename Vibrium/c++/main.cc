@@ -411,7 +411,7 @@ public:
             return false;
         }
 
-        TabBar::SetSystemAccentColor(Theme::Accent());
+        TabBar::SetAccentColor(Theme::Accent());
         ApplyTitleBarTheme();
 
         ShowWindow(hwnd_, SW_SHOW);
@@ -1368,22 +1368,10 @@ private:
             return 1;
         }
 
-        case WM_DWMCOLORIZATIONCOLORCHANGED: {
-            const DWORD color = static_cast<DWORD>(wParam);
-            Theme::SetSystemAccentColor(RGB(GetRValue(color), GetGValue(color), GetBValue(color)));
-            TabBar::SetSystemAccentColor(Theme::Accent());
-            self->ApplyTitleBarTheme();
-            if (self->tabBar_) InvalidateRect(self->tabBar_->GetHandle(), nullptr, TRUE);
-            if (self->searchBar_) InvalidateRect(self->searchBar_->GetHandle(), nullptr, TRUE);
-            if (self->settingsPage_) InvalidateRect(self->settingsPage_->handle(), nullptr, TRUE);
-            wchar_t script[128]{};
-            swprintf_s(script, L"document.documentElement.style.setProperty('--vibrium-accent', '#%02X%02X%02X');",
-                GetRValue(Theme::Accent()), GetGValue(Theme::Accent()), GetBValue(Theme::Accent()));
-            for (auto& tab : self->tabs_) {
-                if (tab.browser) tab.browser->GetMainFrame()->ExecuteJavaScript(script, tab.browser->GetMainFrame()->GetURL(), 0);
-            }
+        case WM_DWMCOLORIZATIONCOLORCHANGED:
+            // Vibrium owns its accent palette. Windows accent changes must not
+            // alter the browser theme or its dynamically tinted app icon.
             return 0;
-        }
 
         case WM_SYSCOLORCHANGE:
             InvalidateRect(hwnd, nullptr, TRUE);
