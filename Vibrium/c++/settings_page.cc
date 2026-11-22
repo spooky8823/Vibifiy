@@ -1,7 +1,6 @@
 #include "settings_page.h"
 
 #include <commdlg.h>
-#include <windowsx.h>
 
 #include <algorithm>
 #include <cstring>
@@ -26,6 +25,11 @@ constexpr UINT_PTR kFlashTimer = 2;
 constexpr UINT kRefreshMs = 500;
 constexpr UINT kFlashMs = 3500;
 constexpr int kEditId = 5101;
+
+// Signed mouse coordinates without windowsx.h, whose common-control macros
+// collide with CEF's GetFirstChild/GetNextSibling methods.
+inline int MouseX(LPARAM lp) { return static_cast<int>(static_cast<short>(LOWORD(lp))); }
+inline int MouseY(LPARAM lp) { return static_cast<int>(static_cast<short>(HIWORD(lp))); }
 
 constexpr COLORREF kBg = RGB(18, 18, 20);
 constexpr COLORREF kPanel = RGB(27, 27, 30);
@@ -372,15 +376,15 @@ LRESULT CALLBACK WheelPickerProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
       return 0;
     case WM_PAINT: { PAINTSTRUCT ps{}; HDC dc=BeginPaint(hwnd,&ps); WheelPickerPaint(dc,state); EndPaint(hwnd,&ps); return 0; }
     case WM_LBUTTONDOWN: {
-      int x=GET_X_LPARAM(lp)-18,y=GET_Y_LPARAM(lp)-18;
+      int x=MouseX(lp)-18,y=MouseY(lp)-18;
       const double d=sqrt((x-160.0)*(x-160.0)+(y-160.0)*(y-160.0));
       if(d>=118&&d<=160) {state->draggingWheel=true;SetCapture(hwnd);WheelPickerSetPoint(state,x,y,true);}
       else if(x>=100&&x<=220&&y>=100&&y<=220) {state->draggingSquare=true;SetCapture(hwnd);WheelPickerSetPoint(state,x,y,false);}
       return 0;
     }
     case WM_MOUSEMOVE:
-      if(state->draggingWheel) WheelPickerSetPoint(state,GET_X_LPARAM(lp)-18,GET_Y_LPARAM(lp)-18,true);
-      else if(state->draggingSquare) WheelPickerSetPoint(state,GET_X_LPARAM(lp)-18,GET_Y_LPARAM(lp)-18,false);
+      if(state->draggingWheel) WheelPickerSetPoint(state,MouseX(lp)-18,MouseY(lp)-18,true);
+      else if(state->draggingSquare) WheelPickerSetPoint(state,MouseX(lp)-18,MouseY(lp)-18,false);
       return 0;
     case WM_LBUTTONUP:
       state->draggingWheel=state->draggingSquare=false;ReleaseCapture();return 0;
