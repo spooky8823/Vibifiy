@@ -1378,6 +1378,14 @@ private:
         if (!iconSmall) iconSmall = large;
         SendMessageW(hwnd_, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(large));
         SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(iconSmall));
+
+        // Explorer and the taskbar may query the window-class icons rather
+        // than the per-window WM_SETICON values. Keep both sources in sync so
+        // the live accent icon is visible outside the client area as well.
+        SetClassLongPtrW(hwnd_, GCLP_HICON, reinterpret_cast<LONG_PTR>(large));
+        SetClassLongPtrW(hwnd_, GCLP_HICONSM, reinterpret_cast<LONG_PTR>(iconSmall));
+        RedrawWindow(hwnd_, nullptr, nullptr, RDW_FRAME | RDW_INVALIDATE);
+
         if (windowIconLarge_) DestroyIcon(windowIconLarge_);
         if (windowIconSmall_ && windowIconSmall_ != windowIconLarge_) DestroyIcon(windowIconSmall_);
         windowIconLarge_ = large;
