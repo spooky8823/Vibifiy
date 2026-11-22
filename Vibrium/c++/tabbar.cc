@@ -89,7 +89,7 @@ namespace {
     }
 }
 
-COLORREF TabBar::systemAccentColor_ = GetSysColor(COLOR_HIGHLIGHT);
+COLORREF TabBar::accentColor_ = RGB(0, 120, 215);
 
 TabBar::~TabBar() {
     for (auto& tab : tabs_) {
@@ -100,7 +100,7 @@ TabBar::~TabBar() {
     }
 }
 
-void TabBar::SetSystemAccentColor(COLORREF color) {
+void TabBar::SetAccentColor(COLORREF color) {
     systemAccentColor_ = color;
 }
 
