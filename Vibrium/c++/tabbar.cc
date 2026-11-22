@@ -203,7 +203,7 @@ void TabBar::Resize(
     }
     const int overlayLeft = frame.left;
     const int overlayWidth = frame.right - frame.left;
-    const int tabRowHeight = 40;
+    const int tabRowHeight = 46;
     const int overlayHeight = std::max(
         nativeCaptionHeight + TAB_STRIP_EXTRA_HEIGHT,
         tabRowHeight);
@@ -600,7 +600,7 @@ void TabBar::Paint(HDC hdc) {
     // Text, close glyphs and caption buttons use plain GDI on top.
     SetBkMode(hdc, TRANSPARENT);
     HFONT font = CreateFontW(
-        14, 0, 0, 0, FW_MEDIUM,
+        16, 0, 0, 0, FW_SEMIBOLD,
         FALSE, FALSE, FALSE, DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
@@ -617,9 +617,48 @@ void TabBar::Paint(HDC hdc) {
         const int closeX = roomy ? rect.right - pad - 9
                                  : (rect.left + rect.right) / 2;
         const int midY = H / 2;
+        constexpr int iconSize = 18;
+        const int iconX = rect.left + pad;
+        const int iconY = (H - iconSize) / 2;
+
+        // Draw the site's actual favicon when CEF has supplied one.
+        // Otherwise use the tab's initial as a compact fallback.
+        if (tabs_[i].iconBitmap) {
+            Gdiplus::Bitmap favicon(tabs_[i].iconBitmap, nullptr);
+            if (favicon.GetLastStatus() == Gdiplus::Ok) {
+                Gdiplus::Graphics iconGraphics(hdc);
+                iconGraphics.SetInterpolationMode(
+                    Gdiplus::InterpolationModeHighQualityBicubic);
+                iconGraphics.DrawImage(
+                    &favicon, iconX, iconY, iconSize, iconSize);
+            }
+        } else {
+            Gdiplus::Graphics iconGraphics(hdc);
+            iconGraphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            Gdiplus::SolidBrush iconBrush(ToColor(glow));
+            iconGraphics.FillEllipse(
+                &iconBrush, iconX + 1, iconY + 1,
+                iconSize - 2, iconSize - 2);
+
+            HFONT fallbackFont = CreateFontW(
+                10, 0, 0, 0, FW_BOLD,
+                FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+                L"Segoe UI");
+            HGDIOBJ oldFallbackFont = SelectObject(hdc, fallbackFont);
+            SetTextColor(hdc, RGB(255, 255, 255));
+            RECT fallbackRect{
+                iconX, iconY, iconX + iconSize, iconY + iconSize};
+            DrawTextW(hdc, tabs_[i].iconText.c_str(), -1, &fallbackRect,
+                DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+            SelectObject(hdc, oldFallbackFont);
+            DeleteObject(fallbackFont);
+        }
 
         SetTextColor(hdc, RGB(238, 238, 238));
-        RECT titleRect{rect.left + pad, 0, closeX - 14, H};
+        RECT titleRect{
+            iconX + iconSize + 8, 0, closeX - 14, H};
         if (roomy && titleRect.right - titleRect.left >= 20) {
             DrawTextW(hdc, tabs_[i].title.c_str(), -1, &titleRect,
                 DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);

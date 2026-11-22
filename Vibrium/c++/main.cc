@@ -69,10 +69,10 @@ constexpr UINT kFinalizeShutdownMessage = WM_APP + 1;
 constexpr UINT kMemoryCheckInterval = 15000;
 constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
 
-constexpr int kTabBarHeight = 40;
+constexpr int kTabBarHeight = 46;
 constexpr int kTabBarClientOverlap = 9;
 constexpr int kCaptionButtonsWidth = 138;
-constexpr int kSearchBarHeight = 44;
+constexpr int kSearchBarHeight = 52;
 constexpr int kBrowserTop = kTabBarClientOverlap + kSearchBarHeight;
 
 class MainWindow;
@@ -1067,6 +1067,13 @@ public:
         }
 
         tab->url = url;
+
+        // Clear the previous site's icon while the new page is loading.
+        // A fresh favicon callback will replace the fallback when available.
+        const int tabIndex = FindTabIndex(tabId);
+        if (tabIndex >= 0 && tabBar_) {
+            tabBar_->SetTabIconBitmap(tabIndex, nullptr);
+        }
 
         if (tabId == GetActiveTabId()) {
             UpdateAddressBar();
