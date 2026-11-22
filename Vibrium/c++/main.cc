@@ -52,6 +52,7 @@
 #include "adblock/adblock_service.h"
 #include "adblock/request_policy.h"
 #include "adblock/scriptlet_engine.h"
+#include <cwctype>
 #include "selftest.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_image.h"
@@ -288,6 +289,11 @@ public:
         CefRefPtr<CefBrowser> browser,
         CefRefPtr<CefFrame> frame,
         TransitionType transition_type) override;
+
+    void OnLoadEnd(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        int httpStatusCode) override;
 
     void OnAfterCreated(CefRefPtr<CefBrowser> browser) override;
 
@@ -1019,12 +1025,16 @@ public:
     // Navigation
     // --------------------------------------------------------
 
-    void NavigateActiveTab(const std::wstring& url) {
+    void NavigateActiveTab(const std::wstring& requestedUrl) {
     TabRecord* tab = GetActiveTab();
 
     if (!tab) {
         return;
     }
+
+    // "vibrium://newtab" loads the new tab page in this tab.
+    const std::wstring url =
+        IsNewTabAlias(requestedUrl) ? GetNewTabUrl() : requestedUrl;
 
     // "vibrium://settings" opens (or switches to) the settings tab.
     if (IsSettingsUrl(url)) {
@@ -1055,8 +1065,51 @@ public:
         TabRecord* tab = GetActiveTab();
 
         if (tab && searchBar_) {
-            searchBar_->SetText(tab->url);
+            // The new tab page shows an empty address bar with the caret
+            // blinking, instead of its long file:// URL.
+            if (!tab->isSettings && IsNewTabPageUrl(tab->url)) {
+                searchBar_->SetText(L"");
+                searchBar_->FocusAddress();
+            } else {
+                searchBar_->SetText(tab->url);
+            }
         }
+    }
+
+    // Called when a tab finishes loading its main frame. The page may have
+    // taken keyboard focus while loading, so give it back to the address bar
+    // when this is the visible new tab page.
+    void OnTabLoadEnd(int tabId) {
+        if (tabId != GetActiveTabId() || !searchBar_) return;
+        TabRecord* tab = GetActiveTab();
+        if (tab && !tab->isSettings && IsNewTabPageUrl(tab->url)) {
+            searchBar_->FocusAddress();
+        }
+    }
+
+    static std::wstring LowerCopy(const std::wstring& value) {
+        std::wstring out = value;
+        for (auto& ch : out) ch = static_cast<wchar_t>(std::towlower(ch));
+        return out;
+    }
+
+    // True for "vibrium://newtab" (any case, optional trailing slash).
+    static bool IsNewTabAlias(const std::wstring& url) {
+        std::wstring v = LowerCopy(url);
+        while (!v.empty() && (v.back() == L'/' || v.back() == L' ')) v.pop_back();
+        return v == L"vibrium://newtab";
+    }
+
+    // True when `url` is the built-in new tab page (ignoring the ?query/#hash).
+    bool IsNewTabPageUrl(const std::wstring& url) const {
+        if (url.empty()) return false;
+        if (IsNewTabAlias(url)) return true;
+        auto strip = [](std::wstring v) {
+            const size_t cut = v.find_first_of(L"?#");
+            if (cut != std::wstring::npos) v.erase(cut);
+            return LowerCopy(v);
+        };
+        return strip(url) == strip(GetNewTabUrl());
     }
 
     // --------------------------------------------------------
@@ -1823,6 +1876,16 @@ void BrowserClient::OnLoadStart(
     TransitionType transition_type) {
 
     AdblockService::Get().ApplyCosmeticFilters(frame);
+}
+
+void BrowserClient::OnLoadEnd(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefFrame> frame,
+    int httpStatusCode) {
+
+    if (frame && frame->IsMain()) {
+        owner_->OnTabLoadEnd(tabId_);
+    }
 }
 
 void BrowserClient::OnAddressChange(

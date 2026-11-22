@@ -27,6 +27,9 @@ public:
         int height);
 
     void SetText(const std::wstring& text);
+
+    // Puts the caret in the address box (and selects its contents).
+    void FocusAddress();
     std::wstring GetText() const;
 
     void SetOnNavigate(NavigateCallback callback);

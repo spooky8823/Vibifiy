@@ -283,6 +283,12 @@ void SearchEngine::Resize(
     InvalidateRect(hwnd_, nullptr, TRUE);
 }
 
+void SearchEngine::FocusAddress() {
+    if (!addressEdit_) return;
+    SetFocus(addressEdit_);
+    SendMessageW(addressEdit_, EM_SETSEL, 0, -1);
+}
+
 SearchEngine::Security SearchEngine::ClassifyUrl(const std::wstring& url) {
     std::wstring lower;
     lower.reserve(url.size());
