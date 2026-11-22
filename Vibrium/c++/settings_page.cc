@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <cmath>
 #include <cwchar>
 #include <ctime>
 #include <fstream>
@@ -346,9 +347,12 @@ void WheelPickerPaint(HDC hdc, WheelPickerState* state) {
   HBRUSH swatch=CreateSolidBrush(state->selected);
   RECT preview{370,80,480,190}; FillRound(hdc,preview,18,state->selected,RGB(75,75,82));
   DeleteObject(swatch);
-  DrawLabel(hdc,L"Choose accent colour",RECT{360,28,510,62},MakeFont(20,FW_SEMIBOLD,L"Segoe UI"),RGB(245,245,250),DT_SINGLELINE|DT_VCENTER|DT_LEFT);
-  DrawLabel(hdc,L"HEX",RECT{365,215,405,245},MakeFont(13,FW_NORMAL,L"Segoe UI"),RGB(170,170,182),DT_SINGLELINE|DT_VCENTER|DT_LEFT);
-  DrawLabel(hdc,L"Drag the wheel for hue, then the square for shade.",RECT{360,255,515,305},MakeFont(12,FW_NORMAL,L"Segoe UI"),RGB(170,170,182),DT_WORDBREAK|DT_LEFT);
+  static HFONT titleFont=MakeFont(20,FW_SEMIBOLD,L"Segoe UI");
+  static HFONT labelFont=MakeFont(12,FW_NORMAL,L"Segoe UI");
+  static HFONT smallFont=MakeFont(13,FW_NORMAL,L"Segoe UI");
+  DrawLabel(hdc,L"Choose accent colour",RECT{360,28,510,62},titleFont,RGB(245,245,250),DT_SINGLELINE|DT_VCENTER|DT_LEFT);
+  DrawLabel(hdc,L"HEX",RECT{365,215,405,245},smallFont,RGB(170,170,182),DT_SINGLELINE|DT_VCENTER|DT_LEFT);
+  DrawLabel(hdc,L"Drag the wheel for hue, then the square for shade.",RECT{360,255,515,305},labelFont,RGB(170,170,182),DT_WORDBREAK|DT_LEFT);
 }
 
 LRESULT CALLBACK WheelPickerProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
@@ -362,8 +366,8 @@ LRESULT CALLBACK WheelPickerProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
     case WM_CREATE:
       state->hexEdit=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",ColorHex(state->selected).c_str(),
         WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,405,215,100,28,hwnd,reinterpret_cast<HMENU>(10),GetModuleHandleW(nullptr),nullptr);
-      CreateWindowW(L"BUTTON",L"Cancel",WS_CHILD|WS_VISIBLE|BS_OWNERDRAW,365,345,90,36,hwnd,reinterpret_cast<HMENU>(2),GetModuleHandleW(nullptr),nullptr);
-      CreateWindowW(L"BUTTON",L"Apply",WS_CHILD|WS_VISIBLE|BS_OWNERDRAW,465,345,90,36,hwnd,reinterpret_cast<HMENU>(1),GetModuleHandleW(nullptr),nullptr);
+      CreateWindowW(L"BUTTON",L"Cancel",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,365,345,90,36,hwnd,reinterpret_cast<HMENU>(2),GetModuleHandleW(nullptr),nullptr);
+      CreateWindowW(L"BUTTON",L"Apply",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,465,345,90,36,hwnd,reinterpret_cast<HMENU>(1),GetModuleHandleW(nullptr),nullptr);
       return 0;
     case WM_PAINT: { PAINTSTRUCT ps{}; HDC dc=BeginPaint(hwnd,&ps); WheelPickerPaint(dc,state); EndPaint(hwnd,&ps); return 0; }
     case WM_LBUTTONDOWN: {
@@ -388,7 +392,7 @@ LRESULT CALLBACK WheelPickerProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
       }
       return 0;
     case WM_CLOSE: state->done=true;state->accepted=false;DestroyWindow(hwnd);return 0;
-    case WM_DESTROY: PostQuitMessage(0);return 0;
+    case WM_DESTROY: return 0;
   }
   return DefWindowProcW(hwnd,msg,wp,lp);
 }
