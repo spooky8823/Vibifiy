@@ -36,6 +36,7 @@
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
+#include "include/cef_context_menu_handler.h"
 #include "include/cef_display_handler.h"
 #include "include/cef_download_handler.h"
 #include "include/cef_audio_handler.h"
@@ -69,6 +70,16 @@ constexpr wchar_t kWindowTitle[] = L"Vibrium";
 constexpr UINT_PTR kMemoryTimer = 1;
 constexpr UINT_PTR kSelfTestTimer = 2;
 constexpr UINT kFinalizeShutdownMessage = WM_APP + 1;
+// Posted by BrowserClient when a page asks for a new window/tab. lParam is
+// an OpenTabRequest* (owned by the receiver).
+constexpr UINT kOpenTabMessage = WM_APP + 2;
+// Custom context-menu command (must be >= MENU_ID_USER_FIRST).
+constexpr int kMenuOpenLinkInNewTab = MENU_ID_USER_FIRST + 1;
+
+struct OpenTabRequest {
+    std::wstring url;
+    bool activate = true;
+};
 constexpr UINT kMemoryCheckInterval = 15000;
 constexpr ULONGLONG kUnloadTimeoutMs = 20ULL * 60ULL * 1000ULL;
 
@@ -110,6 +121,22 @@ public:
 
     CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override {
         return this;
+    }
+
+    // Browser process: runs before CEF parses its command line. Vibrium draws
+    // its own download panel, so switch off Chrome's built-in download UI.
+    void OnBeforeCommandLineProcessing(
+        const CefString& process_type,
+        CefRefPtr<CefCommandLine> command_line) override {
+        if (!process_type.empty() || !command_line) return;
+        std::string features =
+            command_line->GetSwitchValue("disable-features").ToString();
+        for (const char* feature : {"DownloadBubble", "DownloadBubbleV2"}) {
+            if (features.find(feature) != std::string::npos) continue;
+            if (!features.empty()) features += ",";
+            features += feature;
+        }
+        command_line->AppendSwitchWithValue("disable-features", features);
     }
 
     // Browser process: runs for every child process just before it launches.
@@ -238,6 +265,301 @@ private:
 };
 
 // ------------------------------------------------------------
+// Branded window for sign-in popups (Google / Apple)
+// ------------------------------------------------------------
+//
+// Sign-in flows talk back to the page that opened them through
+// window.opener, so they cannot be turned into plain tabs. They get a real
+// popup window instead, dressed in Vibrium's look: accent caption and border,
+// Vibrium icon, dark address strip that always shows the site's real host.
+
+namespace {
+
+constexpr wchar_t kAuthPopupClass[] = L"VibriumAuthPopup";
+constexpr int kAuthBarHeight = 30;
+constexpr int kAuthBorder = 2;
+
+std::wstring AuthHostOf(const std::wstring& url) {
+    const size_t scheme = url.find(L"://");
+    if (scheme == std::wstring::npos) return L"";
+    const size_t start = scheme + 3;
+    const size_t end = url.find_first_of(L"/?#", start);
+    std::wstring host = url.substr(
+        start, end == std::wstring::npos ? end : end - start);
+    const size_t at = host.rfind(L'@');
+    if (at != std::wstring::npos) host.erase(0, at + 1);
+    const size_t colon = host.find(L':');
+    if (colon != std::wstring::npos) host.erase(colon);
+    for (auto& ch : host) ch = static_cast<wchar_t>(std::towlower(ch));
+    return host;
+}
+
+bool AuthHostMatches(const std::wstring& host, const std::wstring& domain) {
+    if (host == domain) return true;
+    return host.size() > domain.size() &&
+           host.compare(host.size() - domain.size(), domain.size(), domain) == 0 &&
+           host[host.size() - domain.size() - 1] == L'.';
+}
+
+// Add more sign-in providers here.
+bool IsAuthPopupUrl(const std::wstring& url) {
+    if (url.compare(0, 8, L"https://") != 0) return false;
+    const std::wstring host = AuthHostOf(url);
+    static const wchar_t* const kDomains[] = {
+        L"accounts.google.com",
+        L"appleid.apple.com",
+        L"idmsa.apple.com",
+    };
+    for (const wchar_t* domain : kDomains) {
+        if (AuthHostMatches(host, domain)) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+class AuthPopup final : public CefClient,
+                        public CefLifeSpanHandler,
+                        public CefDisplayHandler {
+public:
+    explicit AuthPopup(HWND mainWindow) : main_(mainWindow) {}
+
+    CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
+    CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
+
+    // Creates the (still hidden) frame window. width/height of 0 = default.
+    bool CreateFrame(int width, int height) {
+        HINSTANCE instance = GetModuleHandleW(nullptr);
+
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = FrameProc;
+        wc.hInstance = instance;
+        wc.lpszClassName = kAuthPopupClass;
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hbrBackground = nullptr;
+        if (!RegisterClassExW(&wc) &&
+            GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            return false;
+        }
+
+        RECT mainRect{};
+        GetWindowRect(main_, &mainRect);
+        const int mainWidth = mainRect.right - mainRect.left;
+        const int mainHeight = mainRect.bottom - mainRect.top;
+
+        const int outerW = std::clamp(width > 0 ? width + 16 : 520, 380,
+                                      std::max(380, mainWidth));
+        const int outerH = std::clamp(height > 0 ? height + 39 + kAuthBarHeight : 720,
+                                      420, std::max(420, mainHeight));
+        const int x = mainRect.left + (mainWidth - outerW) / 2;
+        const int y = mainRect.top + (mainHeight - outerH) / 2;
+
+        // Owned by the main window: stays above it, closes with it.
+        frame_ = CreateWindowExW(
+            0, kAuthPopupClass, L"Vibrium", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+            x, y, outerW, outerH, main_, nullptr, instance, this);
+        if (!frame_) return false;
+
+        const COLORREF accent = Theme::Accent();
+        DwmSetWindowAttribute(frame_, DWMWA_CAPTION_COLOR, &accent, sizeof(accent));
+        DwmSetWindowAttribute(frame_, DWMWA_BORDER_COLOR, &accent, sizeof(accent));
+        const COLORREF captionText = RGB(255, 255, 255);
+        DwmSetWindowAttribute(frame_, DWMWA_TEXT_COLOR, &captionText,
+                              sizeof(captionText));
+
+        // Same (accent-tinted) icon as the main window.
+        const LRESULT big = SendMessageW(main_, WM_GETICON, ICON_BIG, 0);
+        const LRESULT small = SendMessageW(main_, WM_GETICON, ICON_SMALL, 0);
+        if (big) SendMessageW(frame_, WM_SETICON, ICON_BIG, big);
+        if (small) SendMessageW(frame_, WM_SETICON, ICON_SMALL, small);
+        return true;
+    }
+
+    // Tells CEF to host the popup inside the frame.
+    void PrepareWindowInfo(CefWindowInfo& info) {
+        RECT area = BrowserArea();
+        info.SetAsChild(frame_, CefRect(area.left, area.top,
+                                        area.right - area.left,
+                                        area.bottom - area.top));
+    }
+
+    static void CloseAll() {
+        const auto copy = Open();
+        for (AuthPopup* popup : copy) {
+            if (popup->browser_) popup->browser_->GetHost()->CloseBrowser(true);
+        }
+    }
+
+    // ---- CefLifeSpanHandler ----
+    bool OnBeforePopup(
+        CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+        int popup_id, const CefString& target_url,
+        const CefString& target_frame_name,
+        WindowOpenDisposition target_disposition, bool user_gesture,
+        const CefPopupFeatures& popupFeatures, CefWindowInfo& windowInfo,
+        CefRefPtr<CefClient>& client, CefBrowserSettings& settings,
+        CefRefPtr<CefDictionaryValue>& extra_info,
+        bool* no_javascript_access) override {
+        // Anything the sign-in window itself opens goes to a tab.
+        auto* request = new OpenTabRequest{target_url.ToWString(), true};
+        if (!PostMessageW(main_, kOpenTabMessage, 0,
+                          reinterpret_cast<LPARAM>(request))) {
+            delete request;
+        }
+        return true;
+    }
+
+    void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
+        browser_ = browser;
+        if (!frame_) {  // frame vanished while the browser was being created
+            browser->GetHost()->CloseBrowser(true);
+            return;
+        }
+        Open().push_back(this);
+        LayoutBrowser();
+        ShowWindow(frame_, SW_SHOW);
+        SetForegroundWindow(frame_);
+    }
+
+    void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
+        auto& list = Open();
+        list.erase(std::remove(list.begin(), list.end(), this), list.end());
+        browser_ = nullptr;
+        if (frame_) {
+            HWND frame = frame_;
+            frame_ = nullptr;
+            SetWindowLongPtrW(frame, GWLP_USERDATA, 0);
+            ShowWindow(frame, SW_HIDE);
+            // Destroy from the message loop, not from inside this callback.
+            PostMessageW(frame, WM_CLOSE, 0, 0);
+        }
+    }
+
+    // ---- CefDisplayHandler ----
+    void OnTitleChange(CefRefPtr<CefBrowser> browser,
+                       const CefString& title) override {
+        if (frame_) SetWindowTextW(frame_, title.ToWString().c_str());
+    }
+
+    void OnAddressChange(CefRefPtr<CefBrowser> browser,
+                         CefRefPtr<CefFrame> frame,
+                         const CefString& url) override {
+        if (!frame || !frame->IsMain()) return;
+        host_ = AuthHostOf(url.ToWString());
+        if (frame_) InvalidateRect(frame_, nullptr, FALSE);
+    }
+
+private:
+    static std::vector<AuthPopup*>& Open() {
+        static std::vector<AuthPopup*> open;
+        return open;
+    }
+
+    RECT BrowserArea() const {
+        RECT client{};
+        GetClientRect(frame_, &client);
+        return RECT{kAuthBorder, kAuthBarHeight, client.right - kAuthBorder,
+                    client.bottom - kAuthBorder};
+    }
+
+    void LayoutBrowser() {
+        if (!frame_ || !browser_) return;
+        HWND window = browser_->GetHost()->GetWindowHandle();
+        if (!window) return;
+        const RECT area = BrowserArea();
+        MoveWindow(window, area.left, area.top,
+                   std::max<LONG>(0, area.right - area.left),
+                   std::max<LONG>(0, area.bottom - area.top), TRUE);
+        browser_->GetHost()->WasResized();
+    }
+
+    void Paint() {
+        PAINTSTRUCT ps{};
+        HDC hdc = BeginPaint(frame_, &ps);
+        RECT client{};
+        GetClientRect(frame_, &client);
+
+        // Accent perimeter around everything...
+        HBRUSH accentBrush = CreateSolidBrush(Theme::Accent());
+        FillRect(hdc, &client, accentBrush);
+        DeleteObject(accentBrush);
+
+        // ...and the black address strip on top.
+        RECT bar{kAuthBorder, kAuthBorder, client.right - kAuthBorder,
+                 kAuthBarHeight};
+        HBRUSH black = CreateSolidBrush(RGB(0, 0, 0));
+        FillRect(hdc, &bar, black);
+        DeleteObject(black);
+
+        HFONT font = CreateFontW(-13, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                 CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                 DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        HGDIOBJ oldFont = SelectObject(hdc, font);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(241, 237, 250));
+        RECT text{bar.left + 12, bar.top, bar.right - 12, bar.bottom};
+        DrawTextW(hdc, host_.c_str(), static_cast<int>(host_.size()), &text,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS |
+                      DT_NOPREFIX);
+        SelectObject(hdc, oldFont);
+        DeleteObject(font);
+        EndPaint(frame_, &ps);
+    }
+
+    static LRESULT CALLBACK FrameProc(HWND hwnd, UINT message, WPARAM wParam,
+                                      LPARAM lParam) {
+        if (message == WM_NCCREATE) {
+            auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA,
+                              reinterpret_cast<LONG_PTR>(create->lpCreateParams));
+        }
+        auto* self = reinterpret_cast<AuthPopup*>(
+            GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (!self) return DefWindowProcW(hwnd, message, wParam, lParam);
+
+        switch (message) {
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT:
+            self->Paint();
+            return 0;
+        case WM_SIZE:
+            self->LayoutBrowser();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        case WM_GETMINMAXINFO: {
+            auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
+            info->ptMinTrackSize.x = 380;
+            info->ptMinTrackSize.y = 420;
+            return 0;
+        }
+        case WM_CLOSE:
+            if (self->browser_) {  // let the page's beforeunload run
+                self->browser_->GetHost()->CloseBrowser(false);
+                return 0;
+            }
+            break;
+        case WM_NCDESTROY:
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            self->frame_ = nullptr;
+            break;
+        default:
+            break;
+        }
+        return DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+
+    HWND main_ = nullptr;
+    HWND frame_ = nullptr;
+    CefRefPtr<CefBrowser> browser_;
+    std::wstring host_;
+
+    IMPLEMENT_REFCOUNTING(AuthPopup);
+};
+
+// ------------------------------------------------------------
 // Per-tab browser client
 // ------------------------------------------------------------
 
@@ -246,6 +568,7 @@ class BrowserClient final
       public CefLifeSpanHandler,
       public CefDisplayHandler,
       public CefDownloadHandler,
+      public CefContextMenuHandler,
       public CefAudioHandler,
       public CefLoadHandler {
 public:
@@ -265,6 +588,10 @@ public:
     }
 
     CefRefPtr<CefAudioHandler> GetAudioHandler() override {
+        return this;
+    }
+
+    CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override {
         return this;
     }
 
@@ -296,6 +623,36 @@ public:
         CefRefPtr<CefBrowser> browser,
         CefRefPtr<CefFrame> frame,
         int httpStatusCode) override;
+
+    // Links, target=_blank and window.open() become tabs of this window
+    // instead of CEF's default popup windows.
+    bool OnBeforePopup(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        int popup_id,
+        const CefString& target_url,
+        const CefString& target_frame_name,
+        WindowOpenDisposition target_disposition,
+        bool user_gesture,
+        const CefPopupFeatures& popupFeatures,
+        CefWindowInfo& windowInfo,
+        CefRefPtr<CefClient>& client,
+        CefBrowserSettings& settings,
+        CefRefPtr<CefDictionaryValue>& extra_info,
+        bool* no_javascript_access) override;
+
+    void OnBeforeContextMenu(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        CefRefPtr<CefContextMenuParams> params,
+        CefRefPtr<CefMenuModel> model) override;
+
+    bool OnContextMenuCommand(
+        CefRefPtr<CefBrowser> browser,
+        CefRefPtr<CefFrame> frame,
+        CefRefPtr<CefContextMenuParams> params,
+        int command_id,
+        EventFlags event_flags) override;
 
     void OnAfterCreated(CefRefPtr<CefBrowser> browser) override;
 
@@ -350,6 +707,9 @@ public:
 private:
     MainWindow* owner_;
     int tabId_;
+    // The one browser this client was created for. Any other browser that
+    // reaches this client (e.g. a popup) must never replace the tab's browser.
+    int primaryBrowserId_ = 0;
 
     IMPLEMENT_REFCOUNTING(BrowserClient);
 };
@@ -690,6 +1050,14 @@ public:
             downloadsPage_.reset();
         }
 
+        // Vibrium's own download panel (top-right, black with accent border).
+        downloadPopup_ = std::make_unique<DownloadPopup>();
+        if (!downloadPopup_->Create(hwnd_, instance_)) {
+            downloadPopup_.reset();
+        } else {
+            downloadPopup_->SetOnShowAll([this]() { OpenDownloads(); });
+        }
+
         SetTimer(
             hwnd_,
             kMemoryTimer,
@@ -746,10 +1114,26 @@ public:
         CreateTab(GetNewTabUrl(), L"New Tab", kPageNone);
     }
 
+    // Opens `url` in a new tab of this window (links, target=_blank,
+    // window.open, "Open link in new tab").
+    void OpenUrlInNewTab(const std::wstring& requestedUrl, bool activate) {
+        const std::wstring url =
+            requestedUrl.empty() ? std::wstring(L"about:blank") : requestedUrl;
+
+        const int page = InternalPageForUrl(url);
+        if (page != kPageNone) {
+            OpenInternalPage(page);
+            return;
+        }
+        CreateTab(IsNewTabAlias(url) ? GetNewTabUrl() : url,
+                  L"New Tab", kPageNone, activate);
+    }
+
     void CreateTab(
         const std::wstring& url,
         const std::wstring& title,
-        int internalPage) {
+        int internalPage,
+        bool activate = true) {
 
         TabRecord tab;
 
@@ -766,7 +1150,9 @@ public:
         const int index = static_cast<int>(tabs_.size()) - 1;
 
         tabBar_->AddTab(title);
-        SelectTab(index);
+        if (activate) {
+            SelectTab(index);
+        }
 
         (void)id;
     }
@@ -842,6 +1228,50 @@ public:
         if (page == kPageSettings && settingsPage_) settingsPage_->Show(rect);
         if (page == kPageHistory && historyPage_) historyPage_->Show(rect);
         if (page == kPageDownloads && downloadsPage_) downloadsPage_->Show(rect);
+
+        HWND shown = nullptr;
+        if (page == kPageSettings && settingsPage_) shown = settingsPage_->handle();
+        if (page == kPageHistory && historyPage_) shown = historyPage_->handle();
+        if (page == kPageDownloads && downloadsPage_) shown = downloadsPage_->handle();
+        if (shown) {
+            SetWindowPos(shown, HWND_TOP, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+        EnforceSingleVisibleView();
+    }
+
+    // Exactly one content view may be visible: the active tab's browser, or
+    // the active built-in page. Hides every other child of the main window
+    // (the tab strip, address bar and built-in pages excepted), so a browser
+    // window that lost its tab record can never cover a native page.
+    void EnforceSingleVisibleView() {
+        if (!hwnd_) return;
+
+        HWND keep = nullptr;
+        if (TabRecord* active = GetActiveTab()) {
+            if (!active->internalPage && active->browser) {
+                keep = active->browser->GetHost()->GetWindowHandle();
+            }
+        }
+
+        const HWND known[] = {
+            tabBar_ ? tabBar_->GetHandle() : nullptr,
+            searchBar_ ? searchBar_->GetHandle() : nullptr,
+            settingsPage_ ? settingsPage_->handle() : nullptr,
+            historyPage_ ? historyPage_->handle() : nullptr,
+            downloadsPage_ ? downloadsPage_->handle() : nullptr,
+        };
+
+        for (HWND child = GetWindow(hwnd_, GW_CHILD); child;
+             child = GetWindow(child, GW_HWNDNEXT)) {
+            if (child == keep) continue;
+            bool ours = false;
+            for (HWND h : known) {
+                if (h && h == child) ours = true;
+            }
+            if (ours) continue;
+            if (IsWindowVisible(child)) ShowWindow(child, SW_HIDE);
+        }
     }
 
     void HideInternalPages() {
@@ -860,19 +1290,19 @@ public:
             return;
         }
 
-        if (activeTab_ >= 0 &&
-            activeTab_ < static_cast<int>(tabs_.size())) {
-            TabRecord& previous = tabs_[activeTab_];
+        for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
+            if (i == index) continue;
+            TabRecord& other = tabs_[i];
 
-            if (previous.browser) {
-                HWND previousWindow =
-                    previous.browser->GetHost()->GetWindowHandle();
+            if (other.browser) {
+                HWND otherWindow =
+                    other.browser->GetHost()->GetWindowHandle();
 
-                if (previousWindow) {
-                    ShowWindow(previousWindow, SW_HIDE);
+                if (otherWindow) {
+                    ShowWindow(otherWindow, SW_HIDE);
                 }
 
-                previous.browser->GetHost()->WasHidden(true);
+                other.browser->GetHost()->WasHidden(true);
             }
         }
 
@@ -899,6 +1329,8 @@ public:
                    !selected.closingBrowser) {
             CreateBrowserForTab(selected);
         }
+
+        EnforceSingleVisibleView();
     }
 
     // --------------------------------------------------------
@@ -975,7 +1407,7 @@ public:
         return;
     }
 
-    if (tabId == GetActiveTabId()) {
+    if (tabId == GetActiveTabId() && !tab->internalPage) {
         ShowBrowser(*tab);
     } else {
         browser->GetHost()->WasHidden(true);
@@ -986,6 +1418,8 @@ public:
             ShowWindow(window, SW_HIDE);
         }
     }
+
+    EnforceSingleVisibleView();
  }
 
     void ShowBrowser(TabRecord& tab) {
@@ -1066,6 +1500,12 @@ public:
         }
 
         if (tabs_[index].browser) {
+            // Hide first: CEF destroys the window asynchronously, and the
+            // tab record is gone by then.
+            if (HWND closingWindow =
+                    tabs_[index].browser->GetHost()->GetWindowHandle()) {
+                ShowWindow(closingWindow, SW_HIDE);
+            }
             tabs_[index].closingBrowser = true;
             tabs_[index].browser->GetHost()->CloseBrowser(true);
         }
@@ -1100,6 +1540,8 @@ public:
                    !selected.closingBrowser) {
             CreateBrowserForTab(selected);
         }
+
+        EnforceSingleVisibleView();
 
         (void)closingId;
     }
@@ -1508,7 +1950,19 @@ public:
             }
         }
 
+        RepositionDownloadPopup();
+
         (void)height;
+    }
+
+    // Anchors the download panel to the top-right corner of the page area.
+    void RepositionDownloadPopup() {
+        if (!downloadPopup_ || !hwnd_) return;
+        RECT client{};
+        GetClientRect(hwnd_, &client);
+        POINT anchor{client.right - 14, searchBarTop_ + kSearchBarHeight + 6};
+        ClientToScreen(hwnd_, &anchor);
+        downloadPopup_->SetAnchor(anchor);
     }
 
     void GetBrowserBounds(RECT& rect) const {
@@ -1548,6 +2002,8 @@ public:
 
     KillTimer(hwnd_, kMemoryTimer);
 
+    AuthPopup::CloseAll();
+
     for (auto& tab : tabs_) {
         if (tab.browser) {
             tab.closingBrowser = true;
@@ -1557,6 +2013,17 @@ public:
 
     FinishShutdownIfReady();
  }
+
+    // Safe to call from CEF callbacks: the tab is created from the window's
+    // own message loop, not from inside the callback.
+    void QueueOpenInNewTab(const std::wstring& url, bool activate) {
+        if (!hwnd_ || closeRequested_) return;
+        auto* request = new OpenTabRequest{url, activate};
+        if (!PostMessageW(hwnd_, kOpenTabMessage, 0,
+                          reinterpret_cast<LPARAM>(request))) {
+            delete request;
+        }
+    }
 
 private:
     void UpdateWindowIcon() {
@@ -1732,6 +2199,15 @@ private:
             self->FinalizeShutdown();
             return 0;
 
+        case kOpenTabMessage: {
+            std::unique_ptr<OpenTabRequest> request(
+                reinterpret_cast<OpenTabRequest*>(lParam));
+            if (request && !self->closeRequested_) {
+                self->OpenUrlInNewTab(request->url, request->activate);
+            }
+            return 0;
+        }
+
         case WM_DESTROY:
             KillTimer(hwnd, kMemoryTimer);
             HistoryStore::Get().Flush();
@@ -1812,6 +2288,7 @@ private:
     std::unique_ptr<SettingsPage> settingsPage_;
     std::unique_ptr<HistoryPage> historyPage_;
     std::unique_ptr<DownloadsPage> downloadsPage_;
+    std::unique_ptr<DownloadPopup> downloadPopup_;
 
     std::vector<TabRecord> tabs_;
 
@@ -1956,10 +2433,92 @@ void BrowserClient::OnFaviconURLChange(
     client->Start(request);
 }
 
+bool BrowserClient::OnBeforePopup(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefFrame> frame,
+    int popup_id,
+    const CefString& target_url,
+    const CefString& target_frame_name,
+    WindowOpenDisposition target_disposition,
+    bool user_gesture,
+    const CefPopupFeatures& popupFeatures,
+    CefWindowInfo& windowInfo,
+    CefRefPtr<CefClient>& client,
+    CefBrowserSettings& settings,
+    CefRefPtr<CefDictionaryValue>& extra_info,
+    bool* no_javascript_access) {
+
+    const std::wstring popupUrl = target_url.ToWString();
+
+    // Google / Apple sign-in needs a real popup (window.opener). Give it a
+    // Vibrium-branded window instead of CEF's default one.
+    if (target_disposition != CEF_WOD_NEW_BACKGROUND_TAB &&
+        IsAuthPopupUrl(popupUrl)) {
+        CefRefPtr<AuthPopup> popup = new AuthPopup(owner_->hwnd_);
+        const int width = popupFeatures.widthSet ? popupFeatures.width : 0;
+        const int height = popupFeatures.heightSet ? popupFeatures.height : 0;
+        if (popup->CreateFrame(width, height)) {
+            popup->PrepareWindowInfo(windowInfo);
+            client = popup;
+            return false;  // let CEF create it (keeps window.opener)
+        }
+    }
+
+    // Everything else: never let CEF create its own window, use a tab.
+    const bool background =
+        target_disposition == CEF_WOD_NEW_BACKGROUND_TAB;
+    owner_->QueueOpenInNewTab(target_url.ToWString(), !background);
+    return true;  // cancel CEF's popup
+}
+
+void BrowserClient::OnBeforeContextMenu(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefFrame> frame,
+    CefRefPtr<CefContextMenuParams> params,
+    CefRefPtr<CefMenuModel> model) {
+
+    if (!params || !model || params->GetLinkUrl().empty()) {
+        return;
+    }
+
+    // Chrome-style entries that open links in a separate Chrome window
+    // (open in new tab / new window / incognito window).
+    for (int id : {50100, 50101, 50102}) {
+        model->Remove(id);
+    }
+
+    model->InsertItemAt(0, kMenuOpenLinkInNewTab, "Open link in new tab");
+    model->InsertSeparatorAt(1);
+}
+
+bool BrowserClient::OnContextMenuCommand(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefFrame> frame,
+    CefRefPtr<CefContextMenuParams> params,
+    int command_id,
+    EventFlags event_flags) {
+
+    if (command_id == kMenuOpenLinkInNewTab && params) {
+        owner_->QueueOpenInNewTab(params->GetLinkUrl().ToWString(), true);
+        return true;
+    }
+    return false;
+}
+
 void BrowserClient::OnAfterCreated(
     CefRefPtr<CefBrowser> browser) {
 
-    owner_->OnBrowserCreated(tabId_, browser);
+    if (primaryBrowserId_ == 0) {
+        primaryBrowserId_ = browser->GetIdentifier();
+        owner_->OnBrowserCreated(tabId_, browser);
+        return;
+    }
+
+    // A second browser reached this client (a popup that slipped through).
+    // It must not replace the tab's browser; close it.
+    if (browser->GetIdentifier() != primaryBrowserId_) {
+        browser->GetHost()->CloseBrowser(true);
+    }
 }
 
 void BrowserClient::OnFullscreenModeChange(
@@ -1972,7 +2531,13 @@ void BrowserClient::OnBeforeClose(
     CefRefPtr<CefBrowser> browser) {
 
     AdblockService::Get().OnBrowserClosed(browser);
-    owner_->OnBrowserClosed(tabId_);
+
+    // Only the tab's own browser closing may clear the tab record.
+    if (browser->GetIdentifier() != primaryBrowserId_) {
+        return;
+    }
+    primaryBrowserId_ = 0;
+    owner_->OnBrowserClosed(tabId_);  // may release this client
 }
 
 void BrowserClient::OnLoadStart(

@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <utility>
 
 #include "icon_util.h"
 #include "theme.h"
@@ -267,6 +268,25 @@ DownloadRecord* DownloadManager::FindById(uint32_t id) {
   return nullptr;
 }
 
+bool DownloadManager::HasActive() const {
+  for (const DownloadRecord& rec : records_) {
+    if (rec.inProgress) return true;
+  }
+  return false;
+}
+
+DownloadRecord* DownloadManager::FindPendingMatch(const std::wstring& url,
+                                                  const std::wstring& path) {
+  for (auto it = records_.rbegin(); it != records_.rend(); ++it) {
+    if (!it->inProgress || it->updated) continue;
+    if ((!path.empty() && it->path == path) ||
+        (!url.empty() && it->url == url)) {
+      return &*it;
+    }
+  }
+  return nullptr;
+}
+
 void DownloadManager::HandleBeforeDownload(
     CefRefPtr<CefDownloadItem> item, const std::wstring& suggestedName,
     CefRefPtr<CefBeforeDownloadCallback> callback) {
@@ -292,6 +312,7 @@ void DownloadManager::HandleBeforeDownload(
   rec.inProgress = true;
   rec.timeMs = NowMs();
   records_.push_back(std::move(rec));
+  ++startCount_;
   ++revision_;
 
   // show_dialog = true opens the Save As window, starting at `target`.
@@ -303,21 +324,31 @@ void DownloadManager::HandleUpdated(
     CefRefPtr<CefDownloadItemCallback> callback) {
   if (!item) return;
   const uint32_t cefId = item->GetId();
+  const std::wstring itemUrl = item->GetURL().ToWString();
+  const std::wstring fullPath = item->GetFullPath().ToWString();
 
   DownloadRecord* rec = FindByCefId(cefId);
+  if (!rec) {
+    // OnBeforeDownload and OnDownloadUpdated do not always report the same
+    // id (and some downloads, e.g. "Save image as", report 0 in one of them).
+    // Adopt the record OnBeforeDownload created instead of adding a second
+    // row; otherwise the first row stays "downloading" forever.
+    rec = FindPendingMatch(itemUrl, fullPath);
+    if (rec) rec->cefId = cefId;
+  }
   if (!rec) {
     // Only unknown if the download began without us seeing it start.
     if (!item->IsInProgress()) return;
     DownloadRecord created;
     created.id = nextId_++;
     created.cefId = cefId;
-    created.url = item->GetURL().ToWString();
+    created.url = itemUrl;
     created.timeMs = NowMs();
     records_.push_back(std::move(created));
     rec = &records_.back();
   }
+  rec->updated = true;
 
-  const std::wstring fullPath = item->GetFullPath().ToWString();
   if (!fullPath.empty()) {
     rec->path = fullPath;
     rec->fileName = FileNameOf(fullPath);
@@ -343,8 +374,30 @@ void DownloadManager::HandleUpdated(
   if (rec->complete) {
     rec->timeMs = NowMs();
     rec->percent = 100;
-    Save();
+    rec->received = rec->total > 0 ? rec->total : rec->received;
+    ++finishCount_;
   }
+
+  // A finished or canceled download must leave no "in progress" twin behind.
+  const bool finishedOk = rec->complete && !rec->inProgress;
+  if (!rec->inProgress) {
+    const uint32_t keepId = rec->id;
+    const std::wstring keepPath = rec->path;
+    const std::wstring keepUrl = rec->url;
+    records_.erase(
+        std::remove_if(records_.begin(), records_.end(),
+                       [&](const DownloadRecord& r) {
+                         if (r.id == keepId || !r.inProgress) return false;
+                         if (r.cefId == cefId) return true;
+                         if (!keepPath.empty() && r.path == keepPath) return true;
+                         return !r.updated && !keepUrl.empty() &&
+                                r.url == keepUrl;
+                       }),
+        records_.end());
+  }
+
+  // `rec` may point at a moved element after the erase above: do not use it.
+  if (finishedOk) Save();
   ++revision_;
 }
 
@@ -352,7 +405,14 @@ void DownloadManager::Cancel(uint32_t id) {
   DownloadRecord* rec = FindById(id);
   if (!rec) return;
   auto it = callbacks_.find(rec->cefId);
-  if (it != callbacks_.end() && it->second) it->second->Cancel();
+  if (it != callbacks_.end() && it->second) {
+    it->second->Cancel();
+  } else if (rec->inProgress) {
+    // No live transfer behind this row (stale entry): just close it.
+    rec->inProgress = false;
+    rec->canceled = true;
+    ++revision_;
+  }
 }
 
 void DownloadManager::Remove(uint32_t id) {
@@ -619,6 +679,426 @@ void DownloadsPage::OnClick(int id, int /*x*/, int /*y*/) {
       break;
   }
   Repaint();
+}
+
+// ---------------------------------------------------------------------------
+// DownloadPopup
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr wchar_t kPopupClass[] = L"VibriumDownloadPopup";
+constexpr UINT_PTR kPopupTimer = 1;
+constexpr UINT kPopupPollMs = 250;
+constexpr uint64_t kPopupLingerMs = 6000;
+constexpr int kPopupWidth = 380;
+constexpr int kPopupPad = 14;
+constexpr int kPopupTitleHeight = 40;
+constexpr int kPopupRowHeight = 66;
+constexpr int kPopupFooterHeight = 40;
+constexpr int kPopupMaxRows = 4;
+constexpr int kPopupRadius = 16;
+constexpr COLORREF kPopupBg = RGB(0, 0, 0);
+
+constexpr int kPopupHitDismiss = 1;
+constexpr int kPopupHitAll = 2;
+constexpr int kPopupHitOpenBase = 100;    // + row index
+constexpr int kPopupHitCancelBase = 200;  // + row index
+
+inline int PopupX(LPARAM lp) { return static_cast<int>(static_cast<short>(LOWORD(lp))); }
+inline int PopupY(LPARAM lp) { return static_cast<int>(static_cast<short>(HIWORD(lp))); }
+
+HFONT PopupFont(int pixels, int weight) {
+  return CreateFontW(-pixels, 0, 0, 0, weight, FALSE, FALSE, FALSE,
+                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                     CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+}
+
+void PopupRound(HDC hdc, const RECT& rect, int radius, COLORREF fill,
+                COLORREF border, int penWidth = 1) {
+  HBRUSH brush = CreateSolidBrush(fill);
+  HPEN pen = CreatePen(PS_SOLID, penWidth, border);
+  HGDIOBJ oldBrush = SelectObject(hdc, brush);
+  HGDIOBJ oldPen = SelectObject(hdc, pen);
+  RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, radius, radius);
+  SelectObject(hdc, oldBrush);
+  SelectObject(hdc, oldPen);
+  DeleteObject(brush);
+  DeleteObject(pen);
+}
+
+void PopupText(HDC hdc, const std::wstring& text, RECT rect, HFONT font,
+               COLORREF color, UINT flags) {
+  HGDIOBJ old = SelectObject(hdc, font);
+  SetBkMode(hdc, TRANSPARENT);
+  SetTextColor(hdc, color);
+  DrawTextW(hdc, text.c_str(), static_cast<int>(text.size()), &rect,
+            flags | DT_NOPREFIX);
+  SelectObject(hdc, old);
+}
+
+void PopupCross(HDC hdc, const RECT& box, COLORREF color) {
+  const int cx = (box.left + box.right) / 2;
+  const int cy = (box.top + box.bottom) / 2;
+  HPEN pen = CreatePen(PS_SOLID, 2, color);
+  HGDIOBJ old = SelectObject(hdc, pen);
+  MoveToEx(hdc, cx - 5, cy - 5, nullptr);
+  LineTo(hdc, cx + 6, cy + 6);
+  MoveToEx(hdc, cx + 5, cy - 5, nullptr);
+  LineTo(hdc, cx - 6, cy + 6);
+  SelectObject(hdc, old);
+  DeleteObject(pen);
+}
+
+std::wstring PopupStatus(const DownloadRecord& rec) {
+  if (rec.inProgress) {
+    std::wstring status = FormatBytes(rec.received);
+    if (rec.total > 0) status += L" of " + FormatBytes(rec.total);
+    if (rec.speed > 0) status += L"  \u2022  " + FormatBytes(rec.speed) + L"/s";
+    return status;
+  }
+  if (rec.canceled) return L"Canceled";
+  if (rec.missing) return L"File was moved or deleted";
+  std::wstring status = L"Downloaded  \u2022  " +
+                        FormatBytes(rec.total > 0 ? rec.total : rec.received);
+  return status;
+}
+
+}  // namespace
+
+DownloadPopup::~DownloadPopup() {
+  if (hwnd_) {
+    SetWindowLongPtrW(hwnd_, GWLP_USERDATA, 0);
+    if (IsWindow(hwnd_)) {
+      KillTimer(hwnd_, kPopupTimer);
+      DestroyWindow(hwnd_);
+    }
+    hwnd_ = nullptr;
+  }
+  for (HFONT font : {fontBold_, fontSmall_, fontTitle_}) {
+    if (font) DeleteObject(font);
+  }
+}
+
+bool DownloadPopup::Create(HWND owner, HINSTANCE instance) {
+  owner_ = owner;
+  instance_ = instance;
+
+  WNDCLASSEXW wc{};
+  wc.cbSize = sizeof(wc);
+  wc.lpfnWndProc = WindowProc;
+  wc.hInstance = instance_;
+  wc.lpszClassName = kPopupClass;
+  wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  wc.hbrBackground = nullptr;
+  if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+    return false;
+  }
+
+  // An *owned* popup always stays above its owner's child windows (including
+  // CEF's browser view) and hides when the owner is minimised, without being
+  // topmost over other applications.
+  hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kPopupClass,
+                          L"", WS_POPUP, 0, 0, kPopupWidth, 100, owner_,
+                          nullptr, instance_, this);
+  if (!hwnd_) return false;
+
+  fontBold_ = PopupFont(13, FW_SEMIBOLD);
+  fontSmall_ = PopupFont(12, FW_NORMAL);
+  fontTitle_ = PopupFont(15, FW_SEMIBOLD);
+
+  SetTimer(hwnd_, kPopupTimer, kPopupPollMs, nullptr);
+  seenStart_ = DownloadManager::Get().startCount();
+  seenFinish_ = DownloadManager::Get().finishCount();
+  return true;
+}
+
+void DownloadPopup::SetAnchor(POINT topRightScreen) {
+  anchor_ = topRightScreen;
+  if (visible_) Layout();
+}
+
+void DownloadPopup::ShowPanel() {
+  if (!hwnd_) return;
+  hideAtMs_ = NowMs() + kPopupLingerMs;
+  Layout();
+  if (!visible_) {
+    visible_ = true;
+    ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+  }
+  InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void DownloadPopup::HidePanel() {
+  if (!hwnd_) return;
+  visible_ = false;
+  hoverId_ = 0;
+  ShowWindow(hwnd_, SW_HIDE);
+}
+
+void DownloadPopup::Layout() {
+  const auto& records = DownloadManager::Get().records();
+  const int rows = std::min<int>(kPopupMaxRows, static_cast<int>(records.size()));
+  const int height = kPopupTitleHeight + rows * kPopupRowHeight +
+                     kPopupFooterHeight + 4;
+  const int x = anchor_.x - kPopupWidth;
+  const int y = anchor_.y;
+  SetWindowPos(hwnd_, nullptr, x, y, kPopupWidth, height,
+               SWP_NOACTIVATE | SWP_NOZORDER);
+  // Rounded outline for the window itself; the border is drawn in Paint.
+  HRGN region = CreateRoundRectRgn(0, 0, kPopupWidth + 1, height + 1,
+                                   kPopupRadius, kPopupRadius);
+  if (region && !SetWindowRgn(hwnd_, region, TRUE)) DeleteObject(region);
+}
+
+void DownloadPopup::OnTimer() {
+  DownloadManager& manager = DownloadManager::Get();
+  const uint64_t now = NowMs();
+
+  const bool started = manager.startCount() != seenStart_;
+  const bool finished = manager.finishCount() != seenFinish_;
+  seenStart_ = manager.startCount();
+  seenFinish_ = manager.finishCount();
+  if (started || finished) {
+    ShowPanel();
+    return;
+  }
+  if (!visible_) return;
+
+  // Stay open while something is downloading or the pointer is on the panel.
+  if (manager.HasActive() || hoverId_ != 0 || tracking_) {
+    hideAtMs_ = now + kPopupLingerMs;
+  }
+  if (paintedRevision_ != manager.revision()) {
+    Layout();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+  }
+  if (now >= hideAtMs_) HidePanel();
+}
+
+int DownloadPopup::HitTest(int x, int y) const {
+  const POINT pt{x, y};
+  for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
+    if (PtInRect(&it->rect, pt)) return it->id;
+  }
+  return 0;
+}
+
+void DownloadPopup::PaintAll(HDC hdc, const RECT& client) {
+  DownloadManager& manager = DownloadManager::Get();
+  paintedRevision_ = manager.revision();
+  hits_.clear();
+  shownIds_.clear();
+
+  const COLORREF accent = Theme::Accent();
+  const int width = client.right - client.left;
+  const int height = client.bottom - client.top;
+
+  // Black panel with an accent-coloured perimeter.
+  {
+    HBRUSH bg = CreateSolidBrush(kPopupBg);
+    FillRect(hdc, &client, bg);
+    DeleteObject(bg);
+  }
+  RECT outline{1, 1, width - 1, height - 1};
+  PopupRound(hdc, outline, kPopupRadius, kPopupBg, accent, 2);
+
+  // Title row.
+  PopupText(hdc, L"Downloads",
+            RECT{kPopupPad + 4, 6, width - 60, kPopupTitleHeight}, fontTitle_,
+            pageui::kText, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+  const RECT dismiss{width - 40, 8, width - 10, 34};
+  hits_.push_back({dismiss, kPopupHitDismiss});
+  if (hoverId_ == kPopupHitDismiss) {
+    PopupRound(hdc, dismiss, 26, pageui::kPanel2, pageui::kPanel2);
+  }
+  PopupCross(hdc, dismiss, hoverId_ == kPopupHitDismiss ? accent : pageui::kMuted);
+
+  // Rows, newest first.
+  const auto& records = manager.records();
+  int y = kPopupTitleHeight;
+  int shown = 0;
+  for (size_t n = records.size(); n-- > 0 && shown < kPopupMaxRows; ++shown) {
+    const DownloadRecord& rec = records[n];
+    shownIds_.push_back(rec.id);
+    const int index = shown;
+    const RECT row{kPopupPad, y, width - kPopupPad, y + kPopupRowHeight - 4};
+    const int openId = kPopupHitOpenBase + index;
+    const bool canOpen = rec.complete && !rec.missing;
+    if (canOpen) hits_.push_back({row, openId});
+    const bool hot = canOpen && hoverId_ == openId;
+    PopupRound(hdc, row, 12, hot ? pageui::kPanel : kPopupBg,
+               hot ? accent : pageui::kBorder);
+
+    DrawTintedIcon(hdc, L"download.png",
+                   (rec.canceled || rec.missing) ? pageui::kMuted : accent,
+                   row.left + 24, (row.top + row.bottom) / 2 - 2, 20);
+
+    int textRight = row.right - 12;
+    if (rec.inProgress) {
+      const RECT cancel{row.right - 34, row.top + 14, row.right - 8, row.top + 40};
+      const int cancelId = kPopupHitCancelBase + index;
+      hits_.push_back({cancel, cancelId});
+      if (hoverId_ == cancelId) {
+        PopupRound(hdc, cancel, 26, pageui::kPanel2, pageui::kPanel2);
+      }
+      PopupCross(hdc, cancel, hoverId_ == cancelId ? accent : pageui::kMuted);
+      textRight = cancel.left - 4;
+    }
+
+    PopupText(hdc, rec.fileName.empty() ? rec.url : rec.fileName,
+              RECT{row.left + 46, row.top + 8, textRight, row.top + 28},
+              fontBold_,
+              (rec.canceled || rec.missing) ? pageui::kMuted : pageui::kText,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    PopupText(hdc, PopupStatus(rec),
+              RECT{row.left + 46, row.top + 28, textRight, row.top + 46},
+              fontSmall_, rec.canceled ? pageui::kBad : pageui::kMuted,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+    if (rec.inProgress) {
+      const RECT bar{row.left + 46, row.bottom - 12, std::max<int>(row.left + 46, textRight),
+                     row.bottom - 8};
+      PopupRound(hdc, bar, 4, pageui::kPanel3, pageui::kPanel3);
+      if (rec.percent > 0) {
+        RECT filled = bar;
+        filled.right = bar.left + (bar.right - bar.left) * std::min(rec.percent, 100) / 100;
+        if (filled.right > filled.left) PopupRound(hdc, filled, 4, accent, accent);
+      }
+    }
+    y += kPopupRowHeight;
+  }
+
+  // Footer link.
+  const RECT footer{kPopupPad, y, width - kPopupPad, y + kPopupFooterHeight - 4};
+  hits_.push_back({footer, kPopupHitAll});
+  PopupText(hdc, L"Show all downloads", footer, fontBold_,
+            hoverId_ == kPopupHitAll ? pageui::kText : accent,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+void DownloadPopup::OnClick(int id) {
+  DownloadManager& manager = DownloadManager::Get();
+  if (id == kPopupHitDismiss) {
+    HidePanel();
+    return;
+  }
+  if (id == kPopupHitAll) {
+    HidePanel();
+    if (onShowAll_) onShowAll_();
+    return;
+  }
+  const bool cancel = id >= kPopupHitCancelBase;
+  const size_t index = static_cast<size_t>(id - (cancel ? kPopupHitCancelBase : kPopupHitOpenBase));
+  if (index >= shownIds_.size()) return;
+  const uint32_t recordId = shownIds_[index];
+
+  std::wstring path;
+  bool openable = false;
+  for (const DownloadRecord& rec : manager.records()) {
+    if (rec.id == recordId) {
+      path = rec.path;
+      openable = rec.complete && !rec.missing;
+    }
+  }
+  if (cancel) {
+    manager.Cancel(recordId);
+  } else if (openable && !path.empty()) {
+    ShellExecuteW(hwnd_, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    HidePanel();
+  }
+}
+
+LRESULT CALLBACK DownloadPopup::WindowProc(HWND hwnd, UINT message,
+                                           WPARAM wParam, LPARAM lParam) {
+  DownloadPopup* self = reinterpret_cast<DownloadPopup*>(
+      GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+  if (message == WM_NCCREATE) {
+    auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
+    self = static_cast<DownloadPopup*>(create->lpCreateParams);
+    self->hwnd_ = hwnd;
+    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+  }
+  if (!self) return DefWindowProcW(hwnd, message, wParam, lParam);
+  return self->HandleMessage(message, wParam, lParam);
+}
+
+LRESULT DownloadPopup::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
+  switch (message) {
+    case WM_MOUSEACTIVATE:
+      return MA_NOACTIVATE;
+
+    case WM_ERASEBKGND:
+      return 1;
+
+    case WM_TIMER:
+      if (wParam == kPopupTimer) {
+        OnTimer();
+        return 0;
+      }
+      break;
+
+    case WM_PAINT: {
+      PAINTSTRUCT ps{};
+      HDC hdc = BeginPaint(hwnd_, &ps);
+      RECT client{};
+      GetClientRect(hwnd_, &client);
+      const int width = client.right - client.left;
+      const int height = client.bottom - client.top;
+      if (width > 0 && height > 0) {
+        HDC mem = CreateCompatibleDC(hdc);
+        HBITMAP bitmap = CreateCompatibleBitmap(hdc, width, height);
+        if (mem && bitmap) {
+          HGDIOBJ oldBitmap = SelectObject(mem, bitmap);
+          SetBkMode(mem, TRANSPARENT);
+          PaintAll(mem, client);
+          BitBlt(hdc, 0, 0, width, height, mem, 0, 0, SRCCOPY);
+          SelectObject(mem, oldBitmap);
+        }
+        if (bitmap) DeleteObject(bitmap);
+        if (mem) DeleteDC(mem);
+      }
+      EndPaint(hwnd_, &ps);
+      return 0;
+    }
+
+    case WM_MOUSEMOVE: {
+      const int id = HitTest(PopupX(lParam), PopupY(lParam));
+      if (!tracking_) {
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd_, 0};
+        if (TrackMouseEvent(&track)) tracking_ = true;
+      }
+      if (id != hoverId_) {
+        hoverId_ = id;
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      }
+      return 0;
+    }
+
+    case WM_MOUSELEAVE:
+      tracking_ = false;
+      hoverId_ = 0;
+      hideAtMs_ = NowMs() + kPopupLingerMs;
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      return 0;
+
+    case WM_SETCURSOR:
+      if (LOWORD(lParam) == HTCLIENT && hoverId_ > 0) {
+        SetCursor(LoadCursorW(nullptr, IDC_HAND));
+        return TRUE;
+      }
+      break;
+
+    case WM_LBUTTONUP: {
+      const int id = HitTest(PopupX(lParam), PopupY(lParam));
+      if (id > 0) OnClick(id);
+      return 0;
+    }
+
+    default:
+      break;
+  }
+  return DefWindowProcW(hwnd_, message, wParam, lParam);
 }
 
 }  // namespace vibrium

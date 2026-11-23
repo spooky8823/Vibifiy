@@ -10,8 +10,10 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "include/cef_download_handler.h"
@@ -40,6 +42,7 @@ struct DownloadRecord {
   bool complete = false;
   bool canceled = false;
   bool missing = false;  // finished, but the file is gone from disk
+  bool updated = false;  // has received at least one OnDownloadUpdated
   uint64_t timeMs = 0;   // Unix ms, start (or finish) time
 };
 
@@ -73,6 +76,10 @@ class DownloadManager {
 
   const std::vector<DownloadRecord>& records() const { return records_; }
   uint64_t revision() const { return revision_; }
+  // Counters the download popup watches to know when to appear.
+  uint32_t startCount() const { return startCount_; }
+  uint32_t finishCount() const { return finishCount_; }
+  bool HasActive() const;
 
  private:
   DownloadManager() = default;
@@ -81,11 +88,17 @@ class DownloadManager {
   void Save() const;
   DownloadRecord* FindByCefId(uint32_t cefId);
   DownloadRecord* FindById(uint32_t id);
+  // A record created in OnBeforeDownload that has not yet been matched to a
+  // CEF update (ids can differ between the two callbacks).
+  DownloadRecord* FindPendingMatch(const std::wstring& url,
+                                   const std::wstring& path);
 
   std::vector<DownloadRecord> records_;
   std::map<uint32_t, CefRefPtr<CefDownloadItemCallback>> callbacks_;
   uint32_t nextId_ = 1;
   uint64_t revision_ = 1;
+  uint32_t startCount_ = 0;
+  uint32_t finishCount_ = 0;
   bool askWhere_ = false;
   bool loaded_ = false;
 };
@@ -106,6 +119,61 @@ class DownloadsPage final : public NativePage {
  private:
   std::vector<uint32_t> shownIds_;  // record ids in display order
   uint64_t paintedRevision_ = 0;
+};
+
+
+// Small always-on-top-of-the-browser panel in the top-right corner (black
+// background, accent-coloured border) that appears when a download starts or
+// finishes, replacing CEF's built-in download bubble.
+class DownloadPopup {
+ public:
+  DownloadPopup() = default;
+  ~DownloadPopup();
+  DownloadPopup(const DownloadPopup&) = delete;
+  DownloadPopup& operator=(const DownloadPopup&) = delete;
+
+  bool Create(HWND owner, HINSTANCE instance);
+  // Top-right corner of the panel, in screen coordinates.
+  void SetAnchor(POINT topRightScreen);
+  // Called when "Show all downloads" is clicked.
+  void SetOnShowAll(std::function<void()> callback) {
+    onShowAll_ = std::move(callback);
+  }
+
+ private:
+  struct Hit {
+    RECT rect;
+    int id;
+  };
+
+  static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam,
+                                     LPARAM lParam);
+  LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
+  void OnTimer();
+  void ShowPanel();
+  void HidePanel();
+  void Layout();
+  void PaintAll(HDC hdc, const RECT& client);
+  int HitTest(int x, int y) const;
+  void OnClick(int id);
+
+  HWND hwnd_ = nullptr;
+  HWND owner_ = nullptr;
+  HINSTANCE instance_ = nullptr;
+  POINT anchor_{0, 0};
+  bool visible_ = false;
+  bool tracking_ = false;
+  int hoverId_ = 0;
+  uint64_t hideAtMs_ = 0;
+  uint64_t paintedRevision_ = 0;
+  uint32_t seenStart_ = 0;
+  uint32_t seenFinish_ = 0;
+  std::vector<uint32_t> shownIds_;
+  std::vector<Hit> hits_;
+  HFONT fontBold_ = nullptr;
+  HFONT fontSmall_ = nullptr;
+  HFONT fontTitle_ = nullptr;
+  std::function<void()> onShowAll_;
 };
 
 }  // namespace vibrium
