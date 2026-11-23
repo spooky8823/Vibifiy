@@ -370,9 +370,9 @@ public:
 
         // Same (accent-tinted) icon as the main window.
         const LRESULT big = SendMessageW(main_, WM_GETICON, ICON_BIG, 0);
-        const LRESULT small = SendMessageW(main_, WM_GETICON, ICON_SMALL, 0);
+        const LRESULT smallIcon = SendMessageW(main_, WM_GETICON, ICON_SMALL, 0);
         if (big) SendMessageW(frame_, WM_SETICON, ICON_BIG, big);
-        if (small) SendMessageW(frame_, WM_SETICON, ICON_SMALL, small);
+        if (smallIcon) SendMessageW(frame_, WM_SETICON, ICON_SMALL, smallIcon);
         return true;
     }
 
