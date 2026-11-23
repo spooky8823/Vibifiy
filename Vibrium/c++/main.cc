@@ -45,6 +45,8 @@
 #include "tabbar.h"
 #include "searchengine.h"
 #include "settings_page.h"
+#include "history.h"
+#include "downloads.h"
 #include "update_launcher.h"
 #include "accent_icon.h"
 #include "resource.h"
@@ -443,6 +445,14 @@ HICON CreateAccentFlowerIcon(COLORREF accent) {
 // Tab state
 // ------------------------------------------------------------
 
+// Built-in pages that are shown as native views instead of a CEF browser.
+enum InternalPage : int {
+    kPageNone = 0,
+    kPageSettings = 1,
+    kPageHistory = 2,
+    kPageDownloads = 3,
+};
+
 struct TabRecord {
     int id = 0;
 
@@ -460,8 +470,9 @@ struct TabRecord {
     bool closingBrowser = false;
     bool browserCreating = false;
 
-    // The built-in settings page: a native view, no CEF browser.
-    bool isSettings = false;
+    // Which built-in page this tab shows (kPageNone for a normal web tab).
+    // Built-in pages are native views with no CEF browser.
+    int internalPage = kPageNone;
 };
 
 // ------------------------------------------------------------
@@ -604,6 +615,16 @@ public:
                 OpenSettings();
             });
 
+        searchBar_->SetOnHistory(
+            [this]() {
+                OpenHistory();
+            });
+
+        searchBar_->SetOnDownloads(
+            [this]() {
+                OpenDownloads();
+            });
+
         searchBar_->SetOnNavigation([this](int action) {
             TabRecord* tab = GetActiveTab();
             if (!tab || !tab->browser) return;
@@ -648,6 +669,25 @@ public:
                 if (tabBar_) InvalidateRect(tabBar_->GetHandle(), nullptr, TRUE);
                 if (searchBar_) InvalidateRect(searchBar_->GetHandle(), nullptr, TRUE);
             });
+        }
+
+        // History and downloads: load saved data, then create their pages.
+        HistoryStore::Get().Load();
+        DownloadManager::Get().Load();
+
+        historyPage_ = std::make_unique<HistoryPage>();
+        if (!historyPage_->Create(hwnd_, instance_)) {
+            historyPage_.reset();
+        } else {
+            // Clicking an entry opens it in the current tab.
+            historyPage_->SetOnOpenUrl([this](const std::wstring& url) {
+                NavigateActiveTab(url);
+            });
+        }
+
+        downloadsPage_ = std::make_unique<DownloadsPage>();
+        if (!downloadsPage_->Create(hwnd_, instance_)) {
+            downloadsPage_.reset();
         }
 
         SetTimer(
@@ -703,20 +743,20 @@ public:
     // --------------------------------------------------------
 
     void CreateNewTab() {
-        CreateTab(GetNewTabUrl(), L"New Tab", false);
+        CreateTab(GetNewTabUrl(), L"New Tab", kPageNone);
     }
 
     void CreateTab(
         const std::wstring& url,
         const std::wstring& title,
-        bool isSettings) {
+        int internalPage) {
 
         TabRecord tab;
 
         tab.id = nextTabId_++;
         tab.title = title;
         tab.url = url;
-        tab.isSettings = isSettings;
+        tab.internalPage = internalPage;
         tab.lastActiveTime = GetTickCount64();
 
         const int id = tab.id;
@@ -732,39 +772,82 @@ public:
     }
 
     // --------------------------------------------------------
-    // Settings page (native view shown in place of a browser)
+    // Built-in pages (native views shown in place of a browser)
     // --------------------------------------------------------
 
-    // Opens the settings page as a tab, or switches to it if it is open.
-    void OpenSettings() {
-        if (!settingsPage_) {
+    bool HasInternalPage(int page) const {
+        switch (page) {
+            case kPageSettings: return settingsPage_ != nullptr;
+            case kPageHistory: return historyPage_ != nullptr;
+            case kPageDownloads: return downloadsPage_ != nullptr;
+            default: return false;
+        }
+    }
+
+    static const wchar_t* InternalPageUrl(int page) {
+        switch (page) {
+            case kPageSettings: return kSettingsUrl;
+            case kPageHistory: return kHistoryUrl;
+            case kPageDownloads: return kDownloadsUrl;
+            default: return L"";
+        }
+    }
+
+    static const wchar_t* InternalPageTitle(int page) {
+        switch (page) {
+            case kPageSettings: return L"Settings";
+            case kPageHistory: return L"History";
+            case kPageDownloads: return L"Downloads";
+            default: return L"";
+        }
+    }
+
+    // Which built-in page a typed address refers to (kPageNone if none).
+    static int InternalPageForUrl(const std::wstring& url) {
+        if (IsSettingsUrl(url)) return kPageSettings;
+        if (IsHistoryUrl(url)) return kPageHistory;
+        if (IsDownloadsUrl(url)) return kPageDownloads;
+        return kPageNone;
+    }
+
+    // Opens a built-in page as a tab, or switches to it if it is open.
+    void OpenInternalPage(int page) {
+        if (!HasInternalPage(page)) {
             return;
         }
 
         for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
-            if (tabs_[i].isSettings) {
+            if (tabs_[i].internalPage == page) {
                 SelectTab(i);
                 return;
             }
         }
 
-        CreateTab(kSettingsUrl, L"Settings", true);
+        CreateTab(InternalPageUrl(page), InternalPageTitle(page), page);
     }
 
-    void ShowSettingsPage() {
-        if (!settingsPage_) {
-            return;
-        }
+    void OpenSettings() { OpenInternalPage(kPageSettings); }
+    void OpenHistory() { OpenInternalPage(kPageHistory); }
+    void OpenDownloads() { OpenInternalPage(kPageDownloads); }
 
+    // Shows one built-in page over the browser area and hides the others.
+    void ShowInternalPage(int page) {
         RECT rect{};
         GetBrowserBounds(rect);
-        settingsPage_->Show(rect);
+
+        if (page != kPageSettings && settingsPage_) settingsPage_->Hide();
+        if (page != kPageHistory && historyPage_) historyPage_->Hide();
+        if (page != kPageDownloads && downloadsPage_) downloadsPage_->Hide();
+
+        if (page == kPageSettings && settingsPage_) settingsPage_->Show(rect);
+        if (page == kPageHistory && historyPage_) historyPage_->Show(rect);
+        if (page == kPageDownloads && downloadsPage_) downloadsPage_->Show(rect);
     }
 
-    void HideSettingsPage() {
-        if (settingsPage_) {
-            settingsPage_->Hide();
-        }
+    void HideInternalPages() {
+        if (settingsPage_) settingsPage_->Hide();
+        if (historyPage_) historyPage_->Hide();
+        if (downloadsPage_) downloadsPage_->Hide();
     }
 
     // --------------------------------------------------------
@@ -803,12 +886,12 @@ public:
 
         UpdateAddressBar();
 
-        if (selected.isSettings) {
-            ShowSettingsPage();
+        if (selected.internalPage) {
+            ShowInternalPage(selected.internalPage);
             return;
         }
 
-        HideSettingsPage();
+        HideInternalPages();
 
         if (selected.browser) {
             ShowBrowser(selected);
@@ -823,7 +906,7 @@ public:
     // --------------------------------------------------------
 
     void CreateBrowserForTab(TabRecord& tab) {
-        if (tab.isSettings ||
+        if (tab.internalPage ||
             tab.browser ||
             tab.browserCreating ||
             tab.closingBrowser) {
@@ -978,8 +1061,8 @@ public:
 
         const bool wasActive = index == activeTab_;
 
-        if (tabs_[index].isSettings) {
-            HideSettingsPage();
+        if (wasActive && tabs_[index].internalPage) {
+            HideInternalPages();
         }
 
         if (tabs_[index].browser) {
@@ -1009,8 +1092,8 @@ public:
 
         TabRecord& selected = tabs_[activeTab_];
 
-        if (selected.isSettings) {
-            ShowSettingsPage();
+        if (selected.internalPage) {
+            ShowInternalPage(selected.internalPage);
         } else if (selected.browser) {
             ShowBrowser(selected);
         } else if (!selected.browserCreating &&
@@ -1036,20 +1119,22 @@ public:
     const std::wstring url =
         IsNewTabAlias(requestedUrl) ? GetNewTabUrl() : requestedUrl;
 
-    // "vibrium://settings" opens (or switches to) the settings tab.
-    if (IsSettingsUrl(url)) {
-        if (tab->isSettings) {
+    // "vibrium://settings", "vibrium://history" and "vibrium://downloads"
+    // open (or switch to) the matching built-in page tab.
+    const int page = InternalPageForUrl(url);
+    if (page != kPageNone) {
+        if (tab->internalPage == page) {
             UpdateAddressBar();
         } else {
-            OpenSettings();
+            OpenInternalPage(page);
         }
         return;
     }
 
-    // Navigating away from the settings tab turns it into a normal tab.
-    if (tab->isSettings) {
-        tab->isSettings = false;
-        HideSettingsPage();
+    // Navigating away from a built-in page turns its tab into a normal tab.
+    if (tab->internalPage) {
+        tab->internalPage = kPageNone;
+        HideInternalPages();
     }
 
     tab->url = url;
@@ -1067,7 +1152,7 @@ public:
         if (tab && searchBar_) {
             // The new tab page shows an empty address bar with the caret
             // blinking, instead of its long file:// URL.
-            if (!tab->isSettings && IsNewTabPageUrl(tab->url)) {
+            if (!tab->internalPage && IsNewTabPageUrl(tab->url)) {
                 searchBar_->SetText(L"");
                 searchBar_->FocusAddress();
             } else {
@@ -1080,9 +1165,19 @@ public:
     // taken keyboard focus while loading, so give it back to the address bar
     // when this is the visible new tab page.
     void OnTabLoadEnd(int tabId) {
+        // Log the visit in the history (web pages only).
+        if (TabRecord* loaded = FindTab(tabId)) {
+            if (!loaded->internalPage &&
+                HistoryStore::ShouldRecord(loaded->url)) {
+                HistoryStore::Get().AddVisit(
+                    loaded->url,
+                    loaded->title == L"New Tab" ? std::wstring() : loaded->title);
+            }
+        }
+
         if (tabId != GetActiveTabId() || !searchBar_) return;
         TabRecord* tab = GetActiveTab();
-        if (tab && !tab->isSettings && IsNewTabPageUrl(tab->url)) {
+        if (tab && !tab->internalPage && IsNewTabPageUrl(tab->url)) {
             searchBar_->FocusAddress();
         }
     }
@@ -1160,6 +1255,10 @@ public:
     }
 
     tab->title = title.empty() ? L"New Tab" : title;
+
+    if (!tab->internalPage) {
+        HistoryStore::Get().UpdateTitle(tab->url, tab->title);
+    }
 
     const int index = FindTabIndex(tabId);
 
@@ -1403,8 +1502,10 @@ public:
             }
         }
 
-        if (settingsPage_ && settingsPage_->visible()) {
-            ShowSettingsPage();
+        if (TabRecord* active = GetActiveTab()) {
+            if (active->internalPage) {
+                ShowInternalPage(active->internalPage);
+            }
         }
 
         (void)height;
@@ -1611,6 +1712,7 @@ private:
 
         case WM_TIMER:
             if (wParam == kMemoryTimer) {
+                HistoryStore::Get().Flush();
                 self->CheckInactiveTabs();
             } else if (wParam == kSelfTestTimer) {
                 KillTimer(hwnd, kSelfTestTimer);
@@ -1632,6 +1734,7 @@ private:
 
         case WM_DESTROY:
             KillTimer(hwnd, kMemoryTimer);
+            HistoryStore::Get().Flush();
             // This application uses CefRunMessageLoop(), so use CEF's matching
             // quit API rather than injecting WM_QUIT into its Windows queue.
             CefQuitMessageLoop();
@@ -1707,6 +1810,8 @@ private:
     // Client-area Y of the address bar window; recomputed in ResizeUI().
     int searchBarTop_ = kSearchBarTop;
     std::unique_ptr<SettingsPage> settingsPage_;
+    std::unique_ptr<HistoryPage> historyPage_;
+    std::unique_ptr<DownloadsPage> downloadsPage_;
 
     std::vector<TabRecord> tabs_;
 
@@ -1917,10 +2022,12 @@ bool BrowserClient::OnBeforeDownload(
 
     owner_->OnDownloadStarted(tabId_);
 
-    // Let CEF choose its normal download location.
-    callback->Continue(
-        CefString(suggestedName),
-        false);
+    // DownloadManager picks the destination: the user's Downloads folder, or
+    // a Save As window when "Ask where to save each file" is on.
+    DownloadManager::Get().HandleBeforeDownload(
+        item,
+        suggestedName.ToWString(),
+        callback);
 
     return true;
 }
@@ -1931,6 +2038,7 @@ void BrowserClient::OnDownloadUpdated(
     CefRefPtr<CefDownloadItemCallback> callback) {
 
     owner_->OnDownloadUpdated(tabId_, item);
+    DownloadManager::Get().HandleUpdated(item, callback);
 }
 
 void BrowserClient::OnAudioStreamStarted(

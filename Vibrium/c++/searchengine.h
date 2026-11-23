@@ -37,6 +37,9 @@ public:
     // Called when the settings (gear) button next to the address bar is
     // clicked.
     void SetOnSettings(SettingsCallback callback);
+    // Entries of the three-dots menu.
+    void SetOnHistory(SettingsCallback callback);
+    void SetOnDownloads(SettingsCallback callback);
     void SetOnNavigation(NavigationCallback callback);
     void SetSearchProvider(const std::wstring& provider);
 
@@ -79,6 +82,8 @@ private:
 
     NavigateCallback onNavigate_;
     SettingsCallback onSettings_;
+    SettingsCallback onHistory_;
+    SettingsCallback onDownloads_;
     NavigationCallback onNavigation_;
 
     std::wstring searchProvider_ =

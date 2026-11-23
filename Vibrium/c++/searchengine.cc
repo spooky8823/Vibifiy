@@ -1,5 +1,6 @@
 #include "searchengine.h"
 #include "theme.h"
+#include "icon_util.h"
 
 #include <algorithm>
 using std::min;
@@ -55,6 +56,8 @@ constexpr int kMoreIconSize = 22;    // three-dots PNG
 constexpr int kMenuWidth = 170;
 constexpr int kMenuItemHeight = 36;
 constexpr UINT kMenuSettingsId = 2001;
+constexpr UINT kMenuHistoryId = 2002;
+constexpr UINT kMenuDownloadsId = 2003;
 
 // Hover circle behind each toolbar button (like Chrome's round highlight).
 constexpr UINT_PTR kHoverTimer = 1;
@@ -65,93 +68,11 @@ constexpr int kHoverAlpha = 34;          // 0-255, white over the dark bar
 constexpr int kHoverPressedAlpha = 62;
 constexpr int kNavCenters[4] = {25, 61, 97, 133};
 
-// Gdiplus is started once for the process and shut down at exit.
-void EnsureGdiplus() {
-    struct Init {
-        ULONG_PTR token = 0;
-        Init() {
-            Gdiplus::GdiplusStartupInput in;
-            Gdiplus::GdiplusStartup(&token, &in, nullptr);
-        }
-        ~Init() { Gdiplus::GdiplusShutdown(token); }
-    };
-    static Init init;
-}
-
-// <exe folder>\icons\<name>
-std::wstring IconPath(const wchar_t* name) {
-    wchar_t exe[MAX_PATH * 4]{};
-    const DWORD n = GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
-    if (!n || n >= std::size(exe)) return L"";
-    std::wstring path(exe);
-    const size_t slash = path.find_last_of(L"\\/");
-    if (slash == std::wstring::npos) return L"";
-    return path.substr(0, slash) + L"\\icons\\" + name;
-}
-
-// Loads icons\<name> and recolours it. The shipped PNGs are black shapes (the
-// settings gear also has a white centre), so the shape is taken from the
-// alpha channel and darkness, then filled with `tint`. Results are cached.
-Gdiplus::Bitmap* TintedIcon(const wchar_t* name, COLORREF tint) {
-    static std::map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> cache;
-
-    wchar_t key[128]{};
-    swprintf_s(key, L"%ls|%06X", name, static_cast<unsigned>(tint & 0xFFFFFF));
-    auto it = cache.find(key);
-    if (it != cache.end()) return it->second.get();
-
-    std::unique_ptr<Gdiplus::Bitmap> result;
-    EnsureGdiplus();
-    const std::wstring path = IconPath(name);
-    if (!path.empty()) {
-        Gdiplus::Bitmap source(path.c_str());
-        if (source.GetLastStatus() == Gdiplus::Ok) {
-            const int w = static_cast<int>(source.GetWidth());
-            const int h = static_cast<int>(source.GetHeight());
-            auto out = std::make_unique<Gdiplus::Bitmap>(w, h, PixelFormat32bppARGB);
-            Gdiplus::Rect rect(0, 0, w, h);
-            Gdiplus::BitmapData sd{}, dd{};
-            if (source.LockBits(&rect, Gdiplus::ImageLockModeRead,
-                                PixelFormat32bppARGB, &sd) == Gdiplus::Ok) {
-                if (out->LockBits(&rect, Gdiplus::ImageLockModeWrite,
-                                  PixelFormat32bppARGB, &dd) == Gdiplus::Ok) {
-                    for (int y = 0; y < h; ++y) {
-                        const BYTE* sp = static_cast<const BYTE*>(sd.Scan0) +
-                                         static_cast<ptrdiff_t>(y) * sd.Stride;
-                        BYTE* dp = static_cast<BYTE*>(dd.Scan0) +
-                                   static_cast<ptrdiff_t>(y) * dd.Stride;
-                        for (int x = 0; x < w; ++x, sp += 4, dp += 4) {
-                            const int lum = (sp[2] * 299 + sp[1] * 587 + sp[0] * 114) / 1000;
-                            dp[0] = GetBValue(tint);
-                            dp[1] = GetGValue(tint);
-                            dp[2] = GetRValue(tint);
-                            dp[3] = static_cast<BYTE>(sp[3] * (255 - lum) / 255);
-                        }
-                    }
-                    out->UnlockBits(&dd);
-                    result = std::move(out);
-                }
-                source.UnlockBits(&sd);
-            }
-        }
-    }
-
-    Gdiplus::Bitmap* raw = result.get();
-    cache[key] = std::move(result);  // a failed load is cached as nullptr
-    return raw;
-}
-
 // Draws icons\<name> tinted and centred on (cx, cy). Returns false if the
 // file could not be loaded so the caller can draw a fallback.
 bool DrawPngIcon(HDC hdc, const wchar_t* name, COLORREF tint,
                  int cx, int cy, int size) {
-    Gdiplus::Bitmap* icon = TintedIcon(name, tint);
-    if (!icon) return false;
-    Gdiplus::Graphics g(hdc);
-    g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-    g.DrawImage(icon, Gdiplus::Rect(cx - size / 2, cy - size / 2, size, size));
-    return true;
+    return vibrium::DrawTintedIcon(hdc, name, tint, cx, cy, size);
 }
 
 std::wstring Trim(const std::wstring& value) {
@@ -384,6 +305,19 @@ void SearchEngine::DrawSecurityIcon(HDC hdc, int cx, int cy) const {
     SetBkMode(hdc, TRANSPARENT);
     HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
 
+    // secure.png / warning.png from the icons folder (tinted). The hand-drawn
+    // versions below are only a fallback if the files are missing.
+    if (security_ == Security::kSecure &&
+        DrawPngIcon(hdc, L"secure.png", kSecureColor, cx, cy, 16)) {
+        SelectObject(hdc, oldBrush);
+        return;
+    }
+    if (security_ == Security::kNotSecure &&
+        DrawPngIcon(hdc, L"warning.png", kNotSecureColor, cx, cy, 17)) {
+        SelectObject(hdc, oldBrush);
+        return;
+    }
+
     if (security_ == Security::kSecure) {
         // Closed padlock.
         HPEN pen = CreatePen(PS_SOLID, 2, kSecureColor);
@@ -589,6 +523,14 @@ void SearchEngine::SetOnSettings(
     onSettings_ = std::move(callback);
 }
 
+void SearchEngine::SetOnHistory(SettingsCallback callback) {
+    onHistory_ = std::move(callback);
+}
+
+void SearchEngine::SetOnDownloads(SettingsCallback callback) {
+    onDownloads_ = std::move(callback);
+}
+
 void SearchEngine::SetOnNavigation(NavigationCallback callback) {
     onNavigation_ = std::move(callback);
 }
@@ -714,7 +656,7 @@ void SearchEngine::Paint(HDC hdc) {
     DrawSecurityIcon(hdc, kIconCenterX, client.bottom / 2);
 
     // Circular hover highlight behind each button (fades in and out).
-    EnsureGdiplus();
+    vibrium::EnsureGdiplus();
     {
         Gdiplus::Graphics g(hdc);
         g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -792,6 +734,8 @@ void SearchEngine::ShowMoreMenu() {
     info.hbrBack = background;
     SetMenuInfo(menu, &info);
 
+    AppendMenuW(menu, MF_OWNERDRAW, kMenuHistoryId, nullptr);
+    AppendMenuW(menu, MF_OWNERDRAW, kMenuDownloadsId, nullptr);
     AppendMenuW(menu, MF_OWNERDRAW, kMenuSettingsId, nullptr);
 
     RECT client{};
@@ -817,7 +761,11 @@ void SearchEngine::ShowMoreMenu() {
     hot_ = -1;
     SetTimer(hwnd_, kHoverTimer, kHoverTimerMs, nullptr);
 
-    if (chosen == kMenuSettingsId && onSettings_) {
+    if (chosen == kMenuHistoryId && onHistory_) {
+        onHistory_();
+    } else if (chosen == kMenuDownloadsId && onDownloads_) {
+        onDownloads_();
+    } else if (chosen == kMenuSettingsId && onSettings_) {
         onSettings_();
     }
 }
@@ -939,8 +887,18 @@ LRESULT CALLBACK SearchEngine::WindowProc(
             FillRect(item->hDC, &item->rcItem, fill);
             DeleteObject(fill);
 
+            const wchar_t* iconName = L"settings.png";
+            const wchar_t* label = L"Settings";
+            if (item->itemID == kMenuHistoryId) {
+                iconName = L"history.png";
+                label = L"History";
+            } else if (item->itemID == kMenuDownloadsId) {
+                iconName = L"download.png";
+                label = L"Downloads";
+            }
+
             const int midY = (item->rcItem.top + item->rcItem.bottom) / 2;
-            DrawPngIcon(item->hDC, L"settings.png", kTextColor,
+            DrawPngIcon(item->hDC, iconName, kTextColor,
                         item->rcItem.left + 22, midY, 18);
 
             SetBkMode(item->hDC, TRANSPARENT);
@@ -948,7 +906,7 @@ LRESULT CALLBACK SearchEngine::WindowProc(
             HGDIOBJ oldFont = SelectObject(item->hDC, self->font_);
             RECT textRect = item->rcItem;
             textRect.left += 44;
-            DrawTextW(item->hDC, L"Settings", -1, &textRect,
+            DrawTextW(item->hDC, label, -1, &textRect,
                       DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
             SelectObject(item->hDC, oldFont);
             return TRUE;
