@@ -43,6 +43,7 @@
 #include "include/cef_life_span_handler.h"
 #include "include/cef_request_context.h"
 
+#include "profile_picker.h"
 #include "tabbar.h"
 #include "searchengine.h"
 #include "settings_page.h"
@@ -2938,7 +2939,26 @@ int WINAPI wWinMain(
         return 0;
     }
 
+    // Pick the browser profile before CEF starts. CEF's cache_path is the
+    // persistent profile root for cookies, cache, preferences, and storage.
+    const auto selectedProfile = vibrium::ProfilePicker::Show(instance);
+    if (!selectedProfile) {
+        CloseHandle(instanceMutex);
+        return 0;
+    }
+
+    std::error_code profilePathError;
+    std::filesystem::create_directories(
+        selectedProfile->path, profilePathError);
+    if (profilePathError) {
+        MessageBoxW(nullptr, L"Could not prepare the selected profile folder.",
+                    L"Vibrium Profiles", MB_OK | MB_ICONERROR);
+        CloseHandle(instanceMutex);
+        return 1;
+    }
+
     CefSettings settings;
+    CefString(&settings.cache_path) = selectedProfile->path.wstring();
     // DEVELOPMENT ONLY: a release build must run sandboxed (see
     // c++/adblock/README.md, "Sandbox").
     settings.no_sandbox = true;
