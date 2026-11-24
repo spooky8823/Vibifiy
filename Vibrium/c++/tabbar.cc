@@ -393,8 +393,14 @@ RECT TabBar::GetTabRect(int index) const {
     const auto layout = GetLayout();
     RECT rect{};
     rect.left = TAB_START + index * layout.pitch;
+    // As a tab grows or shrinks, later tabs follow its animated width.
+    for (int i = 0; i < index; ++i) {
+        rect.left += static_cast<int>(
+            layout.width * (GetTabAnimationScale(i) - 1.0f));
+    }
     rect.top = 0;
-    rect.right = rect.left + static_cast<int>(layout.width * GetTabAnimationScale(index));
+    rect.right = rect.left + static_cast<int>(
+        layout.width * GetTabAnimationScale(index));
     rect.bottom = GetBarHeight();
     return rect;
 }
