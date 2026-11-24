@@ -95,7 +95,7 @@ bool ProfilePicker::Create() {
     wc.lpfnWndProc = ProfilePicker::WindowProc;
     wc.hInstance = instance_;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(101));
+    wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     wc.hIconSm = wc.hIcon;
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     wc.lpszClassName = kPickerClass;
@@ -171,8 +171,10 @@ void ProfilePicker::PopulateProfiles() {
               [](const ProfileSelection& a, const ProfileSelection& b) {
         std::wstring left = a.name;
         std::wstring right = b.name;
-        std::transform(left.begin(), left.end(), left.begin(), towlower);
-        std::transform(right.begin(), right.end(), right.begin(), towlower);
+        std::transform(left.begin(), left.end(), left.begin(),
+                       [](wchar_t c) { return static_cast<wchar_t>(towlower(c)); });
+        std::transform(right.begin(), right.end(), right.begin(),
+                       [](wchar_t c) { return static_cast<wchar_t>(towlower(c)); });
         return left < right;
     });
 
@@ -244,7 +246,6 @@ void ProfilePicker::CreateProfileFromInput() {
     ShowWindow(createButton_, SW_HIDE);
     ShowWindow(cancelCreateButton_, SW_HIDE);
     ShowWindow(newButton_, SW_SHOW);
-    creating_ = false;
     EnableWindow(useButton_, TRUE);
     SetFocus(list_);
 }
@@ -299,7 +300,6 @@ LRESULT CALLBACK ProfilePicker::WindowProc(HWND hwnd, UINT message,
         }
 
         case kNewProfileId:
-            self->creating_ = true;
             ShowWindow(self->nameEdit_, SW_SHOW);
             ShowWindow(self->createButton_, SW_SHOW);
             ShowWindow(self->cancelCreateButton_, SW_SHOW);
@@ -312,7 +312,6 @@ LRESULT CALLBACK ProfilePicker::WindowProc(HWND hwnd, UINT message,
             return 0;
 
         case kCancelCreateId:
-            self->creating_ = false;
             ShowWindow(self->nameEdit_, SW_HIDE);
             ShowWindow(self->createButton_, SW_HIDE);
             ShowWindow(self->cancelCreateButton_, SW_HIDE);
