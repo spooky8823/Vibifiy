@@ -30,6 +30,9 @@ namespace {
     constexpr int BASELINE = 2;
     constexpr int CAPTION_GAP = 8;        // space before the window controls
     constexpr int CLOSE_MIN_WIDTH = 100;  // narrower tabs hide the close button
+    constexpr UINT_PTR TAB_ANIMATION_TIMER = 1;
+    constexpr ULONGLONG TAB_OPEN_DURATION = 190;
+    constexpr ULONGLONG TAB_CLOSE_DURATION = 160;
 
     // Gdiplus is started once for the process and shut down at exit.
     void EnsureGdiplus() {
@@ -225,6 +228,9 @@ void TabBar::Resize(
 
 int TabBar::AddTab(const std::wstring& title) {
     tabs_.push_back({title});
+    tabs_.back().opening = true;
+    tabs_.back().animationStart = GetTickCount64();
+    if (hwnd_) SetTimer(hwnd_, TAB_ANIMATION_TIMER, 16, nullptr);
 
     const int index = static_cast<int>(tabs_.size()) - 1;
 
@@ -245,6 +251,8 @@ void TabBar::RemoveTab(int index) {
         return;
     }
 
+    if (closingTab_ == index) closingTab_ = -1;
+    else if (closingTab_ > index) --closingTab_;
     if (tabs_[index].iconBitmap) {
         DeleteObject(tabs_[index].iconBitmap);
     }
@@ -370,12 +378,23 @@ int TabBar::GetTabWidth() const {
     return GetLayout().width;
 }
 
+float TabBar::GetTabAnimationScale(int index) const {
+    if (index < 0 || index >= static_cast<int>(tabs_.size())) return 1.0f;
+    const Tab& tab = tabs_[index];
+    if (!tab.opening && !tab.closing) return 1.0f;
+    const ULONGLONG elapsed = GetTickCount64() - tab.animationStart;
+    const ULONGLONG duration = tab.closing ? TAB_CLOSE_DURATION : TAB_OPEN_DURATION;
+    const float t = std::min(1.0f, static_cast<float>(elapsed) / static_cast<float>(duration));
+    const float eased = 1.0f - (1.0f - t) * (1.0f - t);
+    return tab.closing ? 1.0f - eased : 0.12f + 0.88f * eased;
+}
+
 RECT TabBar::GetTabRect(int index) const {
     const auto layout = GetLayout();
     RECT rect{};
     rect.left = TAB_START + index * layout.pitch;
     rect.top = 0;
-    rect.right = rect.left + layout.width;
+    rect.right = rect.left + static_cast<int>(layout.width * GetTabAnimationScale(index));
     rect.bottom = GetBarHeight();
     return rect;
 }
@@ -456,6 +475,46 @@ LRESULT TabBar::HandleMessage(
         EndPaint(hwnd_, &ps);
         return 0;
     }
+
+    case WM_TIMER:
+        if (wParam == TAB_ANIMATION_TIMER) {
+            const ULONGLONG now = GetTickCount64();
+            int finishedClose = -1;
+            bool animationsRemain = false;
+            for (int i = 0; i < static_cast<int>(tabs_.size()); ++i) {
+                Tab& tab = tabs_[i];
+                if (tab.opening) {
+                    if (now - tab.animationStart >= TAB_OPEN_DURATION) {
+                        tab.opening = false;
+                    } else {
+                        animationsRemain = true;
+                    }
+                }
+                if (tab.closing) {
+                    if (now - tab.animationStart >= TAB_CLOSE_DURATION) {
+                        finishedClose = i;
+                    } else {
+                        animationsRemain = true;
+                    }
+                }
+            }
+            InvalidateRect(hwnd_, nullptr, TRUE);
+            if (finishedClose >= 0) {
+                closingTab_ = -1;
+                tabs_[finishedClose].closing = false;
+                if (onTabClosed_) onTabClosed_(finishedClose);
+                animationsRemain = false;
+                for (const Tab& tab : tabs_) {
+                    if (tab.opening || tab.closing) {
+                        animationsRemain = true;
+                        break;
+                    }
+                }
+            }
+            if (!animationsRemain) KillTimer(hwnd_, TAB_ANIMATION_TIMER);
+            return 0;
+        }
+        break;
 
     case WM_LBUTTONDOWN:
         HandleClick(
@@ -774,9 +833,13 @@ void TabBar::HandleClick(int x, int y) {
         const int closeX = roomy ? rect.right - pad - 9
                                  : (rect.left + rect.right) / 2;
         if (showClose && x >= closeX - 10 && x <= closeX + 10) {
-            if (onTabClosed_) {
-                onTabClosed_(i);
-            }
+            if (tabs_[i].closing || closingTab_ >= 0) return;
+            tabs_[i].closing = true;
+            tabs_[i].opening = false;
+            tabs_[i].animationStart = GetTickCount64();
+            closingTab_ = i;
+            SetTimer(hwnd_, TAB_ANIMATION_TIMER, 16, nullptr);
+            InvalidateRect(hwnd_, nullptr, TRUE);
             return;
         }
 
