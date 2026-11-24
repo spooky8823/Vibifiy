@@ -108,4 +108,15 @@ bool DrawTintedIcon(HDC hdc, const wchar_t* name, COLORREF tint, int cx,
   return true;
 }
 
+void DrawHoverCircle(HDC hdc, int cx, int cy, int diameter, int alpha) {
+  if (alpha <= 0) return;
+  EnsureGdiplus();
+  Gdiplus::Graphics g(hdc);
+  g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+  Gdiplus::SolidBrush brush(Gdiplus::Color(
+      static_cast<BYTE>(alpha > 255 ? 255 : alpha), 255, 255, 255));
+  g.FillEllipse(&brush, cx - diameter / 2, cy - diameter / 2, diameter,
+                diameter);
+}
+
 }  // namespace vibrium

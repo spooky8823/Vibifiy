@@ -17,6 +17,10 @@ void EnsureGdiplus();
 bool DrawTintedIcon(HDC hdc, const wchar_t* name, COLORREF tint, int cx,
                     int cy, int size);
 
+// Soft white disc used as the hover highlight behind round icon buttons.
+// `alpha` is 0-255.
+void DrawHoverCircle(HDC hdc, int cx, int cy, int diameter, int alpha);
+
 }  // namespace vibrium
 
 #endif  // VIBRIUM_ICON_UTIL_H_

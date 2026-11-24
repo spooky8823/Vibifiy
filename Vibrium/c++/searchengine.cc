@@ -68,6 +68,12 @@ constexpr int kHoverAlpha = 34;          // 0-255, white over the dark bar
 constexpr int kHoverPressedAlpha = 62;
 constexpr int kNavCenters[4] = {25, 61, 97, 133};
 
+// Download indicator (icon + mini progress bar) right of the address pill.
+constexpr int kIndicatorWidth = 40;
+constexpr int kIndicatorBarWidth = 18;
+constexpr UINT_PTR kIndicatorTimer = 2;
+constexpr UINT kIndicatorTimerMs = 30;
+
 // Draws icons\<name> tinted and centred on (cx, cy). Returns false if the
 // file could not be loaded so the caller can draw a fallback.
 bool DrawPngIcon(HDC hdc, const wchar_t* name, COLORREF tint,
@@ -222,7 +228,7 @@ void SearchEngine::LayoutControls() {
     // Navigation controls live in their own strip to the left of the address
     // pill. Let the pill use all remaining horizontal space up to Settings.
     const int addressRight = std::max(kEditLeft + 50,
-        width_ - kGearAreaWidth - kOuterPadding);
+        width_ - kGearAreaWidth - kOuterPadding - RightReserve());
     const int editWidth = std::max(
         50, addressRight - kEditLeft - kEditRightPadding);
 
@@ -561,6 +567,10 @@ POINT SearchEngine::ButtonCenter(int index, const RECT& client) const {
     if (index >= 0 && index < 4) {
         return POINT{kNavCenters[index], client.bottom / 2};
     }
+    if (index == 5) {
+        return POINT{client.right - kGearAreaWidth - kIndicatorWidth / 2 - 2,
+                     client.bottom / 2};
+    }
     const RECT gear = GearRect(client);
     return POINT{(gear.left + gear.right) / 2, (gear.top + gear.bottom) / 2};
 }
@@ -570,6 +580,7 @@ int SearchEngine::HitButton(int x, int y) const {
     RECT client{};
     GetClientRect(hwnd_, &client);
     for (int i = 0; i < kButtonCount; ++i) {
+        if (i == 5 && !dlVisible_) continue;
         const POINT c = ButtonCenter(i, client);
         const int dx = x - c.x;
         const int dy = y - c.y;
@@ -605,6 +616,34 @@ void SearchEngine::StepHover() {
     }
 }
 
+int SearchEngine::RightReserve() const {
+    return dlVisible_ ? kIndicatorWidth : 0;
+}
+
+void SearchEngine::SetOnDownloadIndicator(SettingsCallback callback) {
+    onDownloadIndicator_ = std::move(callback);
+}
+
+void SearchEngine::SetDownloadIndicator(bool visible, int progress) {
+    const bool layoutChanged = visible != dlVisible_;
+    if (!layoutChanged && progress == dlProgress_) return;
+
+    dlVisible_ = visible;
+    dlProgress_ = progress;
+    if (!hwnd_) return;
+
+    if (layoutChanged) {
+        if (!visible && hot_ == 5) hot_ = -1;
+        LayoutControls();  // the pill gives up / takes back the room
+    }
+    if (visible && progress < 0) {
+        SetTimer(hwnd_, kIndicatorTimer, kIndicatorTimerMs, nullptr);
+    } else {
+        KillTimer(hwnd_, kIndicatorTimer);
+    }
+    InvalidateRect(hwnd_, nullptr, layoutChanged ? TRUE : FALSE);
+}
+
 HWND SearchEngine::GetHandle() const {
     return hwnd_;
 }
@@ -619,7 +658,8 @@ void SearchEngine::Paint(HDC hdc) {
 
     // Keep navigation completely outside the address pill. The pill stretches
     // across the full remaining width, stopping only before the Settings gear.
-    const int addressRight = client.right - kGearAreaWidth - kOuterPadding;
+    const int addressRight =
+        client.right - kGearAreaWidth - kOuterPadding - RightReserve();
 
     RECT pill{
         kNavigationWidth,
@@ -698,6 +738,38 @@ void SearchEngine::Paint(HDC hdc) {
     }
     SelectObject(hdc, oldNavPen);
     DeleteObject(navPen);
+
+    // Download indicator: icon with a very small linear progress bar below.
+    if (dlVisible_) {
+        const POINT c = ButtonCenter(5, client);
+        const COLORREF accent = vibrium::Theme::Accent();
+        DrawPngIcon(hdc, L"download.png", accent, c.x, c.y - 4, 18);
+
+        const int barLeft = c.x - kIndicatorBarWidth / 2;
+        const int barTop = c.y + 9;
+        const RECT track{barLeft, barTop, barLeft + kIndicatorBarWidth,
+                         barTop + 2};
+        HBRUSH trackBrush = CreateSolidBrush(RGB(70, 70, 78));
+        FillRect(hdc, &track, trackBrush);
+        DeleteObject(trackBrush);
+
+        RECT fill = track;
+        if (dlProgress_ >= 0) {
+            fill.right = track.left +
+                kIndicatorBarWidth * std::min(dlProgress_, 100) / 100;
+        } else {
+            const int segment = 7;
+            const int span = kIndicatorBarWidth + segment;
+            const int pos = (dlPhase_ % span) - segment;
+            fill.left = std::max<LONG>(track.left, track.left + pos);
+            fill.right = std::min<LONG>(track.right, track.left + pos + segment);
+        }
+        if (fill.right > fill.left) {
+            HBRUSH fillBrush = CreateSolidBrush(accent);
+            FillRect(hdc, &fill, fillBrush);
+            DeleteObject(fillBrush);
+        }
+    }
 
     const RECT gear = GearRect(client);
 
@@ -925,6 +997,8 @@ LRESULT CALLBACK SearchEngine::WindowProc(
             if (button == 4) {
                 // Three dots: open the small menu (currently just Settings).
                 self->ShowMoreMenu();
+            } else if (button == 5) {
+                if (self->onDownloadIndicator_) self->onDownloadIndicator_();
             } else if (self->onNavigation_) {
                 self->onNavigation_(button);
             }
@@ -977,6 +1051,11 @@ LRESULT CALLBACK SearchEngine::WindowProc(
     case WM_TIMER:
         if (wParam == kHoverTimer) {
             self->StepHover();
+            return 0;
+        }
+        if (wParam == kIndicatorTimer) {
+            self->dlPhase_ += 2;
+            InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         }
         break;

@@ -45,6 +45,8 @@ struct DownloadRecord {
   bool missing = false;  // finished, but the file is gone from disk
   std::vector<uint32_t> aliases;  // other CEF ids reporting this same download
   int browserId = 0;     // CEF browser that started it
+  bool failed = false;   // ended without finishing and without a user cancel
+  std::wstring originalUrl;  // what to request again on Retry
   uint64_t lastUpdateMs = 0;
   bool updated = false;  // has received at least one OnDownloadUpdated
   uint64_t timeMs = 0;   // Unix ms, start (or finish) time
@@ -73,6 +75,16 @@ class DownloadManager {
   void HandleUpdated(CefRefPtr<CefDownloadItem> item,
                      CefRefPtr<CefDownloadItemCallback> callback,
                      int browserId);
+
+  // Starts the same download again (e.g. after it failed or was canceled).
+  using RetryStarter = std::function<void(const std::wstring& url)>;
+  void SetRetryStarter(RetryStarter starter) {
+    retryStarter_ = std::move(starter);
+  }
+  void Retry(uint32_t id);
+  // Overall progress of running downloads. Returns false if none are running.
+  // *percent is 0-100, or -1 when a total size is not known yet.
+  bool ActiveProgress(int* percent) const;
 
   // True while a download started by this browser is still running.
   bool HasActiveForBrowser(int browserId) const;
@@ -114,6 +126,9 @@ class DownloadManager {
   uint32_t nextId_ = 1;
   uint64_t revision_ = 1;
   std::set<uint32_t> finishedCefIds_;
+  RetryStarter retryStarter_;
+  uint32_t pendingRetryRemoveId_ = 0;  // failed row replaced by the retry
+  uint64_t pendingRetryUntilMs_ = 0;
   uint32_t startCount_ = 0;
   uint32_t finishCount_ = 0;
   bool askWhere_ = false;
@@ -132,8 +147,12 @@ class DownloadsPage final : public NativePage {
   bool OnTick() override;
   void Paint(HDC hdc, const RECT& client) override;
   void OnClick(int id, int x, int y) override;
+  bool OnMessage(UINT message, WPARAM wParam, LPARAM lParam,
+                 LRESULT* result) override;
 
  private:
+  std::map<uint32_t, float> retryAnim_;    // hover highlight per record, 0..1
+  std::map<uint32_t, float> retryTarget_;
   std::vector<uint32_t> shownIds_;  // record ids in display order
   uint64_t paintedRevision_ = 0;
 };
@@ -156,6 +175,8 @@ class DownloadPopup {
   void SetOnShowAll(std::function<void()> callback) {
     onShowAll_ = std::move(callback);
   }
+  // Show it if hidden, hide it if shown (the toolbar icon uses this).
+  void Toggle();
 
  private:
   struct Hit {
@@ -167,6 +188,7 @@ class DownloadPopup {
                                      LPARAM lParam);
   LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
   void OnTimer();
+  void StepAnim();
   void ShowPanel();
   void HidePanel();
   void Layout();
@@ -186,6 +208,7 @@ class DownloadPopup {
   uint32_t seenStart_ = 0;
   uint32_t seenFinish_ = 0;
   std::vector<uint32_t> shownIds_;
+  std::vector<float> retryAnim_;  // hover highlight per shown row, 0..1
   std::vector<Hit> hits_;
   HFONT fontBold_ = nullptr;
   HFONT fontSmall_ = nullptr;

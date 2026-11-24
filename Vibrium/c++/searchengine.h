@@ -41,6 +41,11 @@ public:
     void SetOnHistory(SettingsCallback callback);
     void SetOnDownloads(SettingsCallback callback);
     void SetOnNavigation(NavigationCallback callback);
+
+    // Download icon with a mini progress bar between the address pill and the
+    // three-dots button. progress is 0-100, or -1 when the size is unknown.
+    void SetDownloadIndicator(bool visible, int progress);
+    void SetOnDownloadIndicator(SettingsCallback callback);
     void SetSearchProvider(const std::wstring& provider);
 
     void Navigate();
@@ -68,6 +73,7 @@ private:
     void LayoutControls();
     void ShowMoreMenu();
     RECT GearRect(const RECT& client) const;
+    int RightReserve() const;
     bool PointInGear(int x, int y) const;
 
     HWND parent_ = nullptr;
@@ -101,8 +107,9 @@ private:
 
     bool editFocused_ = false;
     // Chrome-style circular hover highlight for the toolbar buttons.
-    // Buttons 0-3 are back, home, reload, forward; 4 is the three-dots menu.
-    static constexpr int kButtonCount = 5;
+    // Buttons 0-3 are back, home, reload, forward; 4 is the three-dots menu;
+    // 5 is the download indicator (only present while it is visible).
+    static constexpr int kButtonCount = 6;
     int HitButton(int x, int y) const;
     POINT ButtonCenter(int index, const RECT& client) const;
     void SetHot(int index);
@@ -113,4 +120,9 @@ private:
     bool menuOpen_ = false;   // keeps the dots highlighted while the menu is up
     float hover_[kButtonCount] = {};  // 0..1 highlight amount per button
     bool trackingMouse_ = false;
+
+    bool dlVisible_ = false;
+    int dlProgress_ = -1;
+    int dlPhase_ = 0;  // moves the bar when the size is unknown
+    SettingsCallback onDownloadIndicator_;
 };

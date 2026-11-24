@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cwchar>
 #include <cwctype>
@@ -29,9 +30,11 @@ constexpr int kRowGap = 10;
 
 constexpr int kHitClear = 10;
 constexpr int kHitToggle = 11;
-constexpr int kHitRowBase = 1000;  // + index * 4 + action
+constexpr int kHitRowBase = 1000;  // + index * 8 + action
+constexpr UINT_PTR kRetryAnimTimer = 2;
+constexpr UINT kRetryAnimMs = 15;
 
-enum RowAction { kActionOpen = 0, kActionShow = 1, kActionCancel = 2, kActionRemove = 3 };
+enum RowAction { kActionOpen = 0, kActionShow = 1, kActionCancel = 2, kActionRemove = 3, kActionRetry = 4 };
 
 std::wstring ToLower(std::wstring value) {
   for (auto& ch : value) ch = static_cast<wchar_t>(std::towlower(ch));
@@ -274,6 +277,40 @@ DownloadRecord* DownloadManager::FindById(uint32_t id) {
   return nullptr;
 }
 
+bool DownloadManager::ActiveProgress(int* percent) const {
+  int64_t received = 0;
+  int64_t total = 0;
+  bool any = false;
+  bool unknown = false;
+  for (const DownloadRecord& rec : records_) {
+    if (!rec.inProgress) continue;
+    any = true;
+    received += std::max<int64_t>(0, rec.received);
+    if (rec.total > 0) {
+      total += rec.total;
+    } else {
+      unknown = true;
+    }
+  }
+  if (percent) {
+    *percent = (any && !unknown && total > 0)
+                   ? static_cast<int>(std::min<int64_t>(100, received * 100 / total))
+                   : -1;
+  }
+  return any;
+}
+
+void DownloadManager::Retry(uint32_t id) {
+  DownloadRecord* rec = FindById(id);
+  if (!rec || rec->inProgress || rec->complete || !retryStarter_) return;
+  const std::wstring url = !rec->originalUrl.empty() ? rec->originalUrl : rec->url;
+  if (url.empty()) return;
+  // The failed row disappears once the new download is actually accepted.
+  pendingRetryRemoveId_ = id;
+  pendingRetryUntilMs_ = NowMs() + 600000;
+  retryStarter_(url);
+}
+
 bool DownloadManager::HasActive() const {
   for (const DownloadRecord& rec : records_) {
     if (rec.inProgress) return true;
@@ -435,7 +472,10 @@ bool DownloadManager::HandleBeforeDownload(
     // Ask first; nothing is downloaded (or listed) until the user confirms.
     // Returning without callback->Continue() cancels the download.
     const std::wstring chosen = ChooseSavePath(target);
-    if (chosen.empty()) return false;
+    if (chosen.empty()) {
+      pendingRetryRemoveId_ = 0;
+      return false;
+    }
     target = chosen;
   }
 
@@ -446,11 +486,24 @@ bool DownloadManager::HandleBeforeDownload(
   rec.fileName = FileNameOf(target);
   rec.path = target;
   rec.total = item ? item->GetTotalBytes() : -1;
+  if (item) rec.originalUrl = item->GetOriginalUrl().ToWString();
   rec.inProgress = true;
   rec.browserId = browserId;
   rec.lastUpdateMs = NowMs();
   rec.timeMs = NowMs();
   records_.push_back(std::move(rec));
+  if (pendingRetryRemoveId_ != 0) {
+    const uint32_t oldId = pendingRetryRemoveId_;
+    pendingRetryRemoveId_ = 0;
+    if (NowMs() <= pendingRetryUntilMs_) {
+      for (auto it = records_.begin(); it != records_.end(); ++it) {
+        if (it->id == oldId && !it->inProgress) {
+          records_.erase(it);
+          break;
+        }
+      }
+    }
+  }
   ++startCount_;
   ++revision_;
 
@@ -521,6 +574,8 @@ void DownloadManager::HandleUpdated(
   rec->inProgress = item->IsInProgress();
   rec->complete = item->IsComplete();
   rec->canceled = item->IsCanceled();
+  rec->failed = !rec->inProgress && !rec->complete && !rec->canceled;
+  if (rec->failed) rec->canceled = true;  // an interrupted download is unusable
 
   if (rec->inProgress && callback) {
     callbacks_[cefId] = callback;
@@ -728,7 +783,7 @@ void DownloadsPage::Paint(HDC hdc, const RECT& client) {
         buttonRight -= buttonWidth + 8;
         return r;
       };
-      const int base = kHitRowBase + index * 4;
+      const int base = kHitRowBase + index * 8;
 
       if (rec.inProgress) {
         DrawButton(hdc, place(84), L"Cancel", base + kActionCancel, false);
@@ -752,6 +807,22 @@ void DownloadsPage::Paint(HDC hdc, const RECT& client) {
         SelectObject(hdc, oldPen);
         DeleteObject(pen);
 
+        if (rec.canceled && !rec.missing) {
+          const RECT retry = place(32);
+          const int retryId = base + kActionRetry;
+          AddHit(retry, retryId);
+          const float target = hoverId() == retryId ? 1.0f : 0.0f;
+          retryTarget_[rec.id] = target;
+          const float amount = retryAnim_[rec.id];
+          if (std::fabs(target - amount) > 0.001f && hwnd_) {
+            SetTimer(hwnd_, kRetryAnimTimer, kRetryAnimMs, nullptr);
+          }
+          const int rcx = (retry.left + retry.right) / 2;
+          const int rcy = (retry.top + retry.bottom) / 2;
+          DrawHoverCircle(hdc, rcx, rcy, 32, static_cast<int>(46 * amount));
+          DrawTintedIcon(hdc, L"refresh.png", accent, rcx, rcy, 16);
+        }
+
         if (rec.complete && !rec.missing) {
           DrawButton(hdc, place(120), L"Show in folder", base + kActionShow, false);
           DrawButton(hdc, place(72), L"Open", base + kActionOpen, true);
@@ -770,7 +841,7 @@ void DownloadsPage::Paint(HDC hdc, const RECT& client) {
         if (rec.total > 0) status += L" of " + FormatBytes(rec.total);
         if (rec.speed > 0) status += L"  \u2022  " + FormatBytes(rec.speed) + L"/s";
       } else if (rec.canceled) {
-        status = L"Canceled";
+        status = rec.failed ? L"Failed" : L"Canceled";
       } else if (rec.missing) {
         status = L"File was moved or deleted";
       } else {
@@ -799,6 +870,31 @@ void DownloadsPage::Paint(HDC hdc, const RECT& client) {
   PaintScrollbar(hdc);
 }
 
+bool DownloadsPage::OnMessage(UINT message, WPARAM wParam, LPARAM /*lParam*/,
+                              LRESULT* result) {
+  if (message != WM_TIMER || wParam != kRetryAnimTimer) return false;
+
+  // Fade the retry buttons' hover highlight toward its target.
+  bool active = false;
+  for (auto& entry : retryAnim_) {
+    auto target = retryTarget_.find(entry.first);
+    const float goal = target == retryTarget_.end() ? 0.0f : target->second;
+    const float diff = goal - entry.second;
+    const float mag = std::fabs(diff);
+    if (mag < 0.001f) {
+      entry.second = goal;
+      continue;
+    }
+    const float step = std::min(mag, std::max(0.08f, mag * 0.30f));
+    entry.second += diff > 0 ? step : -step;
+    active = true;
+  }
+  if (!active) KillTimer(hwnd_, kRetryAnimTimer);
+  Repaint();
+  if (result) *result = 0;
+  return true;
+}
+
 void DownloadsPage::OnClick(int id, int /*x*/, int /*y*/) {
   DownloadManager& manager = DownloadManager::Get();
 
@@ -814,8 +910,8 @@ void DownloadsPage::OnClick(int id, int /*x*/, int /*y*/) {
   }
   if (id < kHitRowBase) return;
 
-  const size_t index = static_cast<size_t>((id - kHitRowBase) / 4);
-  const int action = (id - kHitRowBase) % 4;
+  const size_t index = static_cast<size_t>((id - kHitRowBase) / 8);
+  const int action = (id - kHitRowBase) % 8;
   if (index >= shownIds_.size()) return;
   const uint32_t recordId = shownIds_[index];
 
@@ -842,6 +938,9 @@ void DownloadsPage::OnClick(int id, int /*x*/, int /*y*/) {
       break;
     case kActionRemove:
       manager.Remove(recordId);
+      break;
+    case kActionRetry:
+      manager.Retry(recordId);
       break;
     default:
       break;
@@ -872,6 +971,9 @@ constexpr int kPopupHitDismiss = 1;
 constexpr int kPopupHitAll = 2;
 constexpr int kPopupHitOpenBase = 100;    // + row index
 constexpr int kPopupHitCancelBase = 200;  // + row index
+constexpr int kPopupHitRetryBase = 300;   // + row index
+constexpr UINT_PTR kPopupAnimTimer = 2;
+constexpr UINT kPopupAnimMs = 15;
 
 inline int PopupX(LPARAM lp) { return static_cast<int>(static_cast<short>(LOWORD(lp))); }
 inline int PopupY(LPARAM lp) { return static_cast<int>(static_cast<short>(HIWORD(lp))); }
@@ -925,7 +1027,7 @@ std::wstring PopupStatus(const DownloadRecord& rec) {
     if (rec.speed > 0) status += L"  \u2022  " + FormatBytes(rec.speed) + L"/s";
     return status;
   }
-  if (rec.canceled) return L"Canceled";
+  if (rec.canceled) return rec.failed ? L"Failed" : L"Canceled";
   if (rec.missing) return L"File was moved or deleted";
   std::wstring status = L"Downloaded  \u2022  " +
                         FormatBytes(rec.total > 0 ? rec.total : rec.received);
@@ -974,6 +1076,7 @@ bool DownloadPopup::Create(HWND owner, HINSTANCE instance) {
   fontBold_ = PopupFont(13, FW_SEMIBOLD);
   fontSmall_ = PopupFont(12, FW_NORMAL);
   fontTitle_ = PopupFont(15, FW_SEMIBOLD);
+  retryAnim_.assign(kPopupMaxRows, 0.0f);
 
   SetTimer(hwnd_, kPopupTimer, kPopupPollMs, nullptr);
   seenStart_ = DownloadManager::Get().startCount();
@@ -984,6 +1087,34 @@ bool DownloadPopup::Create(HWND owner, HINSTANCE instance) {
 void DownloadPopup::SetAnchor(POINT topRightScreen) {
   anchor_ = topRightScreen;
   if (visible_) Layout();
+}
+
+void DownloadPopup::Toggle() {
+  if (!hwnd_) return;
+  if (visible_) {
+    HidePanel();
+  } else {
+    ShowPanel();
+  }
+}
+
+void DownloadPopup::StepAnim() {
+  bool active = false;
+  for (size_t i = 0; i < retryAnim_.size(); ++i) {
+    const float goal =
+        hoverId_ == kPopupHitRetryBase + static_cast<int>(i) ? 1.0f : 0.0f;
+    const float diff = goal - retryAnim_[i];
+    const float mag = std::fabs(diff);
+    if (mag < 0.001f) {
+      retryAnim_[i] = goal;
+      continue;
+    }
+    const float step = std::min(mag, std::max(0.08f, mag * 0.30f));
+    retryAnim_[i] += diff > 0 ? step : -step;
+    active = true;
+  }
+  if (!active) KillTimer(hwnd_, kPopupAnimTimer);
+  InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void DownloadPopup::ShowPanel() {
@@ -1113,6 +1244,21 @@ void DownloadPopup::PaintAll(HDC hdc, const RECT& client) {
       }
       PopupCross(hdc, cancel, hoverId_ == cancelId ? accent : pageui::kMuted);
       textRight = cancel.left - 4;
+    } else if (rec.canceled && !rec.missing) {
+      // Retry: refresh icon with a fading round highlight.
+      const RECT retry{row.right - 42, row.top + 14, row.right - 10, row.top + 46};
+      const int retryId = kPopupHitRetryBase + index;
+      hits_.push_back({retry, retryId});
+      const float goal = hoverId_ == retryId ? 1.0f : 0.0f;
+      const float amount = retryAnim_[static_cast<size_t>(index)];
+      if (std::fabs(goal - amount) > 0.001f) {
+        SetTimer(hwnd_, kPopupAnimTimer, kPopupAnimMs, nullptr);
+      }
+      const int rcx = (retry.left + retry.right) / 2;
+      const int rcy = (retry.top + retry.bottom) / 2;
+      DrawHoverCircle(hdc, rcx, rcy, 32, static_cast<int>(46 * amount));
+      DrawTintedIcon(hdc, L"refresh.png", accent, rcx, rcy, 16);
+      textRight = retry.left - 4;
     }
 
     PopupText(hdc, rec.fileName.empty() ? rec.url : rec.fileName,
@@ -1157,8 +1303,11 @@ void DownloadPopup::OnClick(int id) {
     if (onShowAll_) onShowAll_();
     return;
   }
-  const bool cancel = id >= kPopupHitCancelBase;
-  const size_t index = static_cast<size_t>(id - (cancel ? kPopupHitCancelBase : kPopupHitOpenBase));
+  const bool retry = id >= kPopupHitRetryBase;
+  const bool cancel = !retry && id >= kPopupHitCancelBase;
+  const int base = retry ? kPopupHitRetryBase
+                         : (cancel ? kPopupHitCancelBase : kPopupHitOpenBase);
+  const size_t index = static_cast<size_t>(id - base);
   if (index >= shownIds_.size()) return;
   const uint32_t recordId = shownIds_[index];
 
@@ -1170,7 +1319,9 @@ void DownloadPopup::OnClick(int id) {
       openable = rec.complete && !rec.missing;
     }
   }
-  if (cancel) {
+  if (retry) {
+    manager.Retry(recordId);
+  } else if (cancel) {
     manager.Cancel(recordId);
   } else if (openable && !path.empty()) {
     ShellExecuteW(hwnd_, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -1203,6 +1354,10 @@ LRESULT DownloadPopup::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam)
     case WM_TIMER:
       if (wParam == kPopupTimer) {
         OnTimer();
+        return 0;
+      }
+      if (wParam == kPopupAnimTimer) {
+        StepAnim();
         return 0;
       }
       break;

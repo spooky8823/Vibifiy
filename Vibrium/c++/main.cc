@@ -69,6 +69,7 @@ constexpr wchar_t kWindowTitle[] = L"Vibrium";
 
 constexpr UINT_PTR kMemoryTimer = 1;
 constexpr UINT_PTR kSelfTestTimer = 2;
+constexpr UINT_PTR kDownloadIndicatorTimer = 3;
 constexpr UINT kFinalizeShutdownMessage = WM_APP + 1;
 // Posted by BrowserClient when a page asks for a new window/tab. lParam is
 // an OpenTabRequest* (owned by the receiver).
@@ -1094,6 +1095,19 @@ public:
             downloadPopup_->SetOnShowAll([this]() { OpenDownloads(); });
         }
 
+        // The toolbar download icon opens / closes the panel.
+        if (searchBar_) {
+            searchBar_->SetOnDownloadIndicator([this]() {
+                if (downloadPopup_) downloadPopup_->Toggle();
+            });
+        }
+
+        // "Retry" on a failed download requests the same file again.
+        DownloadManager::Get().SetRetryStarter(
+            [this](const std::wstring& url) { StartRetryDownload(url); });
+
+        SetTimer(hwnd_, kDownloadIndicatorTimer, 250, nullptr);
+
         SetTimer(
             hwnd_,
             kMemoryTimer,
@@ -2021,6 +2035,52 @@ public:
         (void)height;
     }
 
+    // Shows the download icon (with its mini progress bar) next to the address
+    // bar while anything downloads, and keeps it for a moment after the last
+    // download ends so the full bar is seen.
+    void UpdateDownloadIndicator() {
+        if (!searchBar_) return;
+        int percent = -1;
+        const bool active = DownloadManager::Get().ActiveProgress(&percent);
+        const ULONGLONG now = GetTickCount64();
+        if (active) {
+            indicatorHideAtMs_ = now + 1500;
+        }
+        const bool show = active || now < indicatorHideAtMs_;
+        searchBar_->SetDownloadIndicator(show, active ? percent : 100);
+    }
+
+    // Requests `url` again as a download, through any live browser.
+    void StartRetryDownload(const std::wstring& url) {
+        CefRefPtr<CefBrowser> browser;
+        if (TabRecord* active = GetActiveTab()) {
+            if (!active->internalPage) browser = active->browser;
+        }
+        if (!browser) {
+            for (auto& tab : tabs_) {
+                if (tab.browser && !tab.closingBrowser) {
+                    browser = tab.browser;
+                    break;
+                }
+            }
+        }
+        if (!browser) {
+            for (auto& entry : retired_) {
+                if (!entry.closing) {
+                    browser = entry.browser;
+                    break;
+                }
+            }
+        }
+        if (browser) {
+            browser->GetHost()->StartDownload(url);
+            return;
+        }
+        // No browser exists yet: a short-lived tab starts it (it closes itself
+        // once the download has been accepted).
+        OpenUrlInNewTab(url, false);
+    }
+
     // Anchors the download panel to the top-right corner of the page area.
     void RepositionDownloadPopup() {
         if (!downloadPopup_ || !hwnd_) return;
@@ -2067,6 +2127,7 @@ public:
     closeRequested_ = true;
 
     KillTimer(hwnd_, kMemoryTimer);
+    KillTimer(hwnd_, kDownloadIndicatorTimer);
 
     AuthPopup::CloseAll();
 
@@ -2288,6 +2349,8 @@ private:
                 HistoryStore::Get().Flush();
                 self->CheckInactiveTabs();
                 self->ReapRetiredBrowsers();
+            } else if (wParam == kDownloadIndicatorTimer) {
+                self->UpdateDownloadIndicator();
             } else if (wParam == kSelfTestTimer) {
                 KillTimer(hwnd, kSelfTestTimer);
                 SelfTest::Get().OnTimeout();
@@ -2411,6 +2474,7 @@ private:
     std::unique_ptr<HistoryPage> historyPage_;
     std::unique_ptr<DownloadsPage> downloadsPage_;
     std::unique_ptr<DownloadPopup> downloadPopup_;
+    ULONGLONG indicatorHideAtMs_ = 0;
 
     std::vector<TabRecord> tabs_;
     std::vector<RetiredBrowser> retired_;
