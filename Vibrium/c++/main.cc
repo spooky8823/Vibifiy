@@ -80,6 +80,7 @@ constexpr UINT kReapRetiredMessage = WM_APP + 3;
 constexpr UINT kCloseTabMessage = WM_APP + 4;
 // Custom context-menu command (must be >= MENU_ID_USER_FIRST).
 constexpr int kMenuOpenLinkInNewTab = MENU_ID_USER_FIRST + 1;
+constexpr int kMenuOpenImageInNewTab = MENU_ID_USER_FIRST + 2;
 
 // A closed tab's browser, kept alive (hidden) because a download it started
 // is still running: CEF cancels a download when its browser is destroyed.
@@ -2664,18 +2665,33 @@ void BrowserClient::OnBeforeContextMenu(
     CefRefPtr<CefContextMenuParams> params,
     CefRefPtr<CefMenuModel> model) {
 
-    if (!params || !model || params->GetLinkUrl().empty()) {
-        return;
+    if (!params || !model) return;
+
+    const std::wstring linkUrl = params->GetLinkUrl().ToWString();
+    const std::wstring imageUrl = params->GetSourceUrl().ToWString();
+
+    if (!linkUrl.empty()) {
+        // Replace Chromium's new-tab/window commands with Vibrium tab actions.
+        for (int id : {50100, 50101, 50102}) {
+            model->Remove(id);
+        }
+        model->InsertItemAt(0, kMenuOpenLinkInNewTab,
+                            "Open link in new tab");
+        model->InsertSeparatorAt(1);
     }
 
-    // Chrome-style entries that open links in a separate Chrome window
-    // (open in new tab / new window / incognito window).
-    for (int id : {50100, 50101, 50102}) {
-        model->Remove(id);
+    if (!imageUrl.empty()) {
+        // Chromium's built-in image-new-tab command would create a separate
+        // browser window. Replace it with our own command and route it through
+        // the main window's normal tab creation path.
+        for (int id : {50123, 50125}) {
+            model->Remove(id);
+        }
+        const int insertAt = linkUrl.empty() ? 0 : 2;
+        model->InsertItemAt(insertAt, kMenuOpenImageInNewTab,
+                            "Open image in new tab");
+        model->InsertSeparatorAt(insertAt + 1);
     }
-
-    model->InsertItemAt(0, kMenuOpenLinkInNewTab, "Open link in new tab");
-    model->InsertSeparatorAt(1);
 }
 
 bool BrowserClient::OnContextMenuCommand(
@@ -2687,6 +2703,10 @@ bool BrowserClient::OnContextMenuCommand(
 
     if (command_id == kMenuOpenLinkInNewTab && params) {
         owner_->QueueOpenInNewTab(params->GetLinkUrl().ToWString(), true);
+        return true;
+    }
+    if (command_id == kMenuOpenImageInNewTab && params) {
+        owner_->QueueOpenInNewTab(params->GetSourceUrl().ToWString(), true);
         return true;
     }
     return false;
