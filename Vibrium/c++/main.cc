@@ -2939,17 +2939,34 @@ int WINAPI wWinMain(
         return 0;
     }
 
-    // Pick the browser profile before CEF starts. CEF's cache_path is the
-    // persistent profile root for cookies, cache, preferences, and storage.
-    const auto selectedProfile = vibrium::ProfilePicker::Show(instance);
-    if (!selectedProfile) {
-        CloseHandle(instanceMutex);
-        return 0;
+    // Interactive launches choose a profile. Automated self-tests must run
+    // headlessly without blocking on the native profile picker.
+    std::filesystem::path profilePath;
+    CefRefPtr<CefCommandLine> commandLine =
+        CefCommandLine::GetGlobalCommandLine();
+    const bool isSelfTest = commandLine && commandLine->HasSwitch("selftest");
+    if (isSelfTest) {
+        std::wstring executable(32768, L'\\0');
+        const DWORD length = GetModuleFileNameW(
+            nullptr, executable.data(), static_cast<DWORD>(executable.size()));
+        if (length == 0 || length >= executable.size()) {
+            CloseHandle(instanceMutex);
+            return 1;
+        }
+        executable.resize(length);
+        profilePath = std::filesystem::path(executable).parent_path() /
+                      L"profiles" / L"__selftest";
+    } else {
+        const auto selectedProfile = vibrium::ProfilePicker::Show(instance);
+        if (!selectedProfile) {
+            CloseHandle(instanceMutex);
+            return 0;
+        }
+        profilePath = selectedProfile->path;
     }
 
     std::error_code profilePathError;
-    std::filesystem::create_directories(
-        selectedProfile->path, profilePathError);
+    std::filesystem::create_directories(profilePath, profilePathError);
     if (profilePathError) {
         MessageBoxW(nullptr, L"Could not prepare the selected profile folder.",
                     L"Vibrium Profiles", MB_OK | MB_ICONERROR);
@@ -2958,7 +2975,7 @@ int WINAPI wWinMain(
     }
 
     CefSettings settings;
-    CefString(&settings.cache_path) = selectedProfile->path.wstring();
+    CefString(&settings.cache_path) = profilePath.wstring();
     // DEVELOPMENT ONLY: a release build must run sandboxed (see
     // c++/adblock/README.md, "Sandbox").
     settings.no_sandbox = true;
