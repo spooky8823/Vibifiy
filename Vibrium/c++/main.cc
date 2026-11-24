@@ -78,6 +78,9 @@ constexpr UINT kOpenTabMessage = WM_APP + 2;
 constexpr UINT kReapRetiredMessage = WM_APP + 3;
 // wParam = tab id: close a blank tab that only existed to start a download.
 constexpr UINT kCloseTabMessage = WM_APP + 4;
+constexpr ULONG_PTR kNewWindowCopyData = 0x56494252; // 'VIBR'
+extern int gMainWindowCount;
+extern std::vector<std::unique_ptr<MainWindow>> gSecondaryWindows;
 // Custom context-menu command (must be >= MENU_ID_USER_FIRST).
 constexpr int kMenuOpenLinkInNewTab = MENU_ID_USER_FIRST + 1;
 constexpr int kMenuOpenImageInNewTab = MENU_ID_USER_FIRST + 2;
@@ -2316,7 +2319,21 @@ private:
             break;
 
         case WM_CREATE:
-            return self->InitializeUI() ? 0 : -1;
+            if (!self->InitializeUI()) return -1;
+            self->countedWindow_ = true;
+            ++gMainWindowCount;
+            return 0;
+
+        case WM_COPYDATA: {
+            const auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
+            if (!data || data->dwData != kNewWindowCopyData) break;
+            auto window = std::make_unique<MainWindow>();
+            if (window->Create(self->instance_)) {
+                gSecondaryWindows.push_back(std::move(window));
+                SetForegroundWindow(gSecondaryWindows.back()->GetHandle());
+            }
+            return TRUE;
+        }
 
         // Leave WM_NCCALCSIZE and all non-client messages to Windows. This
         // preserves the genuine title bar, resize frame and caption buttons.
@@ -2394,9 +2411,13 @@ private:
         case WM_DESTROY:
             KillTimer(hwnd, kMemoryTimer);
             HistoryStore::Get().Flush();
-            // This application uses CefRunMessageLoop(), so use CEF's matching
-            // quit API rather than injecting WM_QUIT into its Windows queue.
-            CefQuitMessageLoop();
+            if (self->countedWindow_) {
+                self->countedWindow_ = false;
+                --gMainWindowCount;
+            }
+            // Keep the shared CEF message loop alive until the last Vibrium
+            // window is closed. Closing one window must not kill the others.
+            if (gMainWindowCount <= 0) CefQuitMessageLoop();
             return 0;
 
         case WM_NCDESTROY:
@@ -2485,9 +2506,16 @@ private:
 
     bool closeRequested_ = false;
     bool shutdownFinalizePosted_ = false;
+    bool countedWindow_ = false;
 
     friend class BrowserClient;
 };
+
+// All secondary windows live in the browser process that owns the shared CEF
+// runtime. This avoids competing CEF browser processes when the user launches
+// Vibrium again from the desktop shortcut.
+int gMainWindowCount = 0;
+std::vector<std::unique_ptr<MainWindow>> gSecondaryWindows;
 
 // Downloads and decodes a page-provided PNG favicon asynchronously.
 class FaviconRequestClient final : public CefURLRequestClient {
@@ -2881,6 +2909,34 @@ int WINAPI wWinMain(
         return subprocessExit;
     }
 
+    // A second desktop launch asks the existing Vibrium process to create a
+    // fresh native MainWindow. CEF is initialized only once per browser
+    // process, and each requested window gets Vibrium's complete UI.
+    HANDLE instanceMutex = CreateMutexW(
+        nullptr, FALSE, L"Local\\VibriumBrowserMainInstance");
+    if (!instanceMutex) return 1;
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND existing = nullptr;
+        for (int attempt = 0; attempt < 100 && !existing; ++attempt) {
+            existing = FindWindowW(
+                vibrium::kWindowClass, vibrium::kWindowTitle);
+            if (!existing) Sleep(50);
+        }
+        if (existing) {
+            COPYDATASTRUCT request{};
+            request.dwData = vibrium::kNewWindowCopyData;
+            request.cbData = 0;
+            request.lpData = nullptr;
+            DWORD_PTR result = 0;
+            SendMessageTimeoutW(
+                existing, WM_COPYDATA, 0,
+                reinterpret_cast<LPARAM>(&request),
+                SMTO_ABORTIFHUNG | SMTO_BLOCK, 5000, &result);
+        }
+        CloseHandle(instanceMutex);
+        return 0;
+    }
+
     CefSettings settings;
     // DEVELOPMENT ONLY: a release build must run sandboxed (see
     // c++/adblock/README.md, "Sandbox").
@@ -2909,6 +2965,7 @@ int WINAPI wWinMain(
             vibrium::AdblockService::Get().Shutdown();
             CefShutdown();
             app = nullptr;
+            CloseHandle(instanceMutex);
             return 1;
         }
 
@@ -2926,6 +2983,8 @@ int WINAPI wWinMain(
     vibrium::AdblockService::Get().Shutdown();
     CefShutdown();
     app = nullptr;
+    vibrium::gSecondaryWindows.clear();
+    CloseHandle(instanceMutex);
 
     return appExitCode;
 }
