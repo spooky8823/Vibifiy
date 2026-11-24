@@ -47,7 +47,6 @@ private:
     HWND newButton_ = nullptr;
     std::vector<ProfileSelection> profiles_;
     std::optional<ProfileSelection> selected_;
-    bool creating_ = false;
 };
 
 } // namespace vibrium
