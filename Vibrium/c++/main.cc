@@ -87,6 +87,27 @@ struct RetiredBrowser {
     bool closing = false;
 };
 
+// Chrome's built-in download bubble (the "Canceled" box on the left) is
+// controlled by this preference. Vibrium draws its own panel instead. The
+// request context is only ready once a browser exists, so keep trying until
+// the preference is accepted.
+void SuppressChromeDownloadBubble(CefRefPtr<CefBrowser> browser) {
+    static bool done = false;
+    if (done || !browser) return;
+
+    CefRefPtr<CefRequestContext> context =
+        browser->GetHost()->GetRequestContext();
+    if (!context) return;
+
+    CefRefPtr<CefValue> off = CefValue::Create();
+    off->SetBool(false);
+    CefString error;
+    if (context->SetPreference("download_bubble.partial_view_enabled", off,
+                               error)) {
+        done = true;
+    }
+}
+
 struct OpenTabRequest {
     std::wstring url;
     bool activate = true;
@@ -1373,10 +1394,6 @@ public:
             )
         );
 
-        // Alloy style: no Chrome UI around the page (that is where the
-        // built-in download bubble came from). Vibrium draws its own.
-        windowInfo.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
-
         CefBrowserSettings browserSettings{};
 
         tab.client = new BrowserClient(this, tab.id);
@@ -1404,6 +1421,8 @@ public:
     void OnBrowserCreated(
     int tabId,
     CefRefPtr<CefBrowser> browser) {
+
+    SuppressChromeDownloadBubble(browser);
 
     TabRecord* tab = FindTab(tabId);
 
