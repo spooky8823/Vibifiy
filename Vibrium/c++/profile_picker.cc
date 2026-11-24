@@ -45,7 +45,7 @@ bool IsValidProfileName(const std::wstring& name) {
     const auto dot = base.find(L'.');
     if (dot != std::wstring::npos) base.resize(dot);
     std::transform(base.begin(), base.end(), base.begin(),
-                   [](wchar_t c) { return static_cast<wchar_t>(towupper(c)); });
+                   [](wchar_t c) { return static_cast<wchar_t>(std::towupper(c)); });
     if (base == L"CON" || base == L"PRN" || base == L"AUX" ||
         base == L"NUL") {
         return false;
@@ -172,7 +172,7 @@ void ProfilePicker::PopulateProfiles() {
         std::wstring left = a.name;
         std::wstring right = b.name;
         std::transform(left.begin(), left.end(), left.begin(),
-                       [](wchar_t c) { return static_cast<wchar_t>(towlower(c)); });
+                       [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
         std::transform(right.begin(), right.end(), right.begin(),
                        [](wchar_t c) { return static_cast<wchar_t>(towlower(c)); });
         return left < right;
