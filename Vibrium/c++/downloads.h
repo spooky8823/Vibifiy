@@ -42,6 +42,7 @@ struct DownloadRecord {
   bool complete = false;
   bool canceled = false;
   bool missing = false;  // finished, but the file is gone from disk
+  std::vector<uint32_t> aliases;  // other CEF ids reporting this same download
   bool updated = false;  // has received at least one OnDownloadUpdated
   uint64_t timeMs = 0;   // Unix ms, start (or finish) time
 };

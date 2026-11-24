@@ -369,10 +369,11 @@ public:
                               sizeof(captionText));
 
         // Same (accent-tinted) icon as the main window.
-        const LRESULT big = SendMessageW(main_, WM_GETICON, ICON_BIG, 0);
-        const LRESULT smallIcon = SendMessageW(main_, WM_GETICON, ICON_SMALL, 0);
-        if (big) SendMessageW(frame_, WM_SETICON, ICON_BIG, big);
-        if (smallIcon) SendMessageW(frame_, WM_SETICON, ICON_SMALL, smallIcon);
+        // (not named "small": Windows headers #define it as char)
+        const LRESULT iconBig = SendMessageW(main_, WM_GETICON, ICON_BIG, 0);
+        const LRESULT iconSmall = SendMessageW(main_, WM_GETICON, ICON_SMALL, 0);
+        if (iconBig) SendMessageW(frame_, WM_SETICON, ICON_BIG, iconBig);
+        if (iconSmall) SendMessageW(frame_, WM_SETICON, ICON_SMALL, iconSmall);
         return true;
     }
 

@@ -1,5 +1,6 @@
 #include "downloads.h"
 
+#include <commdlg.h>
 #include <shellapi.h>
 #include <shlobj.h>
 
@@ -256,7 +257,12 @@ void DownloadManager::SetAskWhere(bool value) {
 
 DownloadRecord* DownloadManager::FindByCefId(uint32_t cefId) {
   for (auto it = records_.rbegin(); it != records_.rend(); ++it) {
-    if (it->inProgress && it->cefId == cefId) return &*it;
+    if (!it->inProgress) continue;
+    if (it->cefId == cefId) return &*it;
+    if (std::find(it->aliases.begin(), it->aliases.end(), cefId) !=
+        it->aliases.end()) {
+      return &*it;
+    }
   }
   return nullptr;
 }
@@ -287,6 +293,51 @@ DownloadRecord* DownloadManager::FindPendingMatch(const std::wstring& url,
   return nullptr;
 }
 
+
+// Our own Save As window, shown *before* the download starts. (With CEF's
+// built-in one the data already flows while the window is still open.)
+// Returns an empty string if the user cancels.
+std::wstring ChooseSavePath(const std::wstring& initialPath) {
+  const size_t slash = initialPath.find_last_of(L"\\/");
+  const std::wstring dir =
+      slash == std::wstring::npos ? L"" : initialPath.substr(0, slash);
+  const std::wstring name =
+      slash == std::wstring::npos ? initialPath : initialPath.substr(slash + 1);
+  const size_t dot = name.find_last_of(L'.');
+  const std::wstring ext =
+      (dot == std::wstring::npos || dot + 1 >= name.size()) ? L"" : name.substr(dot + 1);
+
+  std::wstring filter;
+  if (!ext.empty()) {
+    filter += ext + L" file";
+    filter.push_back(L'\0');
+    filter += L"*." + ext;
+    filter.push_back(L'\0');
+  }
+  filter += L"All files";
+  filter.push_back(L'\0');
+  filter += L"*.*";
+  filter.push_back(L'\0');
+  filter.push_back(L'\0');
+
+  std::vector<wchar_t> buffer(32768, L'\0');
+  wcsncpy_s(buffer.data(), buffer.size(), name.c_str(), _TRUNCATE);
+
+  OPENFILENAMEW ofn{};
+  ofn.lStructSize = sizeof(ofn);
+  ofn.hwndOwner = GetActiveWindow();
+  ofn.lpstrFilter = filter.c_str();
+  ofn.lpstrFile = buffer.data();
+  ofn.nMaxFile = static_cast<DWORD>(buffer.size());
+  ofn.lpstrInitialDir = dir.empty() ? nullptr : dir.c_str();
+  ofn.lpstrDefExt = ext.empty() ? nullptr : ext.c_str();
+  ofn.lpstrTitle = L"Save As";
+  ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT |
+              OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
+  if (!GetSaveFileNameW(&ofn)) return L"";
+  return buffer.data();
+}
+
 void DownloadManager::HandleBeforeDownload(
     CefRefPtr<CefDownloadItem> item, const std::wstring& suggestedName,
     CefRefPtr<CefBeforeDownloadCallback> callback) {
@@ -300,7 +351,15 @@ void DownloadManager::HandleBeforeDownload(
   std::wstring target = folder.empty() ? name : folder + L"\\" + name;
   // Without the Save As window pick a free name so nothing is overwritten.
   // With it, the window itself asks about overwriting.
-  if (!askWhere_) target = UniquePath(target);
+  if (!askWhere_) {
+    target = UniquePath(target);
+  } else {
+    // Ask first; nothing is downloaded (or listed) until the user confirms.
+    // Returning without callback->Continue() cancels the download.
+    const std::wstring chosen = ChooseSavePath(target);
+    if (chosen.empty()) return;
+    target = chosen;
+  }
 
   DownloadRecord rec;
   rec.id = nextId_++;
@@ -315,8 +374,8 @@ void DownloadManager::HandleBeforeDownload(
   ++startCount_;
   ++revision_;
 
-  // show_dialog = true opens the Save As window, starting at `target`.
-  callback->Continue(target, askWhere_);
+  // The location is already decided, so CEF must not ask again.
+  callback->Continue(target, false);
 }
 
 void DownloadManager::HandleUpdated(
@@ -335,6 +394,17 @@ void DownloadManager::HandleUpdated(
     // row; otherwise the first row stays "downloading" forever.
     rec = FindPendingMatch(itemUrl, fullPath);
     if (rec) rec->cefId = cefId;
+  }
+  if (!rec && item->IsInProgress() && item->GetTotalBytes() > 0) {
+    // Same download reported under a second id (redirects, e.g. GitHub
+    // artifacts): fold it into the existing row instead of adding another.
+    for (auto it = records_.rbegin(); it != records_.rend(); ++it) {
+      if (!it->inProgress || it->total != item->GetTotalBytes()) continue;
+      if (!fullPath.empty() && !it->path.empty() && it->path != fullPath) continue;
+      it->aliases.push_back(cefId);
+      rec = &*it;
+      break;
+    }
   }
   if (!rec) {
     // Only unknown if the download began without us seeing it start.
@@ -405,6 +475,10 @@ void DownloadManager::Cancel(uint32_t id) {
   DownloadRecord* rec = FindById(id);
   if (!rec) return;
   auto it = callbacks_.find(rec->cefId);
+  for (uint32_t alias : rec->aliases) {
+    auto ait = callbacks_.find(alias);
+    if (ait != callbacks_.end() && ait->second) ait->second->Cancel();
+  }
   if (it != callbacks_.end() && it->second) {
     it->second->Cancel();
   } else if (rec->inProgress) {
