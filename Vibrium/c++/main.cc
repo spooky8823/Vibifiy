@@ -75,6 +75,8 @@ constexpr UINT kFinalizeShutdownMessage = WM_APP + 1;
 constexpr UINT kOpenTabMessage = WM_APP + 2;
 // Posted when a download ended so hidden browsers kept alive for it can go.
 constexpr UINT kReapRetiredMessage = WM_APP + 3;
+// wParam = tab id: close a blank tab that only existed to start a download.
+constexpr UINT kCloseTabMessage = WM_APP + 4;
 // Custom context-menu command (must be >= MENU_ID_USER_FIRST).
 constexpr int kMenuOpenLinkInNewTab = MENU_ID_USER_FIRST + 1;
 
@@ -858,6 +860,7 @@ struct TabRecord {
     ULONGLONG lastActiveTime = 0;
 
     int activeDownloads = 0;
+    bool openedForPopup = false;  // created from a link / window.open
 
     bool playingAudio = false;
     bool closingBrowser = false;
@@ -1160,6 +1163,22 @@ public:
         }
         CreateTab(IsNewTabAlias(url) ? GetNewTabUrl() : url,
                   L"New Tab", kPageNone, activate);
+        if (!tabs_.empty()) {
+            tabs_.back().openedForPopup = true;
+        }
+    }
+
+    // A link that only triggers a download opens a tab that never shows a
+    // page. Close it once the download is accepted or declined (as Chrome
+    // does). A tab that already shows a real page is left alone.
+    void MaybeCloseBlankPopupTab(int tabId) {
+        TabRecord* tab = FindTab(tabId);
+        if (!tab || !tab->openedForPopup || tab->internalPage) return;
+        if (tab->title != L"New Tab") return;
+        if (hwnd_) {
+            PostMessageW(hwnd_, kCloseTabMessage,
+                         static_cast<WPARAM>(tabId), 0);
+        }
     }
 
     void CreateTab(
@@ -2291,6 +2310,14 @@ private:
             self->ReapRetiredBrowsers();
             return 0;
 
+        case kCloseTabMessage: {
+            const int index = self->FindTabIndex(static_cast<int>(wParam));
+            if (index >= 0 && !self->closeRequested_) {
+                self->CloseTab(index);
+            }
+            return 0;
+        }
+
         case kOpenTabMessage: {
             std::unique_ptr<OpenTabRequest> request(
                 reinterpret_cast<OpenTabRequest*>(lParam));
@@ -2697,6 +2724,10 @@ bool BrowserClient::OnBeforeDownload(
     if (accepted) {
         owner_->OnDownloadStarted(tabId_);
     }
+
+    // Whether saved or declined, a blank tab opened only for this download
+    // has done its job.
+    owner_->MaybeCloseBlankPopupTab(tabId_);
 
     return true;
 }

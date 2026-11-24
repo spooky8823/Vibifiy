@@ -364,7 +364,47 @@ void DownloadManager::OnBrowserClosed(int browserId) {
   }
 }
 
+void DownloadManager::MergeTwins() {
+  // CEF sometimes reports a running download a second time under another id:
+  // same size, no path, stuck at 0 bytes while the real one progresses. Fold
+  // that echo into the real row (cancelling the echo would cancel the real
+  // download, since both refer to the same transfer).
+  const uint64_t now = NowMs();
+  bool changed = false;
+  size_t i = 0;
+  while (i < records_.size()) {
+    bool remove = false;
+    {
+      DownloadRecord& ghost = records_[i];
+      if (ghost.inProgress && ghost.received == 0 && ghost.total > 0 &&
+          now - ghost.lastUpdateMs > 3000) {
+        for (DownloadRecord& other : records_) {
+          if (&other == &ghost || !other.inProgress) continue;
+          if (other.total != ghost.total || other.received <= 0) continue;
+          if (other.browserId != 0 && ghost.browserId != 0 &&
+              other.browserId != ghost.browserId) {
+            continue;
+          }
+          other.aliases.push_back(ghost.cefId);
+          for (uint32_t alias : ghost.aliases) other.aliases.push_back(alias);
+          callbacks_.erase(ghost.cefId);
+          remove = true;
+          break;
+        }
+      }
+    }
+    if (remove) {
+      records_.erase(records_.begin() + static_cast<std::ptrdiff_t>(i));
+      changed = true;
+    } else {
+      ++i;
+    }
+  }
+  if (changed) ++revision_;
+}
+
 void DownloadManager::ExpireGhosts() {
+  MergeTwins();
   const uint64_t now = NowMs();
   const size_t before = records_.size();
   records_.erase(std::remove_if(records_.begin(), records_.end(),
@@ -408,6 +448,7 @@ bool DownloadManager::HandleBeforeDownload(
   rec.total = item ? item->GetTotalBytes() : -1;
   rec.inProgress = true;
   rec.browserId = browserId;
+  rec.lastUpdateMs = NowMs();
   rec.timeMs = NowMs();
   records_.push_back(std::move(rec));
   ++startCount_;
@@ -462,6 +503,7 @@ void DownloadManager::HandleUpdated(
     rec = &records_.back();
   }
   rec->updated = true;
+  rec->lastUpdateMs = NowMs();
   if (rec->browserId == 0) rec->browserId = browserId;
 
   if (!fullPath.empty()) {
@@ -519,6 +561,7 @@ void DownloadManager::HandleUpdated(
 
   // `rec` may point at a moved element after the erase above: do not use it.
   if (finishedOk) Save();
+  MergeTwins();
   ++revision_;
 }
 

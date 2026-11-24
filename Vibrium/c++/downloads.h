@@ -45,6 +45,7 @@ struct DownloadRecord {
   bool missing = false;  // finished, but the file is gone from disk
   std::vector<uint32_t> aliases;  // other CEF ids reporting this same download
   int browserId = 0;     // CEF browser that started it
+  uint64_t lastUpdateMs = 0;
   bool updated = false;  // has received at least one OnDownloadUpdated
   uint64_t timeMs = 0;   // Unix ms, start (or finish) time
 };
@@ -101,6 +102,8 @@ class DownloadManager {
   void Save() const;
   DownloadRecord* FindByCefId(uint32_t cefId);
   DownloadRecord* FindById(uint32_t id);
+  // Folds a never-progressing echo of a running download into that download.
+  void MergeTwins();
   // A record created in OnBeforeDownload that has not yet been matched to a
   // CEF update (ids can differ between the two callbacks).
   DownloadRecord* FindPendingMatch(const std::wstring& url,
