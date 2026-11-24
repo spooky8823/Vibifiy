@@ -60,6 +60,8 @@ add_executable(vibrium WIN32
     c++/vibrium.rc.in
     c++/tabbar.cc
     c++/tabbar.h
+    c++/profile_picker.cc
+    c++/profile_picker.h
     c++/tabbar_geometry.h
     c++/accent_icon.cc
     c++/accent_icon.h
