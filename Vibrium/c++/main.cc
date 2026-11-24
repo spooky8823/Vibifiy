@@ -78,6 +78,7 @@ constexpr UINT kOpenTabMessage = WM_APP + 2;
 constexpr UINT kReapRetiredMessage = WM_APP + 3;
 // wParam = tab id: close a blank tab that only existed to start a download.
 constexpr UINT kCloseTabMessage = WM_APP + 4;
+class MainWindow;
 constexpr ULONG_PTR kNewWindowCopyData = 0x56494252; // 'VIBR'
 extern int gMainWindowCount;
 extern std::vector<std::unique_ptr<MainWindow>> gSecondaryWindows;
@@ -2330,7 +2331,7 @@ private:
             auto window = std::make_unique<MainWindow>();
             if (window->Create(self->instance_)) {
                 gSecondaryWindows.push_back(std::move(window));
-                SetForegroundWindow(gSecondaryWindows.back()->GetHandle());
+                SetForegroundWindow(gSecondaryWindows.back()->hwnd_);
             }
             return TRUE;
         }
