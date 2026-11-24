@@ -54,6 +54,9 @@ private:
         std::wstring title;
         std::wstring iconText = L"•";
         HBITMAP iconBitmap = nullptr;
+        ULONGLONG animationStart = 0;
+        bool opening = false;
+        bool closing = false;
     };
 
     HWND hwnd_ = nullptr;
@@ -62,6 +65,9 @@ private:
 
     std::vector<Tab> tabs_;
     int activeTab_ = -1;
+    int closingTab_ = -1;
+
+    float GetTabAnimationScale(int index) const;
 
     TabCallback onTabSelected_;
     TabCallback onTabClosed_;
