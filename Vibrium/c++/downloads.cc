@@ -338,9 +338,47 @@ std::wstring ChooseSavePath(const std::wstring& initialPath) {
   return buffer.data();
 }
 
-void DownloadManager::HandleBeforeDownload(
+bool DownloadManager::HasActiveForBrowser(int browserId) const {
+  if (browserId == 0) return false;
+  for (const DownloadRecord& rec : records_) {
+    if (rec.inProgress && rec.browserId == browserId) return true;
+  }
+  return false;
+}
+
+void DownloadManager::OnBrowserClosed(int browserId) {
+  if (browserId == 0) return;
+  bool changed = false;
+  for (DownloadRecord& rec : records_) {
+    if (!rec.inProgress || rec.browserId != browserId) continue;
+    rec.inProgress = false;
+    rec.canceled = true;
+    callbacks_.erase(rec.cefId);
+    for (uint32_t alias : rec.aliases) callbacks_.erase(alias);
+    finishedCefIds_.insert(rec.cefId);
+    changed = true;
+  }
+  if (changed) {
+    ++finishCount_;
+    ++revision_;
+  }
+}
+
+void DownloadManager::ExpireGhosts() {
+  const uint64_t now = NowMs();
+  const size_t before = records_.size();
+  records_.erase(std::remove_if(records_.begin(), records_.end(),
+                                [&](const DownloadRecord& r) {
+                                  return r.inProgress && !r.updated &&
+                                         now - r.timeMs > 45000;
+                                }),
+                 records_.end());
+  if (records_.size() != before) ++revision_;
+}
+
+bool DownloadManager::HandleBeforeDownload(
     CefRefPtr<CefDownloadItem> item, const std::wstring& suggestedName,
-    CefRefPtr<CefBeforeDownloadCallback> callback) {
+    CefRefPtr<CefBeforeDownloadCallback> callback, int browserId) {
   std::wstring name = SanitizeFileName(suggestedName);
   if (name.empty()) name = L"download";
 
@@ -357,7 +395,7 @@ void DownloadManager::HandleBeforeDownload(
     // Ask first; nothing is downloaded (or listed) until the user confirms.
     // Returning without callback->Continue() cancels the download.
     const std::wstring chosen = ChooseSavePath(target);
-    if (chosen.empty()) return;
+    if (chosen.empty()) return false;
     target = chosen;
   }
 
@@ -369,6 +407,7 @@ void DownloadManager::HandleBeforeDownload(
   rec.path = target;
   rec.total = item ? item->GetTotalBytes() : -1;
   rec.inProgress = true;
+  rec.browserId = browserId;
   rec.timeMs = NowMs();
   records_.push_back(std::move(rec));
   ++startCount_;
@@ -376,13 +415,17 @@ void DownloadManager::HandleBeforeDownload(
 
   // The location is already decided, so CEF must not ask again.
   callback->Continue(target, false);
+  return true;
 }
 
 void DownloadManager::HandleUpdated(
     CefRefPtr<CefDownloadItem> item,
-    CefRefPtr<CefDownloadItemCallback> callback) {
+    CefRefPtr<CefDownloadItemCallback> callback, int browserId) {
   if (!item) return;
   const uint32_t cefId = item->GetId();
+  // Late or repeated updates for a download we already finished must never
+  // bring it back as a new "downloading" row.
+  if (cefId != 0 && finishedCefIds_.count(cefId)) return;
   const std::wstring itemUrl = item->GetURL().ToWString();
   const std::wstring fullPath = item->GetFullPath().ToWString();
 
@@ -412,12 +455,14 @@ void DownloadManager::HandleUpdated(
     DownloadRecord created;
     created.id = nextId_++;
     created.cefId = cefId;
+    created.browserId = browserId;
     created.url = itemUrl;
     created.timeMs = NowMs();
     records_.push_back(std::move(created));
     rec = &records_.back();
   }
   rec->updated = true;
+  if (rec->browserId == 0) rec->browserId = browserId;
 
   if (!fullPath.empty()) {
     rec->path = fullPath;
@@ -446,6 +491,12 @@ void DownloadManager::HandleUpdated(
     rec->percent = 100;
     rec->received = rec->total > 0 ? rec->total : rec->received;
     ++finishCount_;
+  }
+  if (!rec->inProgress && (rec->complete || rec->canceled)) {
+    if (cefId != 0) finishedCefIds_.insert(cefId);
+    for (uint32_t alias : rec->aliases) finishedCefIds_.insert(alias);
+    // A cancel is announced by the panel too (CEF's own bubble is off).
+    if (rec->canceled && !rec->complete) ++finishCount_;
   }
 
   // A finished or canceled download must leave no "in progress" twin behind.
@@ -929,6 +980,7 @@ void DownloadPopup::OnTimer() {
   DownloadManager& manager = DownloadManager::Get();
   const uint64_t now = NowMs();
 
+  manager.ExpireGhosts();
   const bool started = manager.startCount() != seenStart_;
   const bool finished = manager.finishCount() != seenFinish_;
   seenStart_ = manager.startCount();

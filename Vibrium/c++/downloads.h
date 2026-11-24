@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,6 +44,7 @@ struct DownloadRecord {
   bool canceled = false;
   bool missing = false;  // finished, but the file is gone from disk
   std::vector<uint32_t> aliases;  // other CEF ids reporting this same download
+  int browserId = 0;     // CEF browser that started it
   bool updated = false;  // has received at least one OnDownloadUpdated
   uint64_t timeMs = 0;   // Unix ms, start (or finish) time
 };
@@ -62,11 +64,21 @@ class DownloadManager {
   std::wstring DefaultFolder() const;
 
   // CEF glue (see BrowserClient::OnBeforeDownload / OnDownloadUpdated).
-  void HandleBeforeDownload(CefRefPtr<CefDownloadItem> item,
+  // Returns false if the user cancelled the Save As window (nothing starts).
+  bool HandleBeforeDownload(CefRefPtr<CefDownloadItem> item,
                             const std::wstring& suggestedName,
-                            CefRefPtr<CefBeforeDownloadCallback> callback);
+                            CefRefPtr<CefBeforeDownloadCallback> callback,
+                            int browserId);
   void HandleUpdated(CefRefPtr<CefDownloadItem> item,
-                     CefRefPtr<CefDownloadItemCallback> callback);
+                     CefRefPtr<CefDownloadItemCallback> callback,
+                     int browserId);
+
+  // True while a download started by this browser is still running.
+  bool HasActiveForBrowser(int browserId) const;
+  // A browser was destroyed: its unfinished downloads died with it.
+  void OnBrowserClosed(int browserId);
+  // Drops rows that never received a single update from CEF.
+  void ExpireGhosts();
 
   void Cancel(uint32_t id);
   // Removes an entry from the list (the file on disk is left alone).
@@ -98,6 +110,7 @@ class DownloadManager {
   std::map<uint32_t, CefRefPtr<CefDownloadItemCallback>> callbacks_;
   uint32_t nextId_ = 1;
   uint64_t revision_ = 1;
+  std::set<uint32_t> finishedCefIds_;
   uint32_t startCount_ = 0;
   uint32_t finishCount_ = 0;
   bool askWhere_ = false;

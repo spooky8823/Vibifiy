@@ -73,8 +73,19 @@ constexpr UINT kFinalizeShutdownMessage = WM_APP + 1;
 // Posted by BrowserClient when a page asks for a new window/tab. lParam is
 // an OpenTabRequest* (owned by the receiver).
 constexpr UINT kOpenTabMessage = WM_APP + 2;
+// Posted when a download ended so hidden browsers kept alive for it can go.
+constexpr UINT kReapRetiredMessage = WM_APP + 3;
 // Custom context-menu command (must be >= MENU_ID_USER_FIRST).
 constexpr int kMenuOpenLinkInNewTab = MENU_ID_USER_FIRST + 1;
+
+// A closed tab's browser, kept alive (hidden) because a download it started
+// is still running: CEF cancels a download when its browser is destroyed.
+struct RetiredBrowser {
+    CefRefPtr<CefBrowser> browser;
+    CefRefPtr<CefClient> client;
+    int id = 0;
+    bool closing = false;
+};
 
 struct OpenTabRequest {
     std::wstring url;
@@ -1362,6 +1373,10 @@ public:
             )
         );
 
+        // Alloy style: no Chrome UI around the page (that is where the
+        // built-in download bubble came from). Vibrium draws its own.
+        windowInfo.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
+
         CefBrowserSettings browserSettings{};
 
         tab.client = new BrowserClient(this, tab.id);
@@ -1507,8 +1522,18 @@ public:
                     tabs_[index].browser->GetHost()->GetWindowHandle()) {
                 ShowWindow(closingWindow, SW_HIDE);
             }
-            tabs_[index].closingBrowser = true;
-            tabs_[index].browser->GetHost()->CloseBrowser(true);
+            const int browserId = tabs_[index].browser->GetIdentifier();
+            if (!closeRequested_ &&
+                DownloadManager::Get().HasActiveForBrowser(browserId)) {
+                // Closing the browser would cancel its download. Keep it
+                // alive, hidden, until the download is done.
+                retired_.push_back({tabs_[index].browser,
+                                    tabs_[index].client, browserId, false});
+                tabs_[index].browser->GetHost()->WasHidden(true);
+            } else {
+                tabs_[index].closingBrowser = true;
+                tabs_[index].browser->GetHost()->CloseBrowser(true);
+            }
         }
 
         tabs_.erase(tabs_.begin() + index);
@@ -1759,8 +1784,10 @@ public:
     }
 
     bool IsProtected(const TabRecord& tab) const {
-        return tab.activeDownloads > 0 ||
-               tab.playingAudio;
+        if (tab.playingAudio) return true;
+        return tab.browser &&
+               DownloadManager::Get().HasActiveForBrowser(
+                   tab.browser->GetIdentifier());
     }
 
     // --------------------------------------------------------
@@ -2005,6 +2032,18 @@ public:
 
     AuthPopup::CloseAll();
 
+    {
+        std::vector<CefRefPtr<CefBrowser>> toClose;
+        for (auto& entry : retired_) {
+            if (entry.closing) continue;
+            entry.closing = true;
+            toClose.push_back(entry.browser);
+        }
+        for (auto& browser : toClose) {
+            browser->GetHost()->CloseBrowser(true);
+        }
+    }
+
     for (auto& tab : tabs_) {
         if (tab.browser) {
             tab.closingBrowser = true;
@@ -2014,6 +2053,34 @@ public:
 
     FinishShutdownIfReady();
  }
+
+    void PostReapRetired() {
+        if (hwnd_) PostMessageW(hwnd_, kReapRetiredMessage, 0, 0);
+    }
+
+    // Closes hidden browsers whose downloads have finished.
+    void ReapRetiredBrowsers() {
+        std::vector<CefRefPtr<CefBrowser>> toClose;
+        for (auto& entry : retired_) {
+            if (entry.closing) continue;
+            if (DownloadManager::Get().HasActiveForBrowser(entry.id)) continue;
+            entry.closing = true;
+            toClose.push_back(entry.browser);
+        }
+        for (auto& browser : toClose) {
+            browser->GetHost()->CloseBrowser(true);
+        }
+    }
+
+    void OnRetiredBrowserClosed(int browserId) {
+        retired_.erase(
+            std::remove_if(retired_.begin(), retired_.end(),
+                           [&](const RetiredBrowser& r) {
+                               return r.id == browserId;
+                           }),
+            retired_.end());
+        if (closeRequested_) FinishShutdownIfReady();
+    }
 
     // Safe to call from CEF callbacks: the tab is created from the window's
     // own message loop, not from inside the callback.
@@ -2182,6 +2249,7 @@ private:
             if (wParam == kMemoryTimer) {
                 HistoryStore::Get().Flush();
                 self->CheckInactiveTabs();
+                self->ReapRetiredBrowsers();
             } else if (wParam == kSelfTestTimer) {
                 KillTimer(hwnd, kSelfTestTimer);
                 SelfTest::Get().OnTimeout();
@@ -2198,6 +2266,10 @@ private:
         // CEF's native window teardown while it is still dispatching callbacks.
         case kFinalizeShutdownMessage:
             self->FinalizeShutdown();
+            return 0;
+
+        case kReapRetiredMessage:
+            self->ReapRetiredBrowsers();
             return 0;
 
         case kOpenTabMessage: {
@@ -2232,6 +2304,9 @@ private:
     }
 
     bool AllBrowsersClosed() const {
+        if (!retired_.empty()) {
+            return false;
+        }
         for (const auto& tab : tabs_) {
             // A browser creation can complete asynchronously after shutdown
             // starts. OnBrowserCreated() closes it, and OnBeforeClose() clears
@@ -2292,6 +2367,7 @@ private:
     std::unique_ptr<DownloadPopup> downloadPopup_;
 
     std::vector<TabRecord> tabs_;
+    std::vector<RetiredBrowser> retired_;
 
     int activeTab_ = -1;
     int nextTabId_ = 1;
@@ -2533,6 +2609,11 @@ void BrowserClient::OnBeforeClose(
 
     AdblockService::Get().OnBrowserClosed(browser);
 
+    // Whatever that browser was still downloading died with it.
+    const int closedBrowserId = browser->GetIdentifier();
+    DownloadManager::Get().OnBrowserClosed(closedBrowserId);
+    owner_->OnRetiredBrowserClosed(closedBrowserId);
+
     // Only the tab's own browser closing may clear the tab record.
     if (browser->GetIdentifier() != primaryBrowserId_) {
         return;
@@ -2586,14 +2667,17 @@ bool BrowserClient::OnBeforeDownload(
     const CefString& suggestedName,
     CefRefPtr<CefBeforeDownloadCallback> callback) {
 
-    owner_->OnDownloadStarted(tabId_);
-
     // DownloadManager picks the destination: the user's Downloads folder, or
-    // a Save As window when "Ask where to save each file" is on.
-    DownloadManager::Get().HandleBeforeDownload(
+    // its own Save As window when "Ask where to save each file" is on.
+    const bool accepted = DownloadManager::Get().HandleBeforeDownload(
         item,
         suggestedName.ToWString(),
-        callback);
+        callback,
+        browser->GetIdentifier());
+
+    if (accepted) {
+        owner_->OnDownloadStarted(tabId_);
+    }
 
     return true;
 }
@@ -2604,7 +2688,11 @@ void BrowserClient::OnDownloadUpdated(
     CefRefPtr<CefDownloadItemCallback> callback) {
 
     owner_->OnDownloadUpdated(tabId_, item);
-    DownloadManager::Get().HandleUpdated(item, callback);
+    DownloadManager::Get().HandleUpdated(item, callback,
+                                         browser->GetIdentifier());
+    if (item && (item->IsComplete() || item->IsCanceled())) {
+        owner_->PostReapRetired();
+    }
 }
 
 void BrowserClient::OnAudioStreamStarted(
