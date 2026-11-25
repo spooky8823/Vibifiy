@@ -1,4 +1,5 @@
 #include "tabbar.h"
+#include "theme.h"
 
 #include <windowsx.h>
 #include <dwmapi.h>
@@ -567,14 +568,19 @@ void TabBar::Paint(HDC hdc) {
     const int tabW = GetTabWidth();
     const int count = static_cast<int>(tabs_.size());
 
-    // Palette: everything derives from the accent colour.
+    // Neutral system palette: black/near-black in dark mode and soft
+    // white/gray in light mode. No profile-name or hardcoded purple tint.
+    const bool darkTheme = vibrium::Theme::IsSystemDark();
     const COLORREF accent = accentColor_;
-    const COLORREF black = RGB(0, 0, 0);
-    const COLORREF barBg = BlendColor(black, accent, 34);
-    const COLORREF inactiveFill = BlendColor(black, accent, 62);
-    const COLORREF glow = GlowColor(accent);
-    const COLORREF inactiveEdge = BlendColor(inactiveFill, glow, 50);
-    const COLORREF activeFill = RGB(10, 10, 12);
+    const COLORREF barBg = darkTheme ? RGB(0,0,0) : RGB(232,232,232);
+    const COLORREF inactiveFill = darkTheme ? RGB(20,20,20) : RGB(250,250,250);
+    const COLORREF glow = vibrium::Theme::IsManual()
+        ? GlowColor(accent)
+        : (darkTheme ? RGB(110,110,110) : RGB(125,125,125));
+    const COLORREF inactiveEdge = darkTheme ? RGB(65,65,65) : RGB(190,190,190);
+    const COLORREF activeFill = darkTheme ? RGB(0,0,0) : RGB(245,245,245);
+    const COLORREF foreground = darkTheme ? RGB(245,245,245) : RGB(32,32,32);
+    const COLORREF glyph = darkTheme ? RGB(230,230,230) : RGB(65,65,65);
 
     auto shapeOf = [&](int i) {
         const RECT r = GetTabRect(i);
@@ -712,7 +718,7 @@ void TabBar::Paint(HDC hdc) {
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
                 L"Segoe UI");
             HGDIOBJ oldFallbackFont = SelectObject(hdc, fallbackFont);
-            SetTextColor(hdc, RGB(255, 255, 255));
+            SetTextColor(hdc, foreground);
             RECT fallbackRect{
                 iconX, iconY, iconX + iconSize, iconY + iconSize};
             DrawTextW(hdc, tabs_[i].iconText.c_str(), -1, &fallbackRect,
@@ -721,7 +727,7 @@ void TabBar::Paint(HDC hdc) {
             DeleteObject(fallbackFont);
         }
 
-        SetTextColor(hdc, RGB(238, 238, 238));
+        SetTextColor(hdc, foreground);
         RECT titleRect{
             iconX + iconSize + 8, 0, closeX - 14, H};
         if (roomy && titleRect.right - titleRect.left >= 20) {
@@ -730,7 +736,7 @@ void TabBar::Paint(HDC hdc) {
         }
 
         if (showClose) {
-            HPEN closePen = CreatePen(PS_SOLID, 1, RGB(225, 225, 225));
+            HPEN closePen = CreatePen(PS_SOLID, 1, glyph);
             HPEN oldClosePen = static_cast<HPEN>(SelectObject(hdc, closePen));
             MoveToEx(hdc, closeX - 4, midY - 4, nullptr);
             LineTo(hdc, closeX + 5, midY + 5);
@@ -745,7 +751,7 @@ void TabBar::Paint(HDC hdc) {
     {
         const int cx = (plus.left + plus.right) / 2;
         const int cy = (plus.top + plus.bottom) / 2;
-        HPEN plusPen = CreatePen(PS_SOLID, 2, RGB(245, 245, 245));
+        HPEN plusPen = CreatePen(PS_SOLID, 2, glyph);
         HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, plusPen));
         MoveToEx(hdc, cx - 6, cy, nullptr);
         LineTo(hdc, cx + 7, cy);
@@ -761,7 +767,7 @@ void TabBar::Paint(HDC hdc) {
     for (int button = 0; button < CAPTION_BUTTON_COUNT; ++button) {
         const int centerX = captionStart +
             button * CAPTION_BUTTON_WIDTH + CAPTION_BUTTON_WIDTH / 2;
-        HPEN glyphPen = CreatePen(PS_SOLID, 1, RGB(240, 240, 240));
+        HPEN glyphPen = CreatePen(PS_SOLID, 1, glyph);
         HGDIOBJ oldGlyphPen = SelectObject(hdc, glyphPen);
         HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
 
