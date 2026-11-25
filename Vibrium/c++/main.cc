@@ -2986,6 +2986,9 @@ int WINAPI wWinMain(
         return 1;
     }
 
+    // Appearance preferences belong to the selected browser profile.
+    vibrium::Theme::SetProfileDirectory(profilePath);
+
     CefSettings settings;
     CefString(&settings.cache_path) = profilePath.wstring();
     // DEVELOPMENT ONLY: a release build must run sandboxed (see
