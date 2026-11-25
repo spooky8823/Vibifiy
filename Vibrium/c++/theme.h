@@ -19,6 +19,18 @@ inline void SetProfileDirectory(const std::filesystem::path& directory) {
   profileDirectory = directory;
 }
 
+inline COLORREF ProfileDefaultAccent() {
+  if (profileDirectory.empty()) return kDefaultAccent;
+  const std::wstring name = profileDirectory.filename().wstring();
+  unsigned hash = 2166136261u;
+  for (wchar_t ch : name) { hash ^= static_cast<unsigned>(ch); hash *= 16777619u; }
+  constexpr COLORREF palette[] = {
+    RGB(174, 72, 225), RGB(80, 130, 245), RGB(35, 175, 160),
+    RGB(225, 92, 145), RGB(230, 150, 55), RGB(115, 105, 235)
+  };
+  return palette[hash % (sizeof(palette) / sizeof(palette[0]))];
+}
+
 inline std::filesystem::path ProfileThemeFile() {
   return profileDirectory.empty() ? std::filesystem::path{} : profileDirectory / L"theme.ini";
 }
@@ -64,7 +76,7 @@ inline void Load() {
     manual = GetPrivateProfileIntW(L"Appearance", L"HasAccent", 0, profileFile.c_str()) != 0;
     accent = manual
         ? static_cast<COLORREF>(GetPrivateProfileIntW(L"Appearance", L"Accent", static_cast<UINT>(kDefaultAccent), profileFile.c_str()))
-        : kDefaultAccent;
+         : ProfileDefaultAccent();
     return;
   }
   HKEY key = nullptr;
