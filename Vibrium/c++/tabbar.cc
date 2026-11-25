@@ -1,5 +1,4 @@
 #include "tabbar.h"
-#include "theme.h"
 
 #include <windowsx.h>
 #include <dwmapi.h>
@@ -568,19 +567,17 @@ void TabBar::Paint(HDC hdc) {
     const int tabW = GetTabWidth();
     const int count = static_cast<int>(tabs_.size());
 
-    // Neutral system palette: black/near-black in dark mode and soft
-    // white/gray in light mode. No profile-name or hardcoded purple tint.
-    const bool darkTheme = vibrium::Theme::IsSystemDark();
+    // Browser appearance is profile-controlled. Do not follow the Windows
+    // system theme here; use the accent/theme selected by the user.
     const COLORREF accent = accentColor_;
-    const COLORREF barBg = darkTheme ? RGB(0,0,0) : RGB(232,232,232);
-    const COLORREF inactiveFill = darkTheme ? RGB(20,20,20) : RGB(250,250,250);
-    const COLORREF glow = vibrium::Theme::IsManual()
-        ? GlowColor(accent)
-        : (darkTheme ? RGB(110,110,110) : RGB(125,125,125));
-    const COLORREF inactiveEdge = darkTheme ? RGB(65,65,65) : RGB(190,190,190);
-    const COLORREF activeFill = darkTheme ? RGB(0,0,0) : RGB(245,245,245);
-    const COLORREF foreground = darkTheme ? RGB(245,245,245) : RGB(32,32,32);
-    const COLORREF glyph = darkTheme ? RGB(230,230,230) : RGB(65,65,65);
+    const COLORREF black = RGB(0, 0, 0);
+    const COLORREF barBg = BlendColor(black, accent, 34);
+    const COLORREF inactiveFill = BlendColor(black, accent, 62);
+    const COLORREF glow = GlowColor(accent);
+    const COLORREF inactiveEdge = BlendColor(inactiveFill, glow, 50);
+    const COLORREF activeFill = RGB(10, 10, 12);
+    const COLORREF foreground = RGB(238, 238, 238);
+    const COLORREF glyph = RGB(230, 230, 230);
 
     auto shapeOf = [&](int i) {
         const RECT r = GetTabRect(i);
