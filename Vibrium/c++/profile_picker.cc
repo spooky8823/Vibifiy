@@ -1,29 +1,140 @@
 #include "profile_picker.h"
 #include "theme.h"
 
+#include <windowsx.h>
+#include <dwmapi.h>
 #include <algorithm>
 #include <cwctype>
 #include <system_error>
 #include <vector>
-#include <dwmapi.h>
+using std::min;
+using std::max;
+// GDI+ headers need IUnknown/IStream, which WIN32_LEAN_AND_MEAN strips out.
+#include <unknwn.h>
+#include <objidl.h>
+#include <gdiplus.h>
+
+#ifndef EM_SETCUEBANNER
+#define EM_SETCUEBANNER 0x1501
+#endif
 
 namespace vibrium {
 namespace {
 
 constexpr wchar_t kPickerClass[] = L"VibriumProfilePicker";
-constexpr int kWindowWidth = 620;
-constexpr int kWindowHeight = 470;
-COLORREF kBackground = RGB(0,0,0);
-COLORREF kPanel = RGB(18,18,18);
-COLORREF kAccent = RGB(80,80,80);
-COLORREF kText = RGB(245,245,245);
-COLORREF kMuted = RGB(165,165,165);
-constexpr int kProfileListId = 1001;
-constexpr int kUseProfileId = 1002;
-constexpr int kNewProfileId = 1003;
+
+// Client-area geometry (device pixels; the process is not DPI-aware, so
+// Windows scales the whole window on high-DPI displays).
+constexpr int kClientW = 840;
+constexpr int kClientH = 600;
+constexpr int kColumns = 4;
+constexpr int kTileW = 180;
+constexpr int kTileH = 168;
+constexpr int kTileGap = 20;
+constexpr int kTilePad = 4;       // room above the first row for outlines
+constexpr int kGridTop = 148;
+constexpr int kGridBottom = 512;
+constexpr int kFooterTop = 528;
+constexpr int kAvatar = 84;
+constexpr int kPillH = 44;
+constexpr int kMargin = 30;
 constexpr int kNameEditId = 1004;
-constexpr int kCreateProfileId = 1005;
-constexpr int kCancelCreateId = 1006;
+
+struct Palette {
+    COLORREF bgTop, bgBottom, card, cardHover, text, muted, line;
+    COLORREF accent, onAccent;
+};
+Palette g_pal{};
+
+Palette MakePalette(bool dark) {
+    Palette p{};
+    if (dark) {
+        p.bgTop = RGB(36, 45, 43);   p.bgBottom = RGB(32, 33, 36);
+        p.card = RGB(48, 49, 52);    p.cardHover = RGB(60, 64, 67);
+        p.text = RGB(232, 234, 237); p.muted = RGB(154, 160, 166);
+        p.line = RGB(66, 69, 73);
+        p.accent = RGB(138, 180, 248); p.onAccent = RGB(32, 33, 36);
+    } else {
+        p.bgTop = RGB(228, 238, 252); p.bgBottom = RGB(250, 251, 253);
+        p.card = RGB(255, 255, 255);  p.cardHover = RGB(241, 243, 244);
+        p.text = RGB(32, 33, 36);     p.muted = RGB(95, 99, 104);
+        p.line = RGB(218, 220, 224);
+        p.accent = RGB(26, 115, 232); p.onAccent = RGB(255, 255, 255);
+    }
+    return p;
+}
+
+// Avatar colors, picked deterministically from the profile name.
+constexpr COLORREF kAvatarColors[] = {
+    RGB(66, 133, 244), RGB(52, 168, 83),  RGB(234, 67, 53),
+    RGB(171, 71, 188), RGB(0, 150, 167),  RGB(244, 81, 30),
+    RGB(92, 107, 192), RGB(194, 24, 91),
+};
+
+COLORREF AvatarColor(const std::wstring& name) {
+    unsigned hash = 17;
+    for (wchar_t c : name) {
+        hash = hash * 31u + static_cast<unsigned>(std::towlower(c));
+    }
+    return kAvatarColors[hash % (sizeof(kAvatarColors) / sizeof(kAvatarColors[0]))];
+}
+
+// ---- GDI+ helpers -----------------------------------------------------
+
+Gdiplus::Color Col(COLORREF c, BYTE alpha = 255) {
+    return Gdiplus::Color(alpha, GetRValue(c), GetGValue(c), GetBValue(c));
+}
+
+Gdiplus::RectF F(const RECT& r) {
+    return Gdiplus::RectF(static_cast<float>(r.left), static_cast<float>(r.top),
+                          static_cast<float>(r.right - r.left),
+                          static_cast<float>(r.bottom - r.top));
+}
+
+void RoundPath(Gdiplus::GraphicsPath& path, Gdiplus::RectF r, float radius) {
+    const float d = radius * 2.0f;
+    path.AddArc(r.X, r.Y, d, d, 180.0f, 90.0f);
+    path.AddArc(r.X + r.Width - d, r.Y, d, d, 270.0f, 90.0f);
+    path.AddArc(r.X + r.Width - d, r.Y + r.Height - d, d, d, 0.0f, 90.0f);
+    path.AddArc(r.X, r.Y + r.Height - d, d, d, 90.0f, 90.0f);
+    path.CloseFigure();
+}
+
+void FillRound(Gdiplus::Graphics& g, Gdiplus::RectF r, float radius,
+               Gdiplus::Color color) {
+    Gdiplus::GraphicsPath path;
+    RoundPath(path, r, radius);
+    Gdiplus::SolidBrush brush(color);
+    g.FillPath(&brush, &path);
+}
+
+void StrokeRound(Gdiplus::Graphics& g, Gdiplus::RectF r, float radius,
+                 Gdiplus::Color color, float width) {
+    const float inset = width / 2.0f;
+    r.X += inset; r.Y += inset; r.Width -= width; r.Height -= width;
+    Gdiplus::GraphicsPath path;
+    RoundPath(path, r, std::max(0.0f, radius - inset));
+    Gdiplus::Pen pen(color, width);
+    g.DrawPath(&pen, &path);
+}
+
+void DrawLabel(Gdiplus::Graphics& g, const std::wstring& text,
+               Gdiplus::RectF rect, float pixelSize, bool bold,
+               COLORREF color,
+               Gdiplus::StringAlignment align = Gdiplus::StringAlignmentCenter) {
+    Gdiplus::FontFamily family(L"Segoe UI");
+    Gdiplus::Font font(&family, pixelSize,
+                       bold ? Gdiplus::FontStyleBold : Gdiplus::FontStyleRegular,
+                       Gdiplus::UnitPixel);
+    Gdiplus::StringFormat format(Gdiplus::StringFormatFlagsNoWrap);
+    format.SetAlignment(align);
+    format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+    format.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
+    Gdiplus::SolidBrush brush(Col(color));
+    g.DrawString(text.c_str(), -1, &font, rect, &format, &brush);
+}
+
+// ---- profile storage --------------------------------------------------
 
 std::filesystem::path ProfilesRoot() {
     std::wstring executable(32768, L'\0');
@@ -70,28 +181,53 @@ bool IsValidProfileName(const std::wstring& name) {
 
 ProfilePicker::ProfilePicker(HINSTANCE instance) : instance_(instance) {}
 
+ProfilePicker::~ProfilePicker() {
+    if (editFont_) DeleteObject(editFont_);
+    if (editBrush_) DeleteObject(editBrush_);
+}
+
 std::optional<ProfileSelection> ProfilePicker::Show(HINSTANCE instance) {
-    ProfilePicker picker(instance);
-    if (!picker.Create()) return std::nullopt;
-
-    ShowWindow(picker.hwnd_, SW_SHOW);
-    UpdateWindow(picker.hwnd_);
-
-    MSG message{};
-    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
-        TranslateMessage(&message);
-        DispatchMessageW(&message);
+    Gdiplus::GdiplusStartupInput startup;
+    ULONG_PTR token = 0;
+    if (Gdiplus::GdiplusStartup(&token, &startup, nullptr) != Gdiplus::Ok) {
+        return std::nullopt;
     }
-    return picker.selected_;
+
+    std::optional<ProfileSelection> result;
+    {
+        ProfilePicker picker(instance);
+        if (picker.Create()) {
+            ShowWindow(picker.hwnd_, SW_SHOW);
+            UpdateWindow(picker.hwnd_);
+
+            MSG message{};
+            while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+                // Enter / Esc inside the name field.
+                if (message.message == WM_KEYDOWN && picker.creating_ &&
+                    message.hwnd == picker.nameEdit_) {
+                    if (message.wParam == VK_RETURN) {
+                        picker.CreateProfileFromInput();
+                        continue;
+                    }
+                    if (message.wParam == VK_ESCAPE) {
+                        picker.EndCreate();
+                        continue;
+                    }
+                }
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+            result = picker.selected_;
+        }
+    }
+    Gdiplus::GdiplusShutdown(token);
+    return result;
 }
 
 bool ProfilePicker::Create() {
     const bool dark = Theme::IsSystemDark();
-    kBackground = Theme::Surface();
-    kPanel = Theme::Panel();
-    kAccent = dark ? RGB(90,90,90) : RGB(100,100,100);
-    kText = Theme::Text();
-    kMuted = Theme::MutedText();
+    g_pal = MakePalette(dark);
+
     const std::filesystem::path root = ProfilesRoot();
     if (root.empty()) return false;
 
@@ -114,69 +250,71 @@ bool ProfilePicker::Create() {
     wc.lpszClassName = kPickerClass;
     RegisterClassExW(&wc);
 
+    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+    const DWORD exStyle = WS_EX_APPWINDOW;
+    RECT frame{0, 0, kClientW, kClientH};
+    AdjustWindowRectEx(&frame, style, FALSE, exStyle);
+    const int width = frame.right - frame.left;
+    const int height = frame.bottom - frame.top;
+
     RECT work{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
-    const int x = work.left + ((work.right - work.left) - kWindowWidth) / 2;
-    const int y = work.top + ((work.bottom - work.top) - kWindowHeight) / 2;
+    const int x = work.left + ((work.right - work.left) - width) / 2;
+    const int y = work.top + ((work.bottom - work.top) - height) / 2;
 
-    hwnd_ = CreateWindowExW(
-        WS_EX_APPWINDOW, kPickerClass, L"Choose a Vibrium Profile",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-        x, y, kWindowWidth, kWindowHeight, nullptr, nullptr, instance_, this);
+    hwnd_ = CreateWindowExW(exStyle, kPickerClass, L"Vibrium", style,
+                            x, y, width, height, nullptr, nullptr,
+                            instance_, this);
     if (hwnd_) {
-        const COLORREF caption = kBackground;
+        const BOOL useDark = dark ? TRUE : FALSE;
+        DwmSetWindowAttribute(hwnd_, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */,
+                              &useDark, sizeof(useDark));
+        const COLORREF caption = g_pal.bgTop;
         DwmSetWindowAttribute(hwnd_, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
-        const COLORREF captionText = kText;
+        const COLORREF captionText = g_pal.text;
         DwmSetWindowAttribute(hwnd_, DWMWA_TEXT_COLOR, &captionText, sizeof(captionText));
     }
     return hwnd_ != nullptr;
 }
 
 void ProfilePicker::AddControls() {
-    const auto make = [&](const wchar_t* klass, const wchar_t* text,
-                          DWORD style, int id, int x, int y, int width,
-                          int height) {
-        HWND control = CreateWindowExW(
-            0, klass, text, WS_CHILD | WS_VISIBLE | style,
-            x, y, width, height, hwnd_,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-            instance_, nullptr);
-        SendMessageW(control, WM_SETFONT,
-                    reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),
-                    TRUE);
-        return control;
-    };
+    nameEdit_ = CreateWindowExW(
+        0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNameEditId)),
+        instance_, nullptr);
+    editFont_ = CreateFontW(-16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    editBrush_ = CreateSolidBrush(g_pal.card);
+    SendMessageW(nameEdit_, WM_SETFONT, reinterpret_cast<WPARAM>(editFont_), TRUE);
+    SendMessageW(nameEdit_, EM_LIMITTEXT, 64, 0);
+    SendMessageW(nameEdit_, EM_SETCUEBANNER, TRUE,
+                 reinterpret_cast<LPARAM>(L"Profile name"));
 
-    make(L"STATIC", L"Choose a profile to continue", SS_LEFT,
-         0, 28, 44, 540, 20);
-    list_ = make(L"LISTBOX", L"",
-        LBS_NOTIFY | LBS_HASSTRINGS | LBS_OWNERDRAWFIXED | LBS_NOINTEGRALHEIGHT | WS_VSCROLL,
-        kProfileListId, 28, 68, 548, 272);
-    SendMessageW(list_, LB_SETITEMHEIGHT, 0, 54);
-
-    newButton_ = make(L"BUTTON", L"+  New Profile",
-        BS_OWNERDRAW, kNewProfileId, 28, 360, 170, 38);
-    useButton_ = make(L"BUTTON", L"Use Profile",
-        BS_OWNERDRAW, kUseProfileId, 422, 360, 154, 38);
-    nameEdit_ = make(L"EDIT", L"",
-        ES_AUTOHSCROLL | WS_BORDER, kNameEditId, 28, 412, 270, 30);
-    createButton_ = make(L"BUTTON", L"Create",
-        BS_OWNERDRAW, kCreateProfileId, 310, 412, 92, 30);
-    cancelCreateButton_ = make(L"BUTTON", L"Cancel",
-        BS_OWNERDRAW, kCancelCreateId, 414, 412, 92, 30);
-
-    ShowWindow(nameEdit_, SW_HIDE);
-    ShowWindow(createButton_, SW_HIDE);
-    ShowWindow(cancelCreateButton_, SW_HIDE);
-    EnableWindow(useButton_, FALSE);
     PopulateProfiles();
-    InvalidateRect(hwnd_, nullptr, TRUE);
+    ComputeLayout();
+    if (profiles_.empty()) {
+        StartCreate();            // nothing to pick yet: ask for a name
+    } else {
+        focus_ = 0;
+    }
+}
+
+void ProfilePicker::SortProfiles() {
+    const auto lower = [](std::wstring s) {
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+        return s;
+    };
+    std::sort(profiles_.begin(), profiles_.end(),
+              [&](const ProfileSelection& a, const ProfileSelection& b) {
+                  return lower(a.name) < lower(b.name);
+              });
 }
 
 void ProfilePicker::PopulateProfiles() {
     profiles_.clear();
-    SendMessageW(list_, LB_RESETCONTENT, 0, 0);
-
     const auto root = ProfilesRoot();
     std::error_code error;
     for (std::filesystem::directory_iterator it(root, error), end;
@@ -187,41 +325,111 @@ void ProfilePicker::PopulateProfiles() {
         profile.path = it->path();
         profiles_.push_back(std::move(profile));
     }
+    SortProfiles();
+}
 
-    std::sort(profiles_.begin(), profiles_.end(),
-              [](const ProfileSelection& a, const ProfileSelection& b) {
-        std::wstring left = a.name;
-        std::wstring right = b.name;
-        std::transform(left.begin(), left.end(), left.begin(),
-                       [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
-        std::transform(right.begin(), right.end(), right.begin(),
-                       [](wchar_t c) { return static_cast<wchar_t>(towlower(c)); });
-        return left < right;
-    });
+// ---- layout / hit testing --------------------------------------------
 
-    for (size_t i = 0; i < profiles_.size(); ++i) {
-        const LRESULT row = SendMessageW(
-            list_, LB_ADDSTRING, 0,
-            reinterpret_cast<LPARAM>(profiles_[i].name.c_str()));
-        if (row != LB_ERR && row != LB_ERRSPACE) {
-            SendMessageW(list_, LB_SETITEMDATA, row, static_cast<LPARAM>(i));
+void ProfilePicker::ClampScroll() {
+    const int count = static_cast<int>(profiles_.size());
+    const int rows = (count + kColumns - 1) / kColumns;
+    const int content = rows > 0
+        ? rows * kTileH + (rows - 1) * kTileGap + kTilePad * 2 : 0;
+    const int maxScroll = std::max(0, content - (kGridBottom - kGridTop));
+    scrollY_ = std::clamp(scrollY_, 0, maxScroll);
+}
+
+void ProfilePicker::ComputeLayout() {
+    ClampScroll();
+    const int count = static_cast<int>(profiles_.size());
+    tileRects_.assign(static_cast<size_t>(count), RECT{});
+    for (int i = 0; i < count; ++i) {
+        const int row = i / kColumns;
+        const int col = i % kColumns;
+        const int inRow = std::min(kColumns, count - row * kColumns);
+        const int rowWidth = inRow * kTileW + (inRow - 1) * kTileGap;
+        const int x = (kClientW - rowWidth) / 2 + col * (kTileW + kTileGap);
+        const int y = kGridTop + kTilePad + row * (kTileH + kTileGap) - scrollY_;
+        tileRects_[static_cast<size_t>(i)] = RECT{x, y, x + kTileW, y + kTileH};
+    }
+
+    const int py = kFooterTop + (kClientH - kFooterTop - kPillH) / 2;
+    addRect_ = RECT{kMargin, py, kMargin + 160, py + kPillH};
+    editRect_ = RECT{kMargin, py, kMargin + 320, py + kPillH};
+    createRect_ = RECT{editRect_.right + 12, py, editRect_.right + 12 + 96, py + kPillH};
+    cancelRect_ = RECT{createRect_.right + 8, py, createRect_.right + 8 + 96, py + kPillH};
+}
+
+ProfilePicker::Hit ProfilePicker::HitTest(POINT pt, int* tileIndex) const {
+    if (tileIndex) *tileIndex = -1;
+    if (creating_) {
+        if (PtInRect(&createRect_, pt)) return Hit::Create;
+        if (PtInRect(&cancelRect_, pt)) return Hit::Cancel;
+    } else if (PtInRect(&addRect_, pt)) {
+        return Hit::Add;
+    }
+    if (pt.y >= kGridTop && pt.y < kGridBottom) {
+        for (size_t i = 0; i < tileRects_.size(); ++i) {
+            if (PtInRect(&tileRects_[i], pt)) {
+                if (tileIndex) *tileIndex = static_cast<int>(i);
+                return Hit::Tile;
+            }
         }
     }
-    if (!profiles_.empty()) {
-        SendMessageW(list_, LB_SETCURSEL, 0, 0);
-        EnableWindow(useButton_, TRUE);
+    return Hit::None;
+}
+
+void ProfilePicker::UpdateHover(POINT pt) {
+    int tile = -1;
+    const Hit hit = HitTest(pt, &tile);
+    const Hit button = hit == Hit::Tile ? Hit::None : hit;
+    if (tile != hover_ || button != hoverButton_) {
+        hover_ = tile;
+        hoverButton_ = button;
+        InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
 
-void ProfilePicker::SelectCurrent() {
-    const LRESULT row = SendMessageW(list_, LB_GETCURSEL, 0, 0);
-    if (row == LB_ERR) {
-        EnableWindow(useButton_, FALSE);
-        return;
-    }
-    const LRESULT index = SendMessageW(list_, LB_GETITEMDATA, row, 0);
-    EnableWindow(useButton_, index >= 0 &&
-        static_cast<size_t>(index) < profiles_.size());
+void ProfilePicker::EnsureVisible(int index) {
+    if (index < 0 || static_cast<size_t>(index) >= profiles_.size()) return;
+    const int viewport = kGridBottom - kGridTop;
+    const int top = kTilePad + (index / kColumns) * (kTileH + kTileGap);
+    const int bottom = top + kTileH + kTilePad;
+    if (top - kTilePad < scrollY_) scrollY_ = top - kTilePad;
+    if (bottom > scrollY_ + viewport) scrollY_ = bottom - viewport;
+    ComputeLayout();
+}
+
+void ProfilePicker::MoveFocus(int dx, int dy) {
+    const int count = static_cast<int>(profiles_.size());
+    if (count == 0) return;
+    int next = focus_ < 0 ? 0 : focus_ + dx + dy * kColumns;
+    next = std::clamp(next, 0, count - 1);
+    focus_ = next;
+    keyboardFocus_ = true;
+    EnsureVisible(focus_);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+// ---- actions ----------------------------------------------------------
+
+void ProfilePicker::StartCreate() {
+    creating_ = true;
+    hoverButton_ = Hit::None;
+    ComputeLayout();
+    MoveWindow(nameEdit_, editRect_.left + 18, editRect_.top + (kPillH - 22) / 2,
+               (editRect_.right - editRect_.left) - 36, 22, TRUE);
+    ShowWindow(nameEdit_, SW_SHOW);
+    SetFocus(nameEdit_);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void ProfilePicker::EndCreate() {
+    creating_ = false;
+    SetWindowTextW(nameEdit_, L"");
+    ShowWindow(nameEdit_, SW_HIDE);
+    SetFocus(hwnd_);
+    InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void ProfilePicker::CreateProfileFromInput() {
@@ -253,22 +461,15 @@ void ProfilePicker::CreateProfileFromInput() {
         return;
     }
 
-    ProfileSelection profile{name, path};
-    profiles_.push_back(profile);
-    const LRESULT row = SendMessageW(
-        list_, LB_ADDSTRING, 0,
-        reinterpret_cast<LPARAM>(profiles_.back().name.c_str()));
-    if (row != LB_ERR && row != LB_ERRSPACE) {
-        SendMessageW(list_, LB_SETITEMDATA, row,
-                     static_cast<LPARAM>(profiles_.size() - 1));
-        SendMessageW(list_, LB_SETCURSEL, row, 0);
+    profiles_.push_back(ProfileSelection{name, path});
+    SortProfiles();
+    for (size_t i = 0; i < profiles_.size(); ++i) {
+        if (profiles_[i].path == path) focus_ = static_cast<int>(i);
     }
-    ShowWindow(nameEdit_, SW_HIDE);
-    ShowWindow(createButton_, SW_HIDE);
-    ShowWindow(cancelCreateButton_, SW_HIDE);
-    ShowWindow(newButton_, SW_SHOW);
-    EnableWindow(useButton_, TRUE);
-    SetFocus(list_);
+    keyboardFocus_ = true;
+    EndCreate();
+    EnsureVisible(focus_);
+    InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void ProfilePicker::FinishSelection(int index) {
@@ -276,6 +477,148 @@ void ProfilePicker::FinishSelection(int index) {
     selected_ = profiles_[static_cast<size_t>(index)];
     DestroyWindow(hwnd_);
 }
+
+// ---- painting ---------------------------------------------------------
+
+void ProfilePicker::Paint(HDC target) {
+    RECT rc{};
+    GetClientRect(hwnd_, &rc);
+    const int w = rc.right;
+    const int h = rc.bottom;
+
+    HDC mem = CreateCompatibleDC(target);
+    HBITMAP bitmap = CreateCompatibleBitmap(target, w, h);
+    HGDIOBJ oldBitmap = SelectObject(mem, bitmap);
+    {
+        Gdiplus::Graphics g(mem);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        g.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+
+        // Background gradient.
+        {
+            Gdiplus::LinearGradientBrush bg(
+                Gdiplus::Point(0, 0), Gdiplus::Point(0, h),
+                Col(g_pal.bgTop), Col(g_pal.bgBottom));
+            g.FillRectangle(&bg, 0, 0, w, h);
+        }
+
+        // Header.
+        DrawLabel(g, L"Who\u2019s using Vibrium?",
+                  Gdiplus::RectF(0, 38, static_cast<float>(w), 48),
+                  32.0f, true, g_pal.text);
+        DrawLabel(g, L"Choose a profile to continue, or add a new one.",
+                  Gdiplus::RectF(0, 92, static_cast<float>(w), 28),
+                  15.0f, false, g_pal.muted);
+
+        // Tiles (clipped to the scrolling viewport).
+        const int count = static_cast<int>(profiles_.size());
+        g.SetClip(Gdiplus::RectF(0, static_cast<float>(kGridTop),
+                                 static_cast<float>(w),
+                                 static_cast<float>(kGridBottom - kGridTop)));
+        for (int i = 0; i < count; ++i) {
+            const RECT& r = tileRects_[static_cast<size_t>(i)];
+            if (r.bottom < kGridTop || r.top > kGridBottom) continue;
+
+            const bool hovered = i == hover_;
+            const bool focused = keyboardFocus_ && i == focus_;
+            const Gdiplus::RectF rect = F(r);
+            FillRound(g, rect, 16.0f,
+                      Col(hovered || focused ? g_pal.cardHover : g_pal.card));
+            StrokeRound(g, rect, 16.0f, Col(g_pal.line), 1.0f);
+            if (focused) {
+                StrokeRound(g, rect, 16.0f, Col(g_pal.accent), 2.0f);
+            }
+
+            const std::wstring& name = profiles_[static_cast<size_t>(i)].name;
+            const float cx = rect.X + rect.Width / 2.0f;
+            const float top = rect.Y + 26.0f;
+            const Gdiplus::RectF circle(cx - kAvatar / 2.0f, top,
+                                        static_cast<float>(kAvatar),
+                                        static_cast<float>(kAvatar));
+            {
+                Gdiplus::SolidBrush brush(Col(AvatarColor(name)));
+                g.FillEllipse(&brush, circle);
+            }
+            const std::wstring initial(
+                1, name.empty() ? L'?' : static_cast<wchar_t>(std::towupper(name[0])));
+            DrawLabel(g, initial, circle, 38.0f, true, RGB(255, 255, 255));
+
+            DrawLabel(g, name,
+                      Gdiplus::RectF(rect.X + 12.0f, top + kAvatar + 12.0f,
+                                     rect.Width - 24.0f, 30.0f),
+                      16.0f, true, g_pal.text);
+        }
+
+        if (count == 0) {
+            DrawLabel(g, L"No profiles yet",
+                      Gdiplus::RectF(0, static_cast<float>(kGridTop + 120),
+                                     static_cast<float>(w), 32),
+                      22.0f, true, g_pal.text);
+            DrawLabel(g, L"Name your first profile below to get started.",
+                      Gdiplus::RectF(0, static_cast<float>(kGridTop + 154),
+                                     static_cast<float>(w), 24),
+                      14.0f, false, g_pal.muted);
+        }
+
+        // Scroll indicator.
+        const int rows = (count + kColumns - 1) / kColumns;
+        const int content = rows * kTileH + (rows - 1) * kTileGap + kTilePad * 2;
+        const int viewport = kGridBottom - kGridTop;
+        if (rows > 0 && content > viewport) {
+            const float trackH = static_cast<float>(viewport);
+            const float thumbH = std::max(32.0f, trackH * viewport / content);
+            const float range = static_cast<float>(content - viewport);
+            const float thumbY = static_cast<float>(kGridTop) +
+                (trackH - thumbH) * (scrollY_ / range);
+            FillRound(g, Gdiplus::RectF(static_cast<float>(w - 14), thumbY,
+                                        5.0f, thumbH),
+                      2.5f, Col(g_pal.muted, 140));
+        }
+        g.ResetClip();
+
+        // Footer.
+        {
+            Gdiplus::Pen line(Col(g_pal.line), 1.0f);
+            g.DrawLine(&line, 0, kFooterTop, w, kFooterTop);
+        }
+
+        if (!creating_) {
+            const bool hovered = hoverButton_ == Hit::Add;
+            const Gdiplus::RectF pill = F(addRect_);
+            if (hovered) FillRound(g, pill, kPillH / 2.0f, Col(g_pal.accent, 30));
+            StrokeRound(g, pill, kPillH / 2.0f, Col(g_pal.accent), 1.0f);
+            DrawLabel(g, L"+  Add profile", pill, 15.0f, true, g_pal.accent);
+
+            DrawLabel(g, L"Each profile keeps its own bookmarks, history and settings.",
+                      Gdiplus::RectF(static_cast<float>(addRect_.right + 24),
+                                     static_cast<float>(addRect_.top),
+                                     static_cast<float>(w - kMargin - addRect_.right - 24),
+                                     static_cast<float>(kPillH)),
+                      13.0f, false, g_pal.muted, Gdiplus::StringAlignmentFar);
+        } else {
+            const Gdiplus::RectF field = F(editRect_);
+            FillRound(g, field, kPillH / 2.0f, Col(g_pal.card));
+            StrokeRound(g, field, kPillH / 2.0f, Col(g_pal.accent), 1.5f);
+
+            const Gdiplus::RectF create = F(createRect_);
+            FillRound(g, create, kPillH / 2.0f,
+                      Col(g_pal.accent, hoverButton_ == Hit::Create ? 220 : 255));
+            DrawLabel(g, L"Create", create, 15.0f, true, g_pal.onAccent);
+
+            const Gdiplus::RectF cancel = F(cancelRect_);
+            if (hoverButton_ == Hit::Cancel) {
+                FillRound(g, cancel, kPillH / 2.0f, Col(g_pal.cardHover));
+            }
+            DrawLabel(g, L"Cancel", cancel, 15.0f, true, g_pal.muted);
+        }
+    }
+    BitBlt(target, 0, 0, w, h, mem, 0, 0, SRCCOPY);
+    SelectObject(mem, oldBitmap);
+    DeleteObject(bitmap);
+    DeleteDC(mem);
+}
+
+// ---- window procedure -------------------------------------------------
 
 LRESULT CALLBACK ProfilePicker::WindowProc(HWND hwnd, UINT message,
                                            WPARAM wParam, LPARAM lParam) {
@@ -296,124 +639,92 @@ LRESULT CALLBACK ProfilePicker::WindowProc(HWND hwnd, UINT message,
         self->AddControls();
         return 0;
 
-    case WM_ERASEBKGND: {
-        RECT rc{}; GetClientRect(hwnd, &rc);
-        HBRUSH brush = CreateSolidBrush(kBackground);
-        FillRect(reinterpret_cast<HDC>(wParam), &rc, brush);
-        DeleteObject(brush);
+    case WM_ERASEBKGND:
         return 1;
-    }
 
-    case WM_CTLCOLORSTATIC: {
-        HDC dc = reinterpret_cast<HDC>(wParam);
-        SetTextColor(dc, kText);
-        SetBkMode(dc, TRANSPARENT);
-        return reinterpret_cast<LRESULT>(GetStockObject(NULL_BRUSH));
+    case WM_PAINT: {
+        PAINTSTRUCT ps{};
+        HDC dc = BeginPaint(hwnd, &ps);
+        self->Paint(dc);
+        EndPaint(hwnd, &ps);
+        return 0;
     }
 
     case WM_CTLCOLOREDIT: {
         HDC dc = reinterpret_cast<HDC>(wParam);
-        SetTextColor(dc, kText); SetBkColor(dc, kPanel);
-        static HBRUSH editBrush = CreateSolidBrush(kPanel);
-        return reinterpret_cast<LRESULT>(editBrush);
+        SetTextColor(dc, g_pal.text);
+        SetBkColor(dc, g_pal.card);
+        return reinterpret_cast<LRESULT>(self->editBrush_);
     }
 
-    case WM_DRAWITEM: {
-        auto* draw = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
-        if (draw->CtlID == kProfileListId) {
-            const int index = static_cast<int>(draw->itemData);
-            if (draw->itemID == static_cast<UINT>(-1) || index < 0 ||
-                static_cast<size_t>(index) >= self->profiles_.size()) return TRUE;
-            const bool selected = (draw->itemState & ODS_SELECTED) != 0;
-            const COLORREF card = selected ? Theme::RaisedPanel() : kPanel;
-            HBRUSH brush = CreateSolidBrush(card);
-            RECT r = draw->rcItem; InflateRect(&r, -3, -3);
-            FillRect(draw->hDC, &r, brush); DeleteObject(brush);
-            if (selected) {
-                RECT stripe = r; stripe.right = stripe.left + 4;
-                HBRUSH accent = CreateSolidBrush(kAccent);
-                FillRect(draw->hDC, &stripe, accent); DeleteObject(accent);
-            }
-            const auto& name = self->profiles_[static_cast<size_t>(index)].name;
-            SetBkMode(draw->hDC, TRANSPARENT); SetTextColor(draw->hDC, kText);
-            HFONT font = CreateFontW(19, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-            HGDIOBJ old = SelectObject(draw->hDC, font);
-            RECT text = r; text.left += 22;
-            DrawTextW(draw->hDC, name.c_str(), -1, &text, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
-            SelectObject(draw->hDC, old); DeleteObject(font);
-            return TRUE;
+    case WM_MOUSEMOVE: {
+        if (!self->tracking_) {
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+            if (TrackMouseEvent(&track)) self->tracking_ = true;
         }
-        if (draw->CtlID == kUseProfileId || draw->CtlID == kNewProfileId ||
-            draw->CtlID == kCreateProfileId || draw->CtlID == kCancelCreateId) {
-            const bool primary = draw->CtlID == kUseProfileId || draw->CtlID == kCreateProfileId;
-            const bool disabled = (draw->itemState & ODS_DISABLED) != 0;
-            const COLORREF fill = disabled ? kPanel : primary ? kAccent : Theme::RaisedPanel();
-            HBRUSH brush = CreateSolidBrush(fill); FillRect(draw->hDC, &draw->rcItem, brush); DeleteObject(brush);
-            SetBkMode(draw->hDC, TRANSPARENT); SetTextColor(draw->hDC, disabled ? kMuted : RGB(255,255,255));
-            DrawTextW(draw->hDC, (draw->CtlID == kUseProfileId ? L"Launch Profile" :
-                draw->CtlID == kNewProfileId ? L"+  New Profile" :
-                draw->CtlID == kCreateProfileId ? L"Create" : L"Cancel"), -1,
-                &draw->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            return TRUE;
+        self->keyboardFocus_ = false;
+        self->UpdateHover(POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)});
+        return 0;
+    }
+
+    case WM_MOUSELEAVE:
+        self->tracking_ = false;
+        self->hover_ = -1;
+        self->hoverButton_ = Hit::None;
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+
+    case WM_MOUSEWHEEL: {
+        const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        self->scrollY_ -= (delta * 60) / WHEEL_DELTA;
+        self->ComputeLayout();
+        POINT pt{};
+        GetCursorPos(&pt);
+        ScreenToClient(hwnd, &pt);
+        self->UpdateHover(pt);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+    }
+
+    case WM_SETCURSOR:
+        if (LOWORD(lParam) == HTCLIENT) {
+            POINT pt{};
+            GetCursorPos(&pt);
+            ScreenToClient(hwnd, &pt);
+            if (self->HitTest(pt, nullptr) != Hit::None) {
+                SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                return TRUE;
+            }
         }
         break;
-    }
 
-    case WM_PAINT: {
-        PAINTSTRUCT ps{}; HDC dc = BeginPaint(hwnd, &ps);
-        RECT rc{}; GetClientRect(hwnd, &rc);
-        SetBkMode(dc, TRANSPARENT); SetTextColor(dc, kMuted);
-        RECT header{28, 18, rc.right - 28, 48};
-        DrawTextW(dc, L"VIBRIUM  /  PROFILES", -1, &header, DT_SINGLELINE | DT_VCENTER);
-        RECT footer{28, 442, rc.right - 28, 462};
-        DrawTextW(dc, L"Your bookmarks, history and settings stay separate for each profile.", -1, &footer, DT_SINGLELINE | DT_VCENTER);
-        EndPaint(hwnd, &ps); return 0;
-    }
-
-    case WM_COMMAND:
-        switch (LOWORD(wParam)) {
-        case kProfileListId:
-            if (HIWORD(wParam) == LBN_SELCHANGE) {
-                self->SelectCurrent();
-            } else if (HIWORD(wParam) == LBN_DBLCLK) {
-                const LRESULT row = SendMessageW(
-                    self->list_, LB_GETCURSEL, 0, 0);
-                const LRESULT index = row == LB_ERR ? LB_ERR :
-                    SendMessageW(self->list_, LB_GETITEMDATA, row, 0);
-                if (index != LB_ERR) self->FinishSelection(
-                    static_cast<int>(index));
-            }
-            return 0;
-
-        case kUseProfileId: {
-            const LRESULT row = SendMessageW(self->list_, LB_GETCURSEL, 0, 0);
-            const LRESULT index = row == LB_ERR ? LB_ERR :
-                SendMessageW(self->list_, LB_GETITEMDATA, row, 0);
-            if (index != LB_ERR) self->FinishSelection(
-                static_cast<int>(index));
-            return 0;
+    case WM_LBUTTONDOWN: {
+        int tile = -1;
+        const POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        switch (self->HitTest(pt, &tile)) {
+        case Hit::Tile:   self->FinishSelection(tile); break;
+        case Hit::Add:    self->StartCreate(); break;
+        case Hit::Create: self->CreateProfileFromInput(); break;
+        case Hit::Cancel: self->EndCreate(); break;
+        case Hit::None:   break;
         }
+        return 0;
+    }
 
-        case kNewProfileId:
-            ShowWindow(self->nameEdit_, SW_SHOW);
-            ShowWindow(self->createButton_, SW_SHOW);
-            ShowWindow(self->cancelCreateButton_, SW_SHOW);
-            ShowWindow(self->newButton_, SW_HIDE);
-            SetFocus(self->nameEdit_);
+    case WM_KEYDOWN:
+        switch (wParam) {
+        case VK_LEFT:  self->MoveFocus(-1, 0); return 0;
+        case VK_RIGHT: self->MoveFocus(1, 0);  return 0;
+        case VK_UP:    self->MoveFocus(0, -1); return 0;
+        case VK_DOWN:  self->MoveFocus(0, 1);  return 0;
+        case VK_HOME:  self->focus_ = -1; self->MoveFocus(0, 0); return 0;
+        case VK_END:
+            self->focus_ = static_cast<int>(self->profiles_.size()) - 1;
+            self->MoveFocus(0, 0);
             return 0;
-
-        case kCreateProfileId:
-            self->CreateProfileFromInput();
-            return 0;
-
-        case kCancelCreateId:
-            ShowWindow(self->nameEdit_, SW_HIDE);
-            ShowWindow(self->createButton_, SW_HIDE);
-            ShowWindow(self->cancelCreateButton_, SW_HIDE);
-            ShowWindow(self->newButton_, SW_SHOW);
-            SetFocus(self->list_);
+        case VK_RETURN:
+        case VK_SPACE:
+            self->FinishSelection(self->focus_);
             return 0;
         }
         break;
