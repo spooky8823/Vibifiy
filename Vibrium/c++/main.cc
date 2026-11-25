@@ -8,6 +8,7 @@
 
 #include <windows.h>
 #include <windowsx.h>
+#include <shellapi.h>
 #include <dwmapi.h>
 #include <unknwn.h>
 #include <objidl.h>
@@ -2942,9 +2943,20 @@ int WINAPI wWinMain(
     // Interactive launches choose a profile. Automated self-tests must run
     // headlessly without blocking on the native profile picker.
     std::filesystem::path profilePath;
-    CefRefPtr<CefCommandLine> commandLine =
-        CefCommandLine::GetGlobalCommandLine();
-    const bool isSelfTest = commandLine && commandLine->HasSwitch("selftest");
+    int argumentCount = 0;
+    LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount);
+    bool isSelfTest = false;
+    if (arguments) {
+        for (int i = 1; i < argumentCount; ++i) {
+            const std::wstring argument(arguments[i]);
+            if (argument == L"--selftest" ||
+                argument.rfind(L"--selftest=", 0) == 0) {
+                isSelfTest = true;
+                break;
+            }
+        }
+        LocalFree(arguments);
+    }
     if (isSelfTest) {
         std::wstring executable(32768, L'\\0');
         const DWORD length = GetModuleFileNameW(
