@@ -141,10 +141,10 @@ void ProfilePicker::AddControls() {
     };
 
     make(L"STATIC", L"Choose a profile to continue", SS_LEFT,
-         0, 28, 18, 540, 28);
+         0, 28, 44, 540, 20);
     list_ = make(L"LISTBOX", L"",
         LBS_NOTIFY | LBS_HASSTRINGS | LBS_OWNERDRAWFIXED | LBS_NOINTEGRALHEIGHT | WS_VSCROLL,
-        kProfileListId, 28, 60, 548, 280);
+        kProfileListId, 28, 68, 548, 272);
     SendMessageW(list_, LB_SETITEMHEIGHT, 0, 54);
 
     newButton_ = make(L"BUTTON", L"+  New Profile",
