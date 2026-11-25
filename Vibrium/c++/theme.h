@@ -3,18 +3,35 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <filesystem>
+#include <string>
 
 namespace vibrium::Theme {
 inline constexpr COLORREF kDefaultAccent = RGB(0, 120, 215);
 inline COLORREF accent = kDefaultAccent;
 inline bool manual = false;
+inline std::filesystem::path profileDirectory;
 
 inline COLORREF Accent() { return accent; }
 inline bool IsManual() { return manual; }
 
+inline void SetProfileDirectory(const std::filesystem::path& directory) {
+  profileDirectory = directory;
+}
+
+inline std::filesystem::path ProfileThemeFile() {
+  return profileDirectory.empty() ? std::filesystem::path{} : profileDirectory / L"theme.ini";
+}
+
 inline void SetAccent(COLORREF color) {
   accent = color;
   manual = true;
+  const auto profileFile = ProfileThemeFile();
+  if (!profileFile.empty()) {
+    WritePrivateProfileStringW(L"Appearance", L"Accent", std::to_wstring(static_cast<DWORD>(color)).c_str(), profileFile.c_str());
+    WritePrivateProfileStringW(L"Appearance", L"HasAccent", L"1", profileFile.c_str());
+    return;
+  }
   HKEY key = nullptr;
   if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Vibrium\\Appearance", 0,
       nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
@@ -28,6 +45,11 @@ inline void SetAccent(COLORREF color) {
 inline void ResetAccent() {
   accent = kDefaultAccent;
   manual = false;
+  const auto profileFile = ProfileThemeFile();
+  if (!profileFile.empty()) {
+    WritePrivateProfileStringW(L"Appearance", L"HasAccent", L"0", profileFile.c_str());
+    return;
+  }
   HKEY key = nullptr;
   if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Vibrium\\Appearance", 0,
       KEY_SET_VALUE, &key) == ERROR_SUCCESS) {
@@ -37,6 +59,13 @@ inline void ResetAccent() {
 }
 
 inline void Load() {
+  const auto profileFile = ProfileThemeFile();
+  if (!profileFile.empty()) {
+    const UINT value = GetPrivateProfileIntW(L"Appearance", L"Accent", static_cast<UINT>(kDefaultAccent), profileFile.c_str());
+    accent = static_cast<COLORREF>(value);
+    manual = GetPrivateProfileIntW(L"Appearance", L"HasAccent", 0, profileFile.c_str()) != 0;
+    return;
+  }
   HKEY key = nullptr;
   DWORD value = 0, size = sizeof(value), type = 0;
   if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Vibrium\\Appearance", 0,
