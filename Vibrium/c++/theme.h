@@ -55,7 +55,7 @@ inline void SetAccent(COLORREF color) {
 }
 
 inline void ResetAccent() {
-  accent = kDefaultAccent;
+  accent = ProfileDefaultAccent();
   manual = false;
   const auto profileFile = ProfileThemeFile();
   if (!profileFile.empty()) {
