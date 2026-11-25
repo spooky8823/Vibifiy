@@ -61,9 +61,10 @@ inline void ResetAccent() {
 inline void Load() {
   const auto profileFile = ProfileThemeFile();
   if (!profileFile.empty()) {
-    const UINT value = GetPrivateProfileIntW(L"Appearance", L"Accent", static_cast<UINT>(kDefaultAccent), profileFile.c_str());
-    accent = static_cast<COLORREF>(value);
     manual = GetPrivateProfileIntW(L"Appearance", L"HasAccent", 0, profileFile.c_str()) != 0;
+    accent = manual
+        ? static_cast<COLORREF>(GetPrivateProfileIntW(L"Appearance", L"Accent", static_cast<UINT>(kDefaultAccent), profileFile.c_str()))
+        : kDefaultAccent;
     return;
   }
   HKEY key = nullptr;
