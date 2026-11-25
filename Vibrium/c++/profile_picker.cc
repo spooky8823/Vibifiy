@@ -1,4 +1,5 @@
 #include "profile_picker.h"
+#include "theme.h"
 
 #include <algorithm>
 #include <cwctype>
@@ -12,11 +13,11 @@ namespace {
 constexpr wchar_t kPickerClass[] = L"VibriumProfilePicker";
 constexpr int kWindowWidth = 620;
 constexpr int kWindowHeight = 470;
-constexpr COLORREF kBackground = RGB(20, 18, 31);
-constexpr COLORREF kPanel = RGB(34, 29, 49);
-constexpr COLORREF kAccent = RGB(174, 72, 225);
-constexpr COLORREF kText = RGB(244, 239, 255);
-constexpr COLORREF kMuted = RGB(170, 160, 190);
+COLORREF kBackground = RGB(0,0,0);
+COLORREF kPanel = RGB(18,18,18);
+COLORREF kAccent = RGB(80,80,80);
+COLORREF kText = RGB(245,245,245);
+COLORREF kMuted = RGB(165,165,165);
 constexpr int kProfileListId = 1001;
 constexpr int kUseProfileId = 1002;
 constexpr int kNewProfileId = 1003;
@@ -85,6 +86,12 @@ std::optional<ProfileSelection> ProfilePicker::Show(HINSTANCE instance) {
 }
 
 bool ProfilePicker::Create() {
+    const bool dark = Theme::IsSystemDark();
+    kBackground = Theme::Surface();
+    kPanel = Theme::Panel();
+    kAccent = dark ? RGB(90,90,90) : RGB(100,100,100);
+    kText = Theme::Text();
+    kMuted = Theme::MutedText();
     const std::filesystem::path root = ProfilesRoot();
     if (root.empty()) return false;
 
@@ -117,9 +124,9 @@ bool ProfilePicker::Create() {
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
         x, y, kWindowWidth, kWindowHeight, nullptr, nullptr, instance_, this);
     if (hwnd_) {
-        const COLORREF caption = RGB(34, 20, 48);
+        const COLORREF caption = kBackground;
         DwmSetWindowAttribute(hwnd_, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
-        const COLORREF captionText = RGB(245, 235, 255);
+        const COLORREF captionText = kText;
         DwmSetWindowAttribute(hwnd_, DWMWA_TEXT_COLOR, &captionText, sizeof(captionText));
     }
     return hwnd_ != nullptr;
@@ -318,7 +325,7 @@ LRESULT CALLBACK ProfilePicker::WindowProc(HWND hwnd, UINT message,
             if (draw->itemID == static_cast<UINT>(-1) || index < 0 ||
                 static_cast<size_t>(index) >= self->profiles_.size()) return TRUE;
             const bool selected = (draw->itemState & ODS_SELECTED) != 0;
-            const COLORREF card = selected ? RGB(57, 38, 78) : kPanel;
+            const COLORREF card = selected ? Theme::RaisedPanel() : kPanel;
             HBRUSH brush = CreateSolidBrush(card);
             RECT r = draw->rcItem; InflateRect(&r, -3, -3);
             FillRect(draw->hDC, &r, brush); DeleteObject(brush);
@@ -342,7 +349,7 @@ LRESULT CALLBACK ProfilePicker::WindowProc(HWND hwnd, UINT message,
             draw->CtlID == kCreateProfileId || draw->CtlID == kCancelCreateId) {
             const bool primary = draw->CtlID == kUseProfileId || draw->CtlID == kCreateProfileId;
             const bool disabled = (draw->itemState & ODS_DISABLED) != 0;
-            const COLORREF fill = disabled ? RGB(54, 49, 64) : primary ? kAccent : RGB(48, 41, 65);
+            const COLORREF fill = disabled ? kPanel : primary ? kAccent : Theme::RaisedPanel();
             HBRUSH brush = CreateSolidBrush(fill); FillRect(draw->hDC, &draw->rcItem, brush); DeleteObject(brush);
             SetBkMode(draw->hDC, TRANSPARENT); SetTextColor(draw->hDC, disabled ? kMuted : RGB(255,255,255));
             DrawTextW(draw->hDC, (draw->CtlID == kUseProfileId ? L"Launch Profile" :
