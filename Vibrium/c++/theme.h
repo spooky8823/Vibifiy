@@ -38,7 +38,9 @@ inline void SetProfileDirectory(const std::filesystem::path& directory) {
   profileDirectory = directory;
 }
 inline COLORREF ProfileDefaultAccent() {
-  return IsSystemDark() ? RGB(0,0,0) : RGB(238,238,238);
+  // Browser profiles retain a stable default. System light/dark detection is
+  // used by the profile picker only, never to alter browser appearance.
+  return kDefaultAccent;
 }
 inline std::filesystem::path ProfileThemeFile() {
   return profileDirectory.empty() ? std::filesystem::path{} : profileDirectory / L"theme.ini";
