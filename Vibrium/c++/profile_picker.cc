@@ -5,7 +5,7 @@
 #include <cwctype>
 #include <system_error>
 #include <vector>
-#include <dwmapi.h
+#include <dwmapi.h>
 
 namespace vibrium {
 namespace {
