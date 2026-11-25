@@ -4,13 +4,19 @@
 #include <cwctype>
 #include <system_error>
 #include <vector>
+#include <dwmapi.h
 
 namespace vibrium {
 namespace {
 
 constexpr wchar_t kPickerClass[] = L"VibriumProfilePicker";
-constexpr int kWindowWidth = 560;
-constexpr int kWindowHeight = 405;
+constexpr int kWindowWidth = 620;
+constexpr int kWindowHeight = 470;
+constexpr COLORREF kBackground = RGB(20, 18, 31);
+constexpr COLORREF kPanel = RGB(34, 29, 49);
+constexpr COLORREF kAccent = RGB(174, 72, 225);
+constexpr COLORREF kText = RGB(244, 239, 255);
+constexpr COLORREF kMuted = RGB(170, 160, 190);
 constexpr int kProfileListId = 1001;
 constexpr int kUseProfileId = 1002;
 constexpr int kNewProfileId = 1003;
@@ -97,7 +103,7 @@ bool ProfilePicker::Create() {
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     wc.hIconSm = wc.hIcon;
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    wc.hbrBackground = nullptr;
     wc.lpszClassName = kPickerClass;
     RegisterClassExW(&wc);
 
@@ -110,6 +116,12 @@ bool ProfilePicker::Create() {
         WS_EX_APPWINDOW, kPickerClass, L"Choose a Vibrium Profile",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
         x, y, kWindowWidth, kWindowHeight, nullptr, nullptr, instance_, this);
+    if (hwnd_) {
+        const COLORREF caption = RGB(34, 20, 48);
+        DwmSetWindowAttribute(hwnd_, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+        const COLORREF captionText = RGB(245, 235, 255);
+        DwmSetWindowAttribute(hwnd_, DWMWA_TEXT_COLOR, &captionText, sizeof(captionText));
+    }
     return hwnd_ != nullptr;
 }
 
@@ -129,27 +141,29 @@ void ProfilePicker::AddControls() {
     };
 
     make(L"STATIC", L"Choose a profile to continue", SS_LEFT,
-         0, 24, 20, 500, 24);
+         0, 28, 18, 540, 28);
     list_ = make(L"LISTBOX", L"",
-        LBS_NOTIFY | LBS_HASSTRINGS | WS_VSCROLL | WS_BORDER,
-        kProfileListId, 24, 52, 500, 220);
+        LBS_NOTIFY | LBS_HASSTRINGS | LBS_OWNERDRAWFIXED | LBS_NOINTEGRALHEIGHT | WS_VSCROLL,
+        kProfileListId, 28, 60, 548, 280);
+    SendMessageW(list_, LB_SETITEMHEIGHT, 0, 54);
 
     newButton_ = make(L"BUTTON", L"+  New Profile",
-        BS_PUSHBUTTON, kNewProfileId, 24, 286, 150, 32);
+        BS_OWNERDRAW, kNewProfileId, 28, 360, 170, 38);
     useButton_ = make(L"BUTTON", L"Use Profile",
-        BS_DEFPUSHBUTTON, kUseProfileId, 370, 286, 154, 32);
+        BS_OWNERDRAW, kUseProfileId, 422, 360, 154, 38);
     nameEdit_ = make(L"EDIT", L"",
-        ES_AUTOHSCROLL | WS_BORDER, kNameEditId, 24, 326, 250, 28);
+        ES_AUTOHSCROLL | WS_BORDER, kNameEditId, 28, 412, 270, 30);
     createButton_ = make(L"BUTTON", L"Create",
-        BS_PUSHBUTTON, kCreateProfileId, 286, 326, 88, 28);
+        BS_OWNERDRAW, kCreateProfileId, 310, 412, 92, 30);
     cancelCreateButton_ = make(L"BUTTON", L"Cancel",
-        BS_PUSHBUTTON, kCancelCreateId, 382, 326, 88, 28);
+        BS_OWNERDRAW, kCancelCreateId, 414, 412, 92, 30);
 
     ShowWindow(nameEdit_, SW_HIDE);
     ShowWindow(createButton_, SW_HIDE);
     ShowWindow(cancelCreateButton_, SW_HIDE);
     EnableWindow(useButton_, FALSE);
     PopulateProfiles();
+    InvalidateRect(hwnd_, nullptr, TRUE);
 }
 
 void ProfilePicker::PopulateProfiles() {
@@ -274,6 +288,82 @@ LRESULT CALLBACK ProfilePicker::WindowProc(HWND hwnd, UINT message,
     case WM_CREATE:
         self->AddControls();
         return 0;
+
+    case WM_ERASEBKGND: {
+        RECT rc{}; GetClientRect(hwnd, &rc);
+        HBRUSH brush = CreateSolidBrush(kBackground);
+        FillRect(reinterpret_cast<HDC>(wParam), &rc, brush);
+        DeleteObject(brush);
+        return 1;
+    }
+
+    case WM_CTLCOLORSTATIC: {
+        HDC dc = reinterpret_cast<HDC>(wParam);
+        SetTextColor(dc, kText);
+        SetBkMode(dc, TRANSPARENT);
+        return reinterpret_cast<LRESULT>(GetStockObject(NULL_BRUSH));
+    }
+
+    case WM_CTLCOLOREDIT: {
+        HDC dc = reinterpret_cast<HDC>(wParam);
+        SetTextColor(dc, kText); SetBkColor(dc, kPanel);
+        static HBRUSH editBrush = CreateSolidBrush(kPanel);
+        return reinterpret_cast<LRESULT>(editBrush);
+    }
+
+    case WM_DRAWITEM: {
+        auto* draw = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+        if (draw->CtlID == kProfileListId) {
+            const int index = static_cast<int>(draw->itemData);
+            if (draw->itemID == static_cast<UINT>(-1) || index < 0 ||
+                static_cast<size_t>(index) >= self->profiles_.size()) return TRUE;
+            const bool selected = (draw->itemState & ODS_SELECTED) != 0;
+            const COLORREF card = selected ? RGB(57, 38, 78) : kPanel;
+            HBRUSH brush = CreateSolidBrush(card);
+            RECT r = draw->rcItem; InflateRect(&r, -3, -3);
+            FillRect(draw->hDC, &r, brush); DeleteObject(brush);
+            if (selected) {
+                RECT stripe = r; stripe.right = stripe.left + 4;
+                HBRUSH accent = CreateSolidBrush(kAccent);
+                FillRect(draw->hDC, &stripe, accent); DeleteObject(accent);
+            }
+            const auto& name = self->profiles_[static_cast<size_t>(index)].name;
+            SetBkMode(draw->hDC, TRANSPARENT); SetTextColor(draw->hDC, kText);
+            HFONT font = CreateFontW(19, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+            HGDIOBJ old = SelectObject(draw->hDC, font);
+            RECT text = r; text.left += 22;
+            DrawTextW(draw->hDC, name.c_str(), -1, &text, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+            SelectObject(draw->hDC, old); DeleteObject(font);
+            return TRUE;
+        }
+        if (draw->CtlID == kUseProfileId || draw->CtlID == kNewProfileId ||
+            draw->CtlID == kCreateProfileId || draw->CtlID == kCancelCreateId) {
+            const bool primary = draw->CtlID == kUseProfileId || draw->CtlID == kCreateProfileId;
+            const bool disabled = (draw->itemState & ODS_DISABLED) != 0;
+            const COLORREF fill = disabled ? RGB(54, 49, 64) : primary ? kAccent : RGB(48, 41, 65);
+            HBRUSH brush = CreateSolidBrush(fill); FillRect(draw->hDC, &draw->rcItem, brush); DeleteObject(brush);
+            SetBkMode(draw->hDC, TRANSPARENT); SetTextColor(draw->hDC, disabled ? kMuted : RGB(255,255,255));
+            DrawTextW(draw->hDC, (draw->CtlID == kUseProfileId ? L"Launch Profile" :
+                draw->CtlID == kNewProfileId ? L"+  New Profile" :
+                draw->CtlID == kCreateProfileId ? L"Create" : L"Cancel"), -1,
+                &draw->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            return TRUE;
+        }
+        break;
+    }
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps{}; HDC dc = BeginPaint(hwnd, &ps);
+        RECT rc{}; GetClientRect(hwnd, &rc);
+        SetBkMode(dc, TRANSPARENT); SetTextColor(dc, kMuted);
+        RECT header{28, 18, rc.right - 28, 48};
+        DrawTextW(dc, L"VIBRIUM  /  PROFILES", -1, &header, DT_SINGLELINE | DT_VCENTER);
+        RECT footer{28, 442, rc.right - 28, 462};
+        DrawTextW(dc, L"Your bookmarks, history and settings stay separate for each profile.", -1, &footer, DT_SINGLELINE | DT_VCENTER);
+        EndPaint(hwnd, &ps); return 0;
+    }
 
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
