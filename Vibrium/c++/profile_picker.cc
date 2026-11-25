@@ -466,10 +466,8 @@ void ProfilePicker::CreateProfileFromInput() {
     for (size_t i = 0; i < profiles_.size(); ++i) {
         if (profiles_[i].path == path) focus_ = static_cast<int>(i);
     }
-    keyboardFocus_ = true;
-    EndCreate();
-    EnsureVisible(focus_);
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    // Like Chrome: a freshly created profile opens right away.
+    FinishSelection(focus_);
 }
 
 void ProfilePicker::FinishSelection(int index) {
