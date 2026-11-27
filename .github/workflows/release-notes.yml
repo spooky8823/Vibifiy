@@ -1,0 +1,75 @@
+name: Generate Vibrium Release Notes
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Vibrium release version number
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  copilot-requests: write
+
+jobs:
+  generate:
+    name: Analyze changes and commit release notes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find previous Vibrium release tag
+        id: base
+        shell: bash
+        run: |
+          previous_tag="$(git tag --list 'vibrium-v*' --sort=-version:refname | head -n 1)"
+          if [[ -n "$previous_tag" ]]; then
+            echo "ref=$previous_tag" >> "$GITHUB_OUTPUT"
+            echo "Found previous release tag: $previous_tag"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+            echo "No previous Vibrium release tag found. This is treated as the first release."
+          fi
+
+      - name: Install GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Generate release notes with Copilot
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          BASE_REF: ${{ steps.base.outputs.ref }}
+        shell: bash
+        run: |
+          if [[ -z "$COPILOT_GITHUB_TOKEN" ]]; then
+            echo "Repository secret COPILOT_GITHUB_TOKEN is required for Copilot release-note generation."
+            exit 1
+          fi
+
+          if [[ -n "$BASE_REF" ]]; then
+            scope="Analyze git log and git diff from release tag $BASE_REF through HEAD, limited to Vibrium/."
+          else
+            scope="This is the first Vibrium release. Analyze the current Vibrium/ source and the available git history for Vibrium/."
+          fi
+
+          copilot -p "Write user-facing release notes for Vibrium Version $VERSION. $scope Inspect the actual code changes, not only commit messages. Include only real user-visible features, improvements, and fixes. Do not invent or overstate changes; omit routine internal refactoring unless it affects users. Write concise Markdown to Vibrium/release-notes.md with headings Added, Improved, and Fixed, omitting empty sections. If no user-visible changes exist, state that briefly. Do not modify any other file." \
+            --allow-tool='shell(git:*)' --allow-tool=read --allow-tool=write --no-ask-user
+
+          test -s Vibrium/release-notes.md
+
+      - name: Commit and push release notes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Vibrium/release-notes.md
+          if git diff --cached --quiet; then
+            echo "Generated release notes are unchanged."
+            exit 0
+          fi
+          git commit -m "docs(vibrium): generate release notes for Version ${{ inputs.version }}"
+          git push
