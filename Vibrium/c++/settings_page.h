@@ -72,7 +72,8 @@ class SettingsPage final : private SettingsHost {
                                      LPARAM lParam);
   LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
 
-  void AddSection(std::unique_ptr<SettingsSection> section);
+  // `icon` is a file in <exe folder>\icons (tinted to the row's text colour).
+  void AddSection(std::unique_ptr<SettingsSection> section, const wchar_t* icon);
   SettingsSection* Active() const;
   void SelectSection(int index);
   RECT ContentArea() const;
@@ -103,6 +104,7 @@ class SettingsPage final : private SettingsHost {
   int height_ = 0;
 
   std::vector<std::unique_ptr<SettingsSection>> sections_;
+  std::vector<const wchar_t*> sectionIcons_;  // parallel to sections_
   int activeSection_ = 0;
 
   // Sidebar interaction.

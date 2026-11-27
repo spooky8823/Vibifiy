@@ -10,6 +10,7 @@
 #include "settings/settings_downloads.h"
 #include "settings/settings_privacy.h"
 #include "settings/settings_updates.h"
+#include "icon_util.h"
 #include "theme.h"
 
 namespace vibrium {
@@ -43,7 +44,7 @@ bool IsSettingsUrl(const std::wstring& url) {
 SettingsPage::~SettingsPage() {
   if (hwnd_ && IsWindow(hwnd_)) DestroyWindow(hwnd_);
   sections_.clear();  // pages first: they were attached to this host
-  for (HFONT font : {fonts_.ui, fonts_.small, fonts_.label, fonts_.title,
+  for (HFONT font : {fonts_.ui, fonts_.font_small_12px, fonts_.label, fonts_.title,
                      fonts_.stat, fonts_.brand, fonts_.mono}) {
     if (font) DeleteObject(font);
   }
@@ -51,9 +52,11 @@ SettingsPage::~SettingsPage() {
   FreeBackBuffer();
 }
 
-void SettingsPage::AddSection(std::unique_ptr<SettingsSection> section) {
+void SettingsPage::AddSection(std::unique_ptr<SettingsSection> section,
+                              const wchar_t* icon) {
   section->Attach(this);
   sections_.push_back(std::move(section));
+  sectionIcons_.push_back(icon);
 }
 
 bool SettingsPage::Create(HWND parent, HINSTANCE instance) {
@@ -79,13 +82,13 @@ bool SettingsPage::Create(HWND parent, HINSTANCE instance) {
   CreateResources();
 
   // Sidebar order. Add new pages here.
-  AddSection(std::make_unique<ConsoleSection>());
-  AddSection(std::make_unique<AdblockSection>());
-  AddSection(std::make_unique<PrivacySection>());
-  AddSection(std::make_unique<DownloadsSection>());
-  AddSection(std::make_unique<AppearanceSection>());
-  AddSection(std::make_unique<UpdatesSection>());
-  AddSection(std::make_unique<AboutSection>());
+  AddSection(std::make_unique<AppearanceSection>(), L"appearance.png");
+  AddSection(std::make_unique<AdblockSection>(), L"adblock.png");
+  AddSection(std::make_unique<PrivacySection>(), L"privacy.png");
+  AddSection(std::make_unique<DownloadsSection>(), L"download.png");
+  AddSection(std::make_unique<UpdatesSection>(), L"update.png");
+  AddSection(std::make_unique<ConsoleSection>(), L"history.png");
+  AddSection(std::make_unique<AboutSection>(), L"info.png");
 
   Layout();
   return true;
@@ -93,7 +96,7 @@ bool SettingsPage::Create(HWND parent, HINSTANCE instance) {
 
 void SettingsPage::CreateResources() {
   fonts_.ui = MakeFont(15, FW_NORMAL, L"Segoe UI");
-  fonts_.small = MakeFont(12, FW_SEMIBOLD, L"Segoe UI");
+  fonts_.font_small_12px = MakeFont(12, FW_SEMIBOLD, L"Segoe UI");
   fonts_.label = MakeFont(13, FW_NORMAL, L"Segoe UI");
   fonts_.title = MakeFont(28, FW_SEMIBOLD, L"Segoe UI");
   fonts_.stat = MakeFont(24, FW_SEMIBOLD, L"Segoe UI");
@@ -235,7 +238,11 @@ void SettingsPage::PaintSidebar(HDC hdc) {
   SelectObject(hdc, oldPen);
   DeleteObject(border);
 
-  FillRound(hdc, RECT{22, 26, 44, 48}, 8, Theme::Accent());
+  // Header icon: settings.png in the accent colour (falls back to the old
+  // accent square if the file is missing).
+  if (!DrawTintedIcon(hdc, L"settings.png", Theme::Accent(), 33, 37, 26)) {
+    FillRound(hdc, RECT{22, 26, 44, 48}, 8, Theme::Accent());
+  }
   DrawLabel(hdc, L"Settings", RECT{56, 22, kSidebarWidth - 14, 52}, fonts_.brand,
             kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
 
@@ -249,7 +256,10 @@ void SettingsPage::PaintSidebar(HDC hdc) {
       FillRound(hdc, r, 12, kSoft);
     }
     const COLORREF color = active ? RGB(255, 255, 255) : hover ? kText : kMuted;
-    DrawTerminalIcon(hdc, r.left + 14, r.top + 12, color);
+    if (!DrawTintedIcon(hdc, sectionIcons_[static_cast<size_t>(i)], color,
+                        r.left + 24, r.top + 21, 20)) {
+      DrawTerminalIcon(hdc, r.left + 14, r.top + 12, color);  // fallback
+    }
     DrawLabel(hdc, sections_[static_cast<size_t>(i)]->Name(),
               RECT{r.left + 44, r.top, r.right - 8, r.bottom}, fonts_.ui, color,
               DT_SINGLELINE | DT_VCENTER | DT_LEFT);
