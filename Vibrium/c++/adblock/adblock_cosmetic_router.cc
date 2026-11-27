@@ -7,8 +7,9 @@
 namespace vibrium {
 
 CosmeticQueryHandler::CosmeticQueryHandler(
-    std::shared_ptr<AdblockEngineHolder> engine)
-    : engine_(std::move(engine)) {}
+    std::shared_ptr<AdblockEngineHolder> engine,
+    std::shared_ptr<AdblockPolicy> policy)
+    : engine_(std::move(engine)), policy_(std::move(policy)) {}
 
 bool CosmeticQueryHandler::OnQuery(CefRefPtr<CefBrowser> browser,
                                    CefRefPtr<CefFrame> frame,
@@ -36,6 +37,24 @@ bool CosmeticQueryHandler::OnQuery(CefRefPtr<CefBrowser> browser,
   const std::shared_ptr<AdblockEngine> engine = engine_->Get();
   if (!engine) {
     return false;
+  }
+
+  // Blocking off, cosmetic filtering off or an allowlisted site: answer with
+  // "nothing to hide" so the page script stops asking.
+  if (policy_) {
+    // The allowlist is about the page in the address bar, not the (possibly
+    // third-party) frame that is asking.
+    std::string top = url;
+    if (browser) {
+      if (CefRefPtr<CefFrame> main = browser->GetMainFrame()) {
+        const std::string main_url = main->GetURL().ToString();
+        if (IsFilterableUrl(main_url)) top = main_url;
+      }
+    }
+    if (!policy_->cosmetic_enabled() || policy_->ShouldBypass(top)) {
+      callback->Success(std::string());
+      return true;
+    }
   }
 
   auto css = engine->GenericCss(url, query->classes_json, query->ids_json);

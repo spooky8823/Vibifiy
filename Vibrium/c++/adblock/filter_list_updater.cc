@@ -61,9 +61,10 @@ struct Download {
 struct Batch {
   std::string directory;
   std::shared_ptr<AdblockEngineHolder> engine;
+  FilterListUpdater::RebuildFn rebuild;
   std::vector<Download> downloads;
   size_t pending = 0;
-  std::function<void()> on_done;  // called on the UI thread
+  std::function<void(const UpdateResult&)> on_done;  // called on the UI thread
 };
 
 fs::path ListPath(const std::string& dir, const std::string& name) {
@@ -87,19 +88,23 @@ std::string ReadSmallFile(const fs::path& file) {
 }
 
 // Runs on TID_FILE_BACKGROUND: validate, persist atomically, rebuild, swap.
-void Commit(std::shared_ptr<Batch> batch) {
+UpdateResult Commit(std::shared_ptr<Batch> batch) {
   bool changed = false;
+  UpdateResult result;
+  result.total = batch->downloads.size();
   for (Download& d : batch->downloads) {
     const fs::path target = ListPath(batch->directory, d.name);
     std::error_code ec;
 
     if (d.transport_ok && d.status == 304) {
       fs::last_write_time(target, fs::file_time_type::clock::now(), ec);
+      ++result.unchanged;
       continue;
     }
     if (!d.transport_ok || d.too_large || d.status != 200) {
       LOG(WARNING) << "Filter list '" << d.name << "' not updated (transport="
                    << d.transport_ok << ", status=" << d.status << ")";
+      ++result.failed;
       continue;
     }
     // Rejects HTML/JSON error pages, truncated bodies and prose.
@@ -109,6 +114,7 @@ void Commit(std::shared_ptr<Batch> batch) {
         reinterpret_cast<const uint8_t*>(d.body.data()), d.body.size());
     if (valid != 0) {
       LOG(WARNING) << "Filter list '" << d.name << "' failed validation";
+      ++result.failed;
       continue;
     }
     // Dot-prefixed temp name: the Rust loader ignores it.
@@ -119,6 +125,7 @@ void Commit(std::shared_ptr<Batch> batch) {
       if (!out.good()) {
         LOG(WARNING) << "Could not write filter list '" << d.name << "'";
         fs::remove(tmp, ec);
+        ++result.failed;
         continue;
       }
     }
@@ -127,6 +134,7 @@ void Commit(std::shared_ptr<Batch> batch) {
       LOG(WARNING) << "Could not install filter list '" << d.name
                    << "': " << ec.message();
       fs::remove(tmp, ec);
+      ++result.failed;
       continue;
     }
     if (!d.new_etag.empty()) {
@@ -135,19 +143,24 @@ void Commit(std::shared_ptr<Batch> batch) {
           << d.new_etag;
     }
     changed = true;
+    ++result.updated;
     LOG(INFO) << "Updated filter list '" << d.name << "' (" << d.body.size()
               << " bytes)";
   }
 
-  if (!changed) return;
+  if (!changed) return result;
   // Rebuild from everything on disk and publish. Requests already running keep
   // the previous engine alive through their shared_ptr.
-  if (auto engine = AdblockEngine::FromDirectory(batch->directory)) {
+  std::shared_ptr<AdblockEngine> engine =
+      batch->rebuild ? batch->rebuild()
+                     : AdblockEngine::FromDirectory(batch->directory);
+  if (engine) {
     batch->engine->Set(std::move(engine));
     LOG(INFO) << "Ad-block engine reloaded from " << batch->directory;
   } else {
     LOG(WARNING) << "Reload failed; keeping the previous ad-block engine";
   }
+  return result;
 }
 
 class DownloadClient : public CefURLRequestClient {
@@ -172,8 +185,8 @@ class DownloadClient : public CefURLRequestClient {
       auto done = std::move(batch_->on_done);
       auto batch = batch_;
       Post(TID_FILE_BACKGROUND, [batch, done]() {
-        Commit(batch);
-        Post(TID_UI, done);
+        const UpdateResult result = Commit(batch);
+        Post(TID_UI, [done, result]() { done(result); });
       });
     }
   }
@@ -206,19 +219,29 @@ class DownloadClient : public CefURLRequestClient {
 }  // namespace
 
 std::shared_ptr<FilterListUpdater> FilterListUpdater::Create(
-    std::shared_ptr<AdblockEngineHolder> engine, std::string directory) {
-  return std::shared_ptr<FilterListUpdater>(
-      new FilterListUpdater(std::move(engine), std::move(directory)));
+    std::shared_ptr<AdblockEngineHolder> engine, std::string directory,
+    RebuildFn rebuild) {
+  return std::shared_ptr<FilterListUpdater>(new FilterListUpdater(
+      std::move(engine), std::move(directory), std::move(rebuild)));
 }
 
 FilterListUpdater::FilterListUpdater(
-    std::shared_ptr<AdblockEngineHolder> engine, std::string directory)
-    : engine_(std::move(engine)), directory_(std::move(directory)) {}
+    std::shared_ptr<AdblockEngineHolder> engine, std::string directory,
+    RebuildFn rebuild)
+    : engine_(std::move(engine)),
+      directory_(std::move(directory)),
+      rebuild_(std::move(rebuild)) {}
 
 void FilterListUpdater::Start() {
   if (started_) return;
   started_ = true;
-  RunOnce();
+  RunOnce(/*force=*/false, nullptr);
+}
+
+bool FilterListUpdater::UpdateNow(DoneFn done) {
+  if (cancelled_ || running_) return false;
+  RunOnce(/*force=*/true, std::move(done));
+  return running_;
 }
 
 void FilterListUpdater::Cancel() { cancelled_ = true; }
@@ -226,19 +249,29 @@ void FilterListUpdater::Cancel() { cancelled_ = true; }
 void FilterListUpdater::ScheduleNext() {
   if (cancelled_) return;
   auto self = shared_from_this();
-  PostDelayed(TID_UI, [self]() { if (!self->cancelled_) self->RunOnce(); },
+  PostDelayed(TID_UI,
+              [self]() {
+                if (!self->cancelled_) self->RunOnce(false, nullptr);
+              },
               int64_t{kRecheckHours} * 3600 * 1000);
 }
 
-void FilterListUpdater::RunOnce() {
-  if (cancelled_ || running_) return;
+void FilterListUpdater::RunOnce(bool force, DoneFn notify) {
+  if (cancelled_) return;
+  if (running_) {
+    // A scheduled wake-up that lands in the middle of a manual round must
+    // not end the schedule.
+    if (!force) ScheduleNext();
+    return;
+  }
 
   auto batch = std::make_shared<Batch>();
   batch->directory = directory_;
   batch->engine = engine_;
+  batch->rebuild = rebuild_;
   for (const FilterListSpec& spec : kDefaultFilterLists) {
     const fs::path file = ListPath(directory_, spec.name);
-    if (IsFresh(file)) continue;
+    if (!force && IsFresh(file)) continue;
     Download d;
     d.name = spec.name;
     d.url = spec.url;
@@ -250,16 +283,20 @@ void FilterListUpdater::RunOnce() {
     batch->downloads.push_back(std::move(d));
   }
   if (batch->downloads.empty()) {
-    ScheduleNext();
+    if (!force) ScheduleNext();
+    if (notify) notify(UpdateResult{});
     return;
   }
 
   running_ = true;
   batch->pending = batch->downloads.size();
   auto self = shared_from_this();
-  batch->on_done = [self]() {
+  batch->on_done = [self, force, notify](const UpdateResult& result) {
     self->running_ = false;
-    self->ScheduleNext();
+    // A manual round leaves the regular schedule alone; scheduling again here
+    // would start a second, parallel chain of wake-ups.
+    if (!force) self->ScheduleNext();
+    if (notify) notify(result);
   };
   LOG(INFO) << "Checking " << batch->downloads.size() << " filter list(s)";
 

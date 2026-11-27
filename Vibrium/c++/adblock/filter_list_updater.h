@@ -12,6 +12,8 @@
 #ifndef VIBRIUM_FILTER_LIST_UPDATER_H_
 #define VIBRIUM_FILTER_LIST_UPDATER_H_
 
+#include <cstddef>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -19,26 +21,50 @@
 
 namespace vibrium {
 
+// What one round of downloads achieved.
+struct UpdateResult {
+  size_t total = 0;      // lists checked
+  size_t updated = 0;    // new content installed
+  size_t unchanged = 0;  // server said "not modified"
+  size_t failed = 0;     // network error, bad response or failed validation
+};
+
 class FilterListUpdater : public std::enable_shared_from_this<FilterListUpdater> {
  public:
+  // Builds the engine to publish once new lists are on disk. Runs on
+  // TID_FILE_BACKGROUND; returns null to keep the current engine. Without it
+  // the engine is built from every list in `directory`.
+  using RebuildFn = std::function<std::shared_ptr<AdblockEngine>()>;
+  // Called on the UI thread when a round finishes.
+  using DoneFn = std::function<void(const UpdateResult&)>;
+
   static std::shared_ptr<FilterListUpdater> Create(
-      std::shared_ptr<AdblockEngineHolder> engine, std::string directory);
+      std::shared_ptr<AdblockEngineHolder> engine, std::string directory,
+      RebuildFn rebuild = nullptr);
 
   // Refreshes every list older than kMinAgeHours, then re-checks every
   // kRecheckHours. Safe to call once; later calls are ignored.
   void Start();
   void Cancel();
 
+  // Checks every list now, whatever its age ("Update now" button). Lists the
+  // server reports as unchanged are not downloaded again. Returns false (and
+  // never calls `done`) if a round is already running or the updater was
+  // cancelled. UI thread only.
+  bool UpdateNow(DoneFn done);
+  bool running() const { return running_; }
+
  private:
   FilterListUpdater(std::shared_ptr<AdblockEngineHolder> engine,
-                    std::string directory);
+                    std::string directory, RebuildFn rebuild);
   friend struct UpdaterAccess;
 
-  void RunOnce();
+  void RunOnce(bool force, DoneFn notify);
   void ScheduleNext();
 
   std::shared_ptr<AdblockEngineHolder> engine_;
   std::string directory_;
+  RebuildFn rebuild_;
   bool started_ = false;
   bool cancelled_ = false;
   bool running_ = false;

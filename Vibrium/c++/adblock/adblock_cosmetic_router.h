@@ -19,6 +19,7 @@
 #include <memory>
 
 #include "adblock_engine.h"
+#include "adblock_policy.h"
 #include "include/wrapper/cef_message_router.h"
 
 namespace vibrium {
@@ -30,7 +31,10 @@ inline CefMessageRouterConfig CosmeticRouterConfig() {
 
 class CosmeticQueryHandler : public CefMessageRouterBrowserSide::Handler {
  public:
-  explicit CosmeticQueryHandler(std::shared_ptr<AdblockEngineHolder> engine);
+  // With a `policy`, pages where blocking is off (or cosmetic filtering is
+  // switched off, or the site is allowlisted) get an empty answer.
+  explicit CosmeticQueryHandler(std::shared_ptr<AdblockEngineHolder> engine,
+                                std::shared_ptr<AdblockPolicy> policy = nullptr);
 
   bool OnQuery(CefRefPtr<CefBrowser> browser,
                CefRefPtr<CefFrame> frame,
@@ -41,6 +45,7 @@ class CosmeticQueryHandler : public CefMessageRouterBrowserSide::Handler {
 
  private:
   const std::shared_ptr<AdblockEngineHolder> engine_;
+  const std::shared_ptr<AdblockPolicy> policy_;
 };
 
 }  // namespace vibrium

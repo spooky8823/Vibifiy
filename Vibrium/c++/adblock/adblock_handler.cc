@@ -130,10 +130,14 @@ std::string ChooseSourceUrl(CefRefPtr<CefBrowser> browser,
 AdblockResourceRequestHandler::AdblockResourceRequestHandler(
     std::shared_ptr<AdblockEngineHolder> engine,
     std::shared_ptr<AdblockStats> stats,
-    std::string request_initiator)
+    std::string request_initiator,
+    std::shared_ptr<AdblockPolicy> policy,
+    std::shared_ptr<AdblockHistory> history)
     : engine_(std::move(engine)),
       stats_(std::move(stats)),
-      request_initiator_(std::move(request_initiator)) {}
+      request_initiator_(std::move(request_initiator)),
+      policy_(std::move(policy)),
+      history_(std::move(history)) {}
 
 AdblockEngine::Decision AdblockResourceRequestHandler::Evaluate(
     CefRefPtr<CefBrowser> browser,
@@ -143,6 +147,11 @@ AdblockEngine::Decision AdblockResourceRequestHandler::Evaluate(
   if (!ShouldEvaluate(kind, url)) {
     return AdblockEngine::Decision::kAllow;
   }
+  // The user switched ad blocking off (Settings > Ad blocker): nothing is
+  // checked and nothing is recorded.
+  if (policy_ && !policy_->blocking_enabled()) {
+    return AdblockEngine::Decision::kAllow;
+  }
   // Holding the shared_ptr for the whole check keeps the Rust engine alive
   // even if it is replaced concurrently.
   std::shared_ptr<AdblockEngine> engine = engine_ ? engine_->Get() : nullptr;
@@ -150,13 +159,19 @@ AdblockEngine::Decision AdblockResourceRequestHandler::Evaluate(
     return AdblockEngine::Decision::kAllow;
   }
 
-  const AdblockEngine::Decision decision = engine->Check(
-      url, ChooseSourceUrl(browser, request_initiator_, request),
-      AdblockTypeName(kind));
+  const std::string source =
+      ChooseSourceUrl(browser, request_initiator_, request);
+  // "Don't block on these sites": the page the request belongs to is on the
+  // allowlist, so the request goes through (and is logged as allowed).
+  const AdblockEngine::Decision decision =
+      policy_ && policy_->IsSiteAllowed(source)
+          ? AdblockEngine::Decision::kAllow
+          : engine->Check(url, source, AdblockTypeName(kind));
   if (stats_) {
-    stats_->Record(decision, url,
-                   ChooseSourceUrl(browser, request_initiator_, request),
-                   AdblockTypeName(kind));
+    stats_->Record(decision, url, source, AdblockTypeName(kind));
+  }
+  if (history_) {
+    history_->Record(decision, url);
   }
   return decision;
 }
@@ -201,10 +216,14 @@ void AdblockResourceRequestHandler::OnResourceRedirect(
 AdblockRequestHandler::AdblockRequestHandler(
     std::shared_ptr<AdblockEngineHolder> engine,
     std::shared_ptr<AdblockStats> stats,
-    CefRefPtr<CefMessageRouterBrowserSide> router)
+    CefRefPtr<CefMessageRouterBrowserSide> router,
+    std::shared_ptr<AdblockPolicy> policy,
+    std::shared_ptr<AdblockHistory> history)
     : engine_(std::move(engine)),
       stats_(std::move(stats)),
-      router_(std::move(router)) {}
+      router_(std::move(router)),
+      policy_(std::move(policy)),
+      history_(std::move(history)) {}
 
 bool AdblockRequestHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                                            CefRefPtr<CefFrame> frame,
@@ -239,7 +258,8 @@ AdblockRequestHandler::GetResourceRequestHandler(
   // Per-request instance so the initiator (only available here) reaches
   // OnBeforeResourceLoad. Default handling stays enabled.
   return new AdblockResourceRequestHandler(engine_, stats_,
-                                           request_initiator.ToString());
+                                           request_initiator.ToString(),
+                                           policy_, history_);
 }
 
 }  // namespace vibrium

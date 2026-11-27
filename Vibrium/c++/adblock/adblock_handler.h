@@ -20,6 +20,8 @@
 #include <vector>
 
 #include "adblock_engine.h"
+#include "adblock_history.h"
+#include "adblock_policy.h"
 #include "include/cef_request_handler.h"
 #include "include/wrapper/cef_message_router.h"
 #include "include/cef_resource_request_handler.h"
@@ -68,9 +70,14 @@ ResourceKind ToResourceKind(cef_resource_type_t type);
 
 class AdblockResourceRequestHandler : public CefResourceRequestHandler {
  public:
+  // `policy` (switch off / allowlisted sites) and `history` (session and
+  // lifetime counts) are optional; without them every request is checked and
+  // nothing is persisted.
   AdblockResourceRequestHandler(std::shared_ptr<AdblockEngineHolder> engine,
                                 std::shared_ptr<AdblockStats> stats,
-                                std::string request_initiator);
+                                std::string request_initiator,
+                                std::shared_ptr<AdblockPolicy> policy = nullptr,
+                                std::shared_ptr<AdblockHistory> history = nullptr);
 
   ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser> browser,
                                    CefRefPtr<CefFrame> frame,
@@ -92,6 +99,8 @@ class AdblockResourceRequestHandler : public CefResourceRequestHandler {
   const std::shared_ptr<AdblockEngineHolder> engine_;
   const std::shared_ptr<AdblockStats> stats_;
   const std::string request_initiator_;
+  const std::shared_ptr<AdblockPolicy> policy_;
+  const std::shared_ptr<AdblockHistory> history_;
 
   IMPLEMENT_REFCOUNTING(AdblockResourceRequestHandler);
   DISALLOW_COPY_AND_ASSIGN(AdblockResourceRequestHandler);
@@ -101,7 +110,9 @@ class AdblockRequestHandler : public CefRequestHandler {
  public:
   AdblockRequestHandler(std::shared_ptr<AdblockEngineHolder> engine,
                         std::shared_ptr<AdblockStats> stats,
-                        CefRefPtr<CefMessageRouterBrowserSide> router);
+                        CefRefPtr<CefMessageRouterBrowserSide> router,
+                        std::shared_ptr<AdblockPolicy> policy = nullptr,
+                        std::shared_ptr<AdblockHistory> history = nullptr);
 
   // The message router needs to see navigations and renderer crashes to
   // cancel the pending queries of the page that went away.
@@ -129,6 +140,8 @@ class AdblockRequestHandler : public CefRequestHandler {
   const std::shared_ptr<AdblockEngineHolder> engine_;
   const std::shared_ptr<AdblockStats> stats_;
   const CefRefPtr<CefMessageRouterBrowserSide> router_;
+  const std::shared_ptr<AdblockPolicy> policy_;
+  const std::shared_ptr<AdblockHistory> history_;
 
   IMPLEMENT_REFCOUNTING(AdblockRequestHandler);
   DISALLOW_COPY_AND_ASSIGN(AdblockRequestHandler);
