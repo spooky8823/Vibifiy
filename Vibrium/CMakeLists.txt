@@ -70,6 +70,18 @@ add_executable(vibrium WIN32
     c++/searchengine.h
     c++/settings_page.cc
     c++/settings_page.h
+    c++/settings/settings_adblock.cc
+    c++/settings/settings_adblock.h
+    c++/settings/settings_appearance.cc
+    c++/settings/settings_appearance.h
+    c++/settings/settings_common.cc
+    c++/settings/settings_common.h
+    c++/settings/settings_console.cc
+    c++/settings/settings_console.h
+    c++/settings/settings_section.cc
+    c++/settings/settings_section.h
+    c++/settings/settings_updates.cc
+    c++/settings/settings_updates.h
     c++/native_page.cc
     c++/native_page.h
     c++/icon_util.cc

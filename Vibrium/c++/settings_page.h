@@ -3,19 +3,24 @@
 // the same area as a tab's browser view, so it behaves like a normal tab
 // without involving CEF.
 //
-// Layout: a sidebar of sections on the left (currently only "Console") and the
-// selected section on the right. To add a section, add an entry to kSections in
-// settings_page.cc and a Paint/hit-test branch next to the console one.
+// This class is only the frame: the window, the sidebar, double-buffered
+// painting and routing of mouse/keyboard input. Every page is its own
+// SettingsSection in settings/ (Console, Ad blocker, Appearance, Updates).
+//
+// To add a page: write a SettingsSection (see settings/settings_section.h) and
+// add one `AddSection(...)` line to SettingsPage::Create().
 #ifndef VIBRIUM_UI_SETTINGS_PAGE_H_
 #define VIBRIUM_UI_SETTINGS_PAGE_H_
 
 #include <windows.h>
 
-#include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
-#include <vector>
 #include <utility>
+#include <vector>
+
+#include "settings/settings_section.h"
 
 namespace vibrium {
 
@@ -26,7 +31,7 @@ inline constexpr wchar_t kSettingsUrl[] = L"vibrium://settings";
 // path, query or fragment.
 bool IsSettingsUrl(const std::wstring& url);
 
-class SettingsPage {
+class SettingsPage final : private SettingsHost {
  public:
   SettingsPage() = default;
   ~SettingsPage();
@@ -52,116 +57,60 @@ class SettingsPage {
   HWND handle() const { return hwnd_; }
 
  private:
-  struct Row {
-    uint64_t timestamp_ms = 0;
-    int decision = 0;  // AdblockEngine::Decision, stored as int
-    std::wstring time;
-    std::wstring kind;
-    std::wstring url;
-    std::wstring source;
-    std::wstring lower;  // lower-cased url + source + kind, for searching
-  };
-
-  struct Hit {
-    RECT rect{};
-    int id = 0;
-  };
+  // ---- SettingsHost (what the pages can ask of the window) ----
+  HWND window() const override { return hwnd_; }
+  HINSTANCE instance() const override { return instance_; }
+  const SettingsFonts& fonts() const override { return fonts_; }
+  HBRUSH edit_brush() const override { return editBrush_; }
+  void Repaint(const RECT* rect) override;
+  void StartFlashTimer() override;
+  void NotifyAccentChanged(COLORREF color) override;
+  void RepaintEverything() override;
+  void RequestUpdate() override;
 
   static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam,
                                      LPARAM lParam);
   LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
 
+  void AddSection(std::unique_ptr<SettingsSection> section);
+  SettingsSection* Active() const;
+  void SelectSection(int index);
+  RECT ContentArea() const;
+  int SidebarHit(int x, int y) const;
+  RECT SidebarItem(int index) const;
+
   void CreateResources();
   void Layout();
   void Paint(HDC hdc, const RECT& client);
   void PaintSidebar(HDC hdc);
-  void PaintConsole(HDC hdc);
-  void PaintAppearance(HDC hdc);
-  void PaintUpdates(HDC hdc);
-  void PaintLog(HDC hdc);
-
-  void Refresh(bool force);
-  void ApplyFilter();
-  bool Matches(const Row& row) const;
-  int ViewHeight() const;
-  int MaxScroll() const;
-  bool ThumbRect(RECT* rect) const;
-  RECT RectOf(int id) const;
-  void ClampScroll();
-  void ScrollToBottom();
-  void OnScrolled();
-  int HitTest(int x, int y) const;
-  int RowAt(int x, int y) const;
-  void OnClick(int id);
-  void InvalidateContent();
-  void Flash(const std::wstring& message);
-
-  std::wstring BuildText() const;
-  void CopyToClipboard();
-  void ExportToFile();
+  void EnsureBackBuffer(HDC hdc, int width, int height);
+  void FreeBackBuffer();
 
   HWND hwnd_ = nullptr;
   HWND parent_ = nullptr;
-  HWND searchEdit_ = nullptr;
   HINSTANCE instance_ = nullptr;
   bool visible_ = false;
 
-  HFONT fontUi_ = nullptr;
-  HFONT fontSmall_ = nullptr;
-  HFONT fontLabel_ = nullptr;
-  HFONT fontTitle_ = nullptr;
-  HFONT fontStat_ = nullptr;
-  HFONT fontBrand_ = nullptr;
-  HFONT fontMono_ = nullptr;
+  SettingsFonts fonts_;
   HBRUSH editBrush_ = nullptr;
 
-  // Layout (client coordinates), rebuilt by Layout().
+  // Off-screen buffer reused between paints (recreated when the window grows).
+  HBITMAP backBuffer_ = nullptr;
+  int backWidth_ = 0;
+  int backHeight_ = 0;
+
   int width_ = 0;
   int height_ = 0;
-  RECT sidebar_{};
-  RECT title_{};
-  RECT subtitle_{};
-  RECT cards_[5]{};
-  RECT palette_[6]{};
-  RECT resetAccentRect_{};
-  RECT customAccentRect_{};
-  RECT updateCard_{};
-  RECT updateButton_{};
-  std::wstring installedBuild_;
-  RECT notice_{};
-  RECT searchBox_{};
-  RECT chipsBox_{};
-  RECT logRect_{};
-  RECT footer_{};
-  std::vector<Hit> hits_;
-  std::wstring pauseLabel_;
 
-  // Console state.
-  std::vector<Row> rows_;
-  std::vector<int> visible_rows_;  // indices into rows_ that pass the filter
-  uint64_t blocked_ = 0;
-  uint64_t allowed_ = 0;
-  uint64_t errors_ = 0;
-  size_t recorded_ = 0;
-  bool enabled_ = false;
-  bool paused_ = false;
-  int filter_ = 0;  // 0 all, 1 blocked, 2 allowed, 3 errors
-  std::wstring query_;
-  uint64_t revision_ = ~0ULL;
-
-  // Interaction state.
+  std::vector<std::unique_ptr<SettingsSection>> sections_;
   int activeSection_ = 0;
-  int hoverId_ = 0;
-  int hoverRow_ = -1;
-  int pressedId_ = 0;
-  bool searchFocused_ = false;
+
+  // Sidebar interaction.
+  int sidebarHover_ = -1;
+  int sidebarPressed_ = -1;
   bool trackingMouse_ = false;
-  bool stickToBottom_ = true;
-  bool draggingThumb_ = false;
-  int dragStartY_ = 0;
-  int dragStartScroll_ = 0;
-  int scrollY_ = 0;
-  std::wstring flash_;
+  bool captured_ = false;  // a page started a drag and owns the mouse
+
   std::function<void(COLORREF)> onThemeChanged_;
   std::function<void()> onUpdateRequested_;
 };

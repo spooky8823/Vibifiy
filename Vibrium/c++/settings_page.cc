@@ -1,21 +1,18 @@
 #include "settings_page.h"
 
-#include <commdlg.h>
-
 #include <algorithm>
-#include <cstring>
-#include <cmath>
-#include <cwchar>
-#include <ctime>
-#include <fstream>
-#include <string>
 
-#include "adblock/adblock_service.h"
+#include "settings/settings_adblock.h"
+#include "settings/settings_appearance.h"
+#include "settings/settings_common.h"
+#include "settings/settings_console.h"
+#include "settings/settings_updates.h"
 #include "theme.h"
-#include "tabbar.h"
-#include "update_launcher.h"
 
 namespace vibrium {
+
+using namespace settings;
+
 namespace {
 
 constexpr wchar_t kClassName[] = L"VibriumSettingsPage";
@@ -24,412 +21,6 @@ constexpr UINT_PTR kRefreshTimer = 1;
 constexpr UINT_PTR kFlashTimer = 2;
 constexpr UINT kRefreshMs = 500;
 constexpr UINT kFlashMs = 3500;
-constexpr int kEditId = 5101;
-
-// Signed mouse coordinates without windowsx.h, whose common-control macros
-// collide with CEF's GetFirstChild/GetNextSibling methods.
-inline int MouseX(LPARAM lp) { return static_cast<int>(static_cast<short>(LOWORD(lp))); }
-inline int MouseY(LPARAM lp) { return static_cast<int>(static_cast<short>(HIWORD(lp))); }
-
-constexpr COLORREF kBg = RGB(18, 18, 20);
-constexpr COLORREF kPanel = RGB(27, 27, 30);
-constexpr COLORREF kPanel2 = RGB(35, 35, 39);
-constexpr COLORREF kPanel3 = RGB(43, 43, 48);
-constexpr COLORREF kLogBg = RGB(14, 14, 16);
-constexpr COLORREF kBorder = RGB(52, 52, 57);
-constexpr COLORREF kBorderStrong = RGB(72, 72, 78);
-constexpr COLORREF kSoft = RGB(48, 48, 54);
-constexpr COLORREF kSoftStrong = RGB(58, 58, 64);
-constexpr COLORREF kText = RGB(241, 237, 250);
-constexpr COLORREF kMuted = RGB(157, 148, 177);
-constexpr COLORREF kGood = RGB(95, 211, 154);
-constexpr COLORREF kBad = RGB(255, 122, 144);
-constexpr COLORREF kWarn = RGB(242, 184, 75);
-
-// Hit ids.
-constexpr int kHitNone = 0;
-constexpr int kHitSection = 100;  // + section index
-constexpr int kHitChip = 200;     // + filter (0..3)
-constexpr int kHitPause = 300;
-constexpr int kHitCopy = 301;
-constexpr int kHitExport = 302;
-constexpr int kHitClear = 303;
-constexpr int kHitSearch = 400;
-constexpr int kHitPalette = 500;  // + palette index
-constexpr int kHitResetAccent = 506;
-constexpr int kHitCustomAccent = 507;
-constexpr int kHitUpdate = 600;
-
-struct SectionDef {
-  const wchar_t* name;
-};
-// To add a settings page: add an entry here, then handle its index in
-// SettingsPage::Paint / OnClick (like the console).
-constexpr SectionDef kSections[] = {{L"Console"}, {L"Appearance"}, {L"Updates"}};
-constexpr int kSectionCount =
-    static_cast<int>(sizeof(kSections) / sizeof(kSections[0]));
-
-constexpr const wchar_t* kChipLabels[4] = {L"All", L"Blocked", L"Allowed",
-                                           L"Errors"};
-
-constexpr int kSidebarWidth = 240;
-constexpr int kPad = 32;
-constexpr int kRowHeight = 22;
-constexpr int kScrollbarWidth = 8;
-
-// Decision codes stored in Row::decision.
-constexpr int kAllowCode = 0;
-constexpr int kBlockCode = 1;
-constexpr int kErrorCode = 2;
-
-std::wstring Utf8ToWide(const std::string& value) {
-  if (value.empty()) return {};
-  const int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                                       value.data(),
-                                       static_cast<int>(value.size()),
-                                       nullptr, 0);
-  if (size <= 0) return L"[unprintable URL]";
-  std::wstring result(size, L'\0');
-  MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
-                      static_cast<int>(value.size()), result.data(), size);
-  return result;
-}
-
-std::string WideToUtf8(const std::wstring& value) {
-  if (value.empty()) return {};
-  const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(),
-                                       static_cast<int>(value.size()), nullptr,
-                                       0, nullptr, nullptr);
-  if (size <= 0) return {};
-  std::string result(size, '\0');
-  WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                      result.data(), size, nullptr, nullptr);
-  return result;
-}
-
-std::wstring Timestamp(uint64_t milliseconds) {
-  const std::time_t seconds = static_cast<std::time_t>(milliseconds / 1000);
-  std::tm local{};
-  localtime_s(&local, &seconds);
-  wchar_t buffer[32]{};
-  swprintf_s(buffer, L"%02d:%02d:%02d.%03llu", local.tm_hour, local.tm_min,
-             local.tm_sec, static_cast<unsigned long long>(milliseconds % 1000));
-  return buffer;
-}
-
-std::wstring FormatCount(uint64_t value) {
-  std::wstring digits = std::to_wstring(value);
-  for (int i = static_cast<int>(digits.size()) - 3; i > 0; i -= 3) {
-    digits.insert(static_cast<size_t>(i), L",");
-  }
-  return digits;
-}
-
-std::wstring ToLower(std::wstring text) {
-  if (!text.empty()) {
-    CharLowerBuffW(text.data(), static_cast<DWORD>(text.size()));
-  }
-  return text;
-}
-
-std::wstring Trim(const std::wstring& value) {
-  const size_t first = value.find_first_not_of(L" \t\r\n");
-  if (first == std::wstring::npos) return L"";
-  const size_t last = value.find_last_not_of(L" \t\r\n");
-  return value.substr(first, last - first + 1);
-}
-
-bool InRect(const RECT& rect, int x, int y) {
-  const POINT point{x, y};
-  return PtInRect(&rect, point) != FALSE;
-}
-
-const wchar_t* DecisionLabel(int decision) {
-  switch (decision) {
-    case kBlockCode:
-      return L"BLOCKED";
-    case kErrorCode:
-      return L"ERROR";
-    default:
-      return L"ALLOWED";
-  }
-}
-
-COLORREF DecisionColor(int decision) {
-  switch (decision) {
-    case kBlockCode:
-      return kBad;
-    case kErrorCode:
-      return kWarn;
-    default:
-      return kGood;
-  }
-}
-
-std::wstring RowLine(const std::wstring& time, int decision,
-                     const std::wstring& kind, const std::wstring& url,
-                     const std::wstring& source) {
-  std::wstring line = L"[" + time + L"] [" + DecisionLabel(decision) + L"] [" +
-                      kind + L"] " + url;
-  if (!source.empty()) line += L"  (from " + source + L")";
-  return line;
-}
-
-// ---- GDI helpers ----------------------------------------------------------
-
-void FillRound(HDC hdc, const RECT& rect, int radius, COLORREF fill,
-               COLORREF border = CLR_INVALID, int borderWidth = 1) {
-  HBRUSH brush = CreateSolidBrush(fill);
-  HPEN pen = border == CLR_INVALID
-                 ? static_cast<HPEN>(GetStockObject(NULL_PEN))
-                 : CreatePen(PS_SOLID, borderWidth, border);
-  HGDIOBJ oldBrush = SelectObject(hdc, brush);
-  HGDIOBJ oldPen = SelectObject(hdc, pen);
-  RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, radius, radius);
-  SelectObject(hdc, oldBrush);
-  SelectObject(hdc, oldPen);
-  DeleteObject(brush);
-  if (border != CLR_INVALID) DeleteObject(pen);
-}
-
-void DrawLabel(HDC hdc, const std::wstring& text, RECT rect, HFONT font,
-               COLORREF color, UINT flags) {
-  HGDIOBJ oldFont = SelectObject(hdc, font);
-  SetBkMode(hdc, TRANSPARENT);
-  SetTextColor(hdc, color);
-  DrawTextW(hdc, text.c_str(), static_cast<int>(text.size()), &rect,
-            flags | DT_NOPREFIX);
-  SelectObject(hdc, oldFont);
-}
-
-int TextWidth(HDC hdc, HFONT font, const std::wstring& text) {
-  HGDIOBJ oldFont = SelectObject(hdc, font);
-  SIZE size{};
-  GetTextExtentPoint32W(hdc, text.c_str(), static_cast<int>(text.size()),
-                        &size);
-  SelectObject(hdc, oldFont);
-  return size.cx;
-}
-
-HFONT MakeFont(int pixelHeight, int weight, const wchar_t* face) {
-  return CreateFontW(-pixelHeight, 0, 0, 0, weight, FALSE, FALSE, FALSE,
-                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                     CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, face);
-}
-
-// ">_" terminal glyph, 18x18, top-left at (x, y).
-void DrawTerminalIcon(HDC hdc, int x, int y, COLORREF color) {
-  LOGBRUSH brush{};
-  brush.lbStyle = BS_SOLID;
-  brush.lbColor = color;
-  HPEN pen = ExtCreatePen(PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_ROUND |
-                              PS_JOIN_ROUND,
-                          2, &brush, 0, nullptr);
-  HGDIOBJ oldPen = SelectObject(hdc, pen);
-  const POINT chevron[] = {{x + 3, y + 4}, {x + 9, y + 9}, {x + 3, y + 14}};
-  Polyline(hdc, chevron, 3);
-  MoveToEx(hdc, x + 11, y + 15, nullptr);
-  LineTo(hdc, x + 16, y + 15);
-  SelectObject(hdc, oldPen);
-  DeleteObject(pen);
-}
-
-
-struct WheelPickerState {
-  HWND hwnd = nullptr;
-  HWND hexEdit = nullptr;
-  HWND owner = nullptr;
-  COLORREF original = RGB(0,120,215);
-  COLORREF selected = RGB(0,120,215);
-  double hue = 210.0, saturation = 1.0, value = 0.84;
-  bool draggingWheel = false;
-  bool draggingSquare = false;
-  bool done = false;
-  bool accepted = false;
-  std::function<void(COLORREF)> preview;
-};
-
-COLORREF HsvToColor(double h, double s, double v) {
-  h = std::fmod(h, 360.0);
-  if (h < 0) h += 360.0;
-  const double c = v * s;
-  const double x = c * (1.0 - std::fabs(std::fmod(h / 60.0, 2.0) - 1.0));
-  const double m = v - c;
-  double r=0,g=0,b=0;
-  if (h < 60) { r=c; g=x; }
-  else if (h < 120) { r=x; g=c; }
-  else if (h < 180) { g=c; b=x; }
-  else if (h < 240) { g=x; b=c; }
-  else if (h < 300) { r=x; b=c; }
-  else { r=c; b=x; }
-  return RGB(static_cast<BYTE>((r+m)*255.0+0.5),
-            static_cast<BYTE>((g+m)*255.0+0.5),
-            static_cast<BYTE>((b+m)*255.0+0.5));
-}
-
-void ColorToHsv(COLORREF color, double* h, double* s, double* v) {
-  const double r=GetRValue(color)/255.0, g=GetGValue(color)/255.0,
-               b=GetBValue(color)/255.0;
-  const double mx=std::max({r,g,b}), mn=std::min({r,g,b}), d=mx-mn;
-  *v=mx; *s=mx==0 ? 0 : d/mx; *h=0;
-  if (d==0) return;
-  if (mx==r) *h=60.0*std::fmod((g-b)/d,6.0);
-  else if (mx==g) *h=60.0*((b-r)/d+2.0);
-  else *h=60.0*((r-g)/d+4.0);
-  if (*h<0) *h+=360.0;
-}
-
-std::wstring ColorHex(COLORREF c) {
-  wchar_t text[8]{};
-  swprintf_s(text,L"#%02X%02X%02X",GetRValue(c),GetGValue(c),GetBValue(c));
-  return text;
-}
-
-bool ParseColorHex(const std::wstring& input, COLORREF* color) {
-  std::wstring text=Trim(input);
-  if (!text.empty() && text[0]==L'#') text.erase(0,1);
-  if (text.size()!=6) return false;
-  for (wchar_t ch:text) if (!((ch>=L'0'&&ch<=L'9')||(ch>=L'a'&&ch<=L'f')||(ch>=L'A'&&ch<=L'F'))) return false;
-  unsigned int rgb=0;
-  if (swscanf_s(text.c_str(),L"%x",&rgb)!=1) return false;
-  *color=RGB((rgb>>16)&255,(rgb>>8)&255,rgb&255);
-  return true;
-}
-
-void WheelPickerUpdate(WheelPickerState* state, bool updateEdit=true) {
-  state->selected=HsvToColor(state->hue,state->saturation,state->value);
-  if (updateEdit && state->hexEdit) SetWindowTextW(state->hexEdit,ColorHex(state->selected).c_str());
-  InvalidateRect(state->hwnd,nullptr,FALSE);
-  if (state->preview) state->preview(state->selected);
-}
-
-void WheelPickerSetPoint(WheelPickerState* state,int x,int y,bool wheel) {
-  if (wheel) {
-    const double dx=x-160.0, dy=y-160.0;
-    state->hue=std::atan2(dy,dx)*180.0/3.14159265358979323846+90.0;
-    if (state->hue<0) state->hue+=360.0;
-  } else {
-    state->saturation=std::clamp((x-110.0)/100.0,0.0,1.0);
-    state->value=1.0-std::clamp((y-110.0)/100.0,0.0,1.0);
-  }
-  WheelPickerUpdate(state);
-}
-
-void WheelPickerPaint(HDC hdc, WheelPickerState* state) {
-  RECT client{}; GetClientRect(state->hwnd,&client);
-  HBRUSH bg=CreateSolidBrush(RGB(24,24,28)); FillRect(hdc,&client,bg); DeleteObject(bg);
-  const int w=320,h=320;
-  std::vector<DWORD> pixels(static_cast<size_t>(w*h),0);
-  BITMAPINFO bmi{}; bmi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
-  bmi.bmiHeader.biWidth=w; bmi.bmiHeader.biHeight=-h;
-  bmi.bmiHeader.biPlanes=1; bmi.bmiHeader.biBitCount=32;
-  bmi.bmiHeader.biCompression=BI_RGB;
-  for(int py=0;py<h;++py) for(int px=0;px<w;++px) {
-    const double dx=px-160.0,dy=py-160.0,dist=std::sqrt(dx*dx+dy*dy);
-    COLORREF c=RGB(24,24,28);
-    if(dist>=126.0 && dist<=153.0) {
-      double hue=std::atan2(dy,dx)*180.0/3.14159265358979323846+90.0;
-      c=HsvToColor(hue,1.0,1.0);
-    } else if(px>=110 && px<210 && py>=110 && py<210) {
-      const double sat=(px-110)/100.0, val=1.0-(py-110)/100.0;
-      c=HsvToColor(state->hue,sat,val);
-    }
-    pixels[static_cast<size_t>(py*w+px)]=0xff000000u|(GetRValue(c)<<16)|(GetGValue(c)<<8)|GetBValue(c);
-  }
-  SetDIBitsToDevice(hdc,18,18,w,h,0,0,0,h,pixels.data(),&bmi,DIB_RGB_COLORS);
-  // Selection markers: white ring on the hue band and outlined marker in SV square.
-  const double angle=(state->hue-90.0)*3.14159265358979323846/180.0;
-  const int hx=18+160+static_cast<int>(139*cos(angle));
-  const int hy=18+160+static_cast<int>(139*sin(angle));
-  HPEN white=CreatePen(PS_SOLID,3,RGB(255,255,255)); HGDIOBJ old=SelectObject(hdc,white);
-  HGDIOBJ oldBrush=SelectObject(hdc,GetStockObject(NULL_BRUSH));
-  Ellipse(hdc,hx-8,hy-8,hx+8,hy+8);
-  Ellipse(hdc,18+110+static_cast<int>(state->saturation*100)-7,
-          18+110+static_cast<int>((1.0-state->value)*100)-7,
-          18+110+static_cast<int>(state->saturation*100)+7,
-          18+110+static_cast<int>((1.0-state->value)*100)+7);
-  SelectObject(hdc,oldBrush); SelectObject(hdc,old); DeleteObject(white);
-  HBRUSH swatch=CreateSolidBrush(state->selected);
-  RECT preview{370,80,480,190}; FillRound(hdc,preview,18,state->selected,RGB(75,75,82));
-  DeleteObject(swatch);
-  static HFONT titleFont=MakeFont(20,FW_SEMIBOLD,L"Segoe UI");
-  static HFONT labelFont=MakeFont(12,FW_NORMAL,L"Segoe UI");
-  static HFONT smallFont=MakeFont(13,FW_NORMAL,L"Segoe UI");
-  DrawLabel(hdc,L"Choose accent colour",RECT{360,28,510,62},titleFont,RGB(245,245,250),DT_SINGLELINE|DT_VCENTER|DT_LEFT);
-  DrawLabel(hdc,L"HEX",RECT{365,215,405,245},smallFont,RGB(170,170,182),DT_SINGLELINE|DT_VCENTER|DT_LEFT);
-  DrawLabel(hdc,L"Drag the wheel for hue, then the square for shade.",RECT{360,255,515,305},labelFont,RGB(170,170,182),DT_WORDBREAK|DT_LEFT);
-}
-
-LRESULT CALLBACK WheelPickerProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
-  auto* state=reinterpret_cast<WheelPickerState*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));
-  if(msg==WM_NCCREATE) {
-    auto* cs=reinterpret_cast<CREATESTRUCTW*>(lp); state=static_cast<WheelPickerState*>(cs->lpCreateParams);
-    state->hwnd=hwnd; SetWindowLongPtrW(hwnd,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(state));
-  }
-  if(!state) return DefWindowProcW(hwnd,msg,wp,lp);
-  switch(msg) {
-    case WM_CREATE:
-      state->hexEdit=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",ColorHex(state->selected).c_str(),
-        WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,405,215,100,28,hwnd,reinterpret_cast<HMENU>(10),GetModuleHandleW(nullptr),nullptr);
-      CreateWindowW(L"BUTTON",L"Cancel",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,365,345,90,36,hwnd,reinterpret_cast<HMENU>(2),GetModuleHandleW(nullptr),nullptr);
-      CreateWindowW(L"BUTTON",L"Apply",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,465,345,90,36,hwnd,reinterpret_cast<HMENU>(1),GetModuleHandleW(nullptr),nullptr);
-      return 0;
-    case WM_PAINT: { PAINTSTRUCT ps{}; HDC dc=BeginPaint(hwnd,&ps); WheelPickerPaint(dc,state); EndPaint(hwnd,&ps); return 0; }
-    case WM_LBUTTONDOWN: {
-      int x=MouseX(lp)-18,y=MouseY(lp)-18;
-      const double d=sqrt((x-160.0)*(x-160.0)+(y-160.0)*(y-160.0));
-      if(d>=118&&d<=160) {state->draggingWheel=true;SetCapture(hwnd);WheelPickerSetPoint(state,x,y,true);}
-      else if(x>=100&&x<=220&&y>=100&&y<=220) {state->draggingSquare=true;SetCapture(hwnd);WheelPickerSetPoint(state,x,y,false);}
-      return 0;
-    }
-    case WM_MOUSEMOVE:
-      if(state->draggingWheel) WheelPickerSetPoint(state,MouseX(lp)-18,MouseY(lp)-18,true);
-      else if(state->draggingSquare) WheelPickerSetPoint(state,MouseX(lp)-18,MouseY(lp)-18,false);
-      return 0;
-    case WM_LBUTTONUP:
-      state->draggingWheel=state->draggingSquare=false;ReleaseCapture();return 0;
-    case WM_COMMAND:
-      if(LOWORD(wp)==10&&HIWORD(wp)==EN_CHANGE) {
-        wchar_t text[32]{};GetWindowTextW(state->hexEdit,text,32);COLORREF c{};
-        if(ParseColorHex(text,&c)){state->selected=c;ColorToHsv(c,&state->hue,&state->saturation,&state->value);InvalidateRect(hwnd,nullptr,FALSE);if(state->preview)state->preview(c);}
-      } else if(LOWORD(wp)==1||LOWORD(wp)==2) {
-        state->accepted=LOWORD(wp)==1;state->done=true;DestroyWindow(hwnd);
-      }
-      return 0;
-    case WM_CLOSE: state->done=true;state->accepted=false;DestroyWindow(hwnd);return 0;
-    case WM_DESTROY: return 0;
-  }
-  return DefWindowProcW(hwnd,msg,wp,lp);
-}
-
-bool ShowModernColorWheel(HWND owner,COLORREF initial,std::function<void(COLORREF)> preview,COLORREF* result) {
-  static bool registered=false;
-  HINSTANCE instance=GetModuleHandleW(nullptr);
-  if(!registered) {
-    WNDCLASSEXW wc{};wc.cbSize=sizeof(wc);wc.lpfnWndProc=WheelPickerProc;wc.hInstance=instance;
-    wc.lpszClassName=L"VibriumModernColorWheel";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
-    wc.hbrBackground=nullptr;
-    if(!RegisterClassExW(&wc)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)return false;
-    registered=true;
-  }
-  WheelPickerState state{};state.owner=owner;state.original=initial;state.selected=initial;state.preview=std::move(preview);
-  ColorToHsv(initial,&state.hue,&state.saturation,&state.value);
-  HWND hwnd=CreateWindowExW(WS_EX_DLGMODALFRAME,L"VibriumModernColorWheel",L"Vibrium · Accent colour",
-    WS_POPUP|WS_CAPTION|WS_SYSMENU|WS_VISIBLE, CW_USEDEFAULT,CW_USEDEFAULT,590,435,owner,nullptr,instance,&state);
-  if(!hwnd)return false;
-  RECT wr{};GetWindowRect(hwnd,&wr);int width=wr.right-wr.left,height=wr.bottom-wr.top;
-  int x=(GetSystemMetrics(SM_CXSCREEN)-width)/2,y=(GetSystemMetrics(SM_CYSCREEN)-height)/2;
-  SetWindowPos(hwnd,nullptr,x,y,0,0,SWP_NOSIZE|SWP_NOZORDER);
-  EnableWindow(owner,FALSE);SetForegroundWindow(hwnd);
-  MSG msg{};
-  while(!state.done&&GetMessageW(&msg,nullptr,0,0)>0) {
-    if(!IsDialogMessageW(hwnd,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}
-  }
-  EnableWindow(owner,TRUE);SetForegroundWindow(owner);
-  if(state.accepted){*result=state.selected;return true;}
-  return false;
-}
-
 
 }  // namespace
 
@@ -448,11 +39,18 @@ bool IsSettingsUrl(const std::wstring& url) {
 
 SettingsPage::~SettingsPage() {
   if (hwnd_ && IsWindow(hwnd_)) DestroyWindow(hwnd_);
-  for (HFONT font : {fontUi_, fontSmall_, fontLabel_, fontTitle_, fontStat_,
-                     fontBrand_, fontMono_}) {
+  sections_.clear();  // pages first: they were attached to this host
+  for (HFONT font : {fonts_.ui, fonts_.small, fonts_.label, fonts_.title,
+                     fonts_.stat, fonts_.brand, fonts_.mono}) {
     if (font) DeleteObject(font);
   }
   if (editBrush_) DeleteObject(editBrush_);
+  FreeBackBuffer();
+}
+
+void SettingsPage::AddSection(std::unique_ptr<SettingsSection> section) {
+  section->Attach(this);
+  sections_.push_back(std::move(section));
 }
 
 bool SettingsPage::Create(HWND parent, HINSTANCE instance) {
@@ -476,28 +74,26 @@ bool SettingsPage::Create(HWND parent, HINSTANCE instance) {
   if (!hwnd_) return false;
 
   CreateResources();
+
+  // Sidebar order. Add new pages here.
+  AddSection(std::make_unique<ConsoleSection>());
+  AddSection(std::make_unique<AdblockSection>());
+  AddSection(std::make_unique<AppearanceSection>());
+  AddSection(std::make_unique<UpdatesSection>());
+
   Layout();
   return true;
 }
 
 void SettingsPage::CreateResources() {
-  fontUi_ = MakeFont(15, FW_NORMAL, L"Segoe UI");
-  fontSmall_ = MakeFont(12, FW_SEMIBOLD, L"Segoe UI");
-  fontLabel_ = MakeFont(13, FW_NORMAL, L"Segoe UI");
-  fontTitle_ = MakeFont(28, FW_SEMIBOLD, L"Segoe UI");
-  fontStat_ = MakeFont(24, FW_SEMIBOLD, L"Segoe UI");
-  fontBrand_ = MakeFont(18, FW_SEMIBOLD, L"Segoe UI");
-  fontMono_ = MakeFont(13, FW_NORMAL, L"Consolas");
+  fonts_.ui = MakeFont(15, FW_NORMAL, L"Segoe UI");
+  fonts_.small = MakeFont(12, FW_SEMIBOLD, L"Segoe UI");
+  fonts_.label = MakeFont(13, FW_NORMAL, L"Segoe UI");
+  fonts_.title = MakeFont(28, FW_SEMIBOLD, L"Segoe UI");
+  fonts_.stat = MakeFont(24, FW_SEMIBOLD, L"Segoe UI");
+  fonts_.brand = MakeFont(18, FW_SEMIBOLD, L"Segoe UI");
+  fonts_.mono = MakeFont(13, FW_NORMAL, L"Consolas");
   editBrush_ = CreateSolidBrush(kPanel2);
-
-  searchEdit_ = CreateWindowExW(
-      0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 100, 20,
-      hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditId)), instance_,
-      nullptr);
-  if (searchEdit_) {
-    SendMessageW(searchEdit_, WM_SETFONT, reinterpret_cast<WPARAM>(fontUi_),
-                 TRUE);
-  }
 }
 
 void SettingsPage::Show(const RECT& bounds) {
@@ -507,7 +103,7 @@ void SettingsPage::Show(const RECT& bounds) {
   ShowWindow(hwnd_, SW_SHOW);
   visible_ = true;
   SetTimer(hwnd_, kRefreshTimer, kRefreshMs, nullptr);
-  Refresh(true);
+  if (Active()) Active()->OnShow(/*page_opened=*/true);
   SetFocus(hwnd_);
 }
 
@@ -516,6 +112,7 @@ void SettingsPage::Hide() {
   visible_ = false;
   KillTimer(hwnd_, kRefreshTimer);
   KillTimer(hwnd_, kFlashTimer);
+  if (Active()) Active()->OnHide();
   ShowWindow(hwnd_, SW_HIDE);
 }
 
@@ -526,459 +123,84 @@ void SettingsPage::Resize(const RECT& bounds) {
 }
 
 // ---------------------------------------------------------------------------
-// Layout
+// Pages and sidebar
 // ---------------------------------------------------------------------------
 
-RECT SettingsPage::RectOf(int id) const {
-  for (const Hit& hit : hits_) {
-    if (hit.id == id) return hit.rect;
+SettingsSection* SettingsPage::Active() const {
+  if (activeSection_ < 0 || activeSection_ >= static_cast<int>(sections_.size())) {
+    return nullptr;
   }
-  return RECT{};
+  return sections_[static_cast<size_t>(activeSection_)].get();
 }
 
-int SettingsPage::ViewHeight() const {
-  return std::max(0, static_cast<int>(logRect_.bottom - logRect_.top) - 8);
+RECT SettingsPage::ContentArea() const {
+  return RECT{kSidebarWidth, 0, width_, height_};
 }
 
-int SettingsPage::MaxScroll() const {
-  const int content = static_cast<int>(visible_rows_.size()) * kRowHeight;
-  return std::max(0, content - ViewHeight());
+RECT SettingsPage::SidebarItem(int index) const {
+  return RECT{14, 76 + index * 46, kSidebarWidth - 14, 76 + index * 46 + 42};
 }
 
-void SettingsPage::ClampScroll() {
-  scrollY_ = std::clamp(scrollY_, 0, MaxScroll());
+int SettingsPage::SidebarHit(int x, int y) const {
+  for (int i = 0; i < static_cast<int>(sections_.size()); ++i) {
+    if (InRect(SidebarItem(i), x, y)) return i;
+  }
+  return -1;
 }
 
-void SettingsPage::ScrollToBottom() { scrollY_ = MaxScroll(); }
-
-// Call after the user moves the scroll position: remembers whether the view
-// is pinned to the newest event.
-void SettingsPage::OnScrolled() {
-  ClampScroll();
-  stickToBottom_ = scrollY_ >= MaxScroll() - 4;
+void SettingsPage::SelectSection(int index) {
+  if (index < 0 || index >= static_cast<int>(sections_.size())) return;
+  if (SettingsSection* old = Active()) old->OnHide();
+  activeSection_ = index;
+  Layout();
+  if (SettingsSection* now = Active()) now->OnShow(/*page_opened=*/false);
+  InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void SettingsPage::Layout() {
-  if (!hwnd_) return;
+  if (!hwnd_ || sections_.empty()) return;
   RECT client{};
   GetClientRect(hwnd_, &client);
   width_ = client.right;
   height_ = client.bottom;
-  hits_.clear();
+  if (SettingsSection* section = Active()) section->Layout(ContentArea());
+}
 
-  sidebar_ = RECT{0, 0, kSidebarWidth, height_};
-  for (int i = 0; i < kSectionCount; ++i) {
-    hits_.push_back({RECT{14, 76 + i * 46, kSidebarWidth - 14, 76 + i * 46 + 42},
-                     kHitSection + i});
-  }
+// ---------------------------------------------------------------------------
+// SettingsHost
+// ---------------------------------------------------------------------------
 
-  const int cx = kSidebarWidth + kPad;
-  const int cw = std::max(360, width_ - cx - kPad);
-  const int right = cx + cw;
-
-  title_ = RECT{cx, 24, right, 62};
-  subtitle_ = RECT{cx, 62, right, 84};
-
-  const int swatch = 48;
-  for (int i = 0; i < 6; ++i) {
-    const int left = cx + i * (swatch + 14);
-    palette_[i] = RECT{left, 142, left + swatch, 142 + swatch};
-    if (activeSection_ == 1) hits_.push_back({palette_[i], kHitPalette + i});
-  }
-  resetAccentRect_ = RECT{cx, 220, cx + 190, 260};
-  customAccentRect_ = RECT{cx + 204, 220, cx + 394, 260};
-  if (activeSection_ == 1) {
-    hits_.push_back({resetAccentRect_, kHitResetAccent});
-    hits_.push_back({customAccentRect_, kHitCustomAccent});
-    return;
-  }
-  if (activeSection_ == 2) {
-    installedBuild_ = vibrium::InstalledBuildLabel();
-    updateCard_ = RECT{cx, 112, right, 112 + 176};
-    updateButton_ = RECT{cx + 22, updateCard_.bottom - 22 - 42, cx + 22 + 250, updateCard_.bottom - 22};
-    hits_.push_back({updateButton_, kHitUpdate});
-    return;
-  }
-
-  // Cards flow into 5, 3 or 2 columns so labels never get truncated.
-  const int cardsTop = 104;
-  const int cardHeight = 72;
-  const int gap = 12;
-  const int columns = cw >= 728 ? 5 : cw >= 480 ? 3 : 2;
-  const int cardWidth = (cw - gap * (columns - 1)) / columns;
-  for (int i = 0; i < 5; ++i) {
-    const int col = i % columns;
-    const int row = i / columns;
-    const int left = cx + col * (cardWidth + gap);
-    const int top = cardsTop + row * (cardHeight + gap);
-    cards_[i] = RECT{left, top, left + cardWidth, top + cardHeight};
-  }
-  const int cardRows = (5 + columns - 1) / columns;
-
-  int y = cardsTop + cardRows * cardHeight + (cardRows - 1) * gap;
-  notice_ = RECT{};
-  if (!enabled_) {
-    notice_ = RECT{cx, y + 12, right, y + 12 + 42};
-    y = notice_.bottom;
-  }
-
-  const int toolbarTop = y + 16;
-  const int toolbarHeight = 38;
-  const int rowGap = 10;
-
-  HDC dc = GetDC(hwnd_);
-  auto buttonWidth = [&](const std::wstring& text) {
-    return TextWidth(dc, fontUi_, text) + 26;
-  };
-  pauseLabel_ = paused_ ? L"Resume" : L"Pause";
-  const int pauseWidth = std::max(buttonWidth(L"Pause"), buttonWidth(L"Resume"));
-  const int copyWidth = buttonWidth(L"Copy");
-  const int exportWidth = buttonWidth(L"Export");
-  const int clearWidth = buttonWidth(L"Clear");
-  int chipWidth[4];
-  int chipsTotal = 6;
-  for (int i = 0; i < 4; ++i) {
-    chipWidth[i] = TextWidth(dc, fontUi_, kChipLabels[i]) + 22;
-    chipsTotal += chipWidth[i];
-  }
-  ReleaseDC(hwnd_, dc);
-
-  const int buttonsTotal = pauseWidth + copyWidth + exportWidth + clearWidth + 8 * 3;
-
-  // Toolbar rows: everything on one row when it fits (search needs >= 180px),
-  // otherwise the search pill gets its own row, then the chips, then buttons.
-  const bool oneRow = cw >= buttonsTotal + 8 + chipsTotal + 10 + 180;
-  const bool chipsAndButtonsShareRow = cw >= chipsTotal + 16 + buttonsTotal;
-
-  int searchTop = toolbarTop;
-  int chipsTop = toolbarTop;
-  int buttonsTop = toolbarTop;
-  int rows = 1;
-  if (!oneRow) {
-    chipsTop = toolbarTop + toolbarHeight + rowGap;
-    rows = 2;
-    if (chipsAndButtonsShareRow) {
-      buttonsTop = chipsTop;
-    } else {
-      buttonsTop = chipsTop + toolbarHeight + rowGap;
-      rows = 3;
-    }
-  }
-  const int toolbarBottom = toolbarTop + rows * toolbarHeight + (rows - 1) * rowGap;
-
-  int x = right;
-  auto place = [&](int width, int id) {
-    RECT r{x - width, buttonsTop, x, buttonsTop + toolbarHeight};
-    hits_.push_back({r, id});
-    x = r.left - 8;
-  };
-  place(clearWidth, kHitClear);
-  place(exportWidth, kHitExport);
-  place(copyWidth, kHitCopy);
-  place(pauseWidth, kHitPause);
-
-  if (oneRow) {
-    chipsBox_ = RECT{x - chipsTotal, chipsTop, x, chipsTop + toolbarHeight};
+void SettingsPage::Repaint(const RECT* rect) {
+  if (!hwnd_) return;
+  if (rect) {
+    InvalidateRect(hwnd_, rect, FALSE);
   } else {
-    chipsBox_ = RECT{cx, chipsTop, cx + chipsTotal, chipsTop + toolbarHeight};
+    const RECT content = ContentArea();
+    InvalidateRect(hwnd_, &content, FALSE);
   }
-  int chipX = chipsBox_.left + 3;
-  for (int i = 0; i < 4; ++i) {
-    hits_.push_back({RECT{chipX, chipsBox_.top + 3, chipX + chipWidth[i],
-                          chipsBox_.bottom - 3},
-                     kHitChip + i});
-    chipX += chipWidth[i];
-  }
-
-  const int searchRight = oneRow ? static_cast<int>(chipsBox_.left) - 10 : right;
-  searchBox_ = RECT{cx, searchTop, std::max(searchRight, cx + 150),
-                    searchTop + toolbarHeight};
-  hits_.push_back({searchBox_, kHitSearch});
-
-  const int logTop = toolbarBottom + 14;
-  logRect_ = RECT{cx, logTop, right, std::max(logTop + 80, height_ - 20 - 24)};
-  footer_ = RECT{cx, logRect_.bottom + 6, right, logRect_.bottom + 26};
-
-  if (searchEdit_) {
-    MoveWindow(searchEdit_, searchBox_.left + 14, searchBox_.top + 9,
-               std::max(40, static_cast<int>(searchBox_.right - searchBox_.left) - 28),
-               20, TRUE);
-  }
-  ClampScroll();
 }
 
-// ---------------------------------------------------------------------------
-// Data
-// ---------------------------------------------------------------------------
-
-bool SettingsPage::Matches(const Row& row) const {
-  if (filter_ == 1 && row.decision != kBlockCode) return false;
-  if (filter_ == 2 && row.decision != kAllowCode) return false;
-  if (filter_ == 3 && row.decision != kErrorCode) return false;
-  if (!query_.empty() && row.lower.find(query_) == std::wstring::npos) {
-    return false;
-  }
-  return true;
+void SettingsPage::StartFlashTimer() {
+  if (hwnd_) SetTimer(hwnd_, kFlashTimer, kFlashMs, nullptr);
 }
 
-void SettingsPage::ApplyFilter() {
-  visible_rows_.clear();
-  for (size_t i = 0; i < rows_.size(); ++i) {
-    if (Matches(rows_[i])) visible_rows_.push_back(static_cast<int>(i));
-  }
-  hoverRow_ = -1;
-  ClampScroll();
+void SettingsPage::NotifyAccentChanged(COLORREF color) {
+  if (onThemeChanged_) onThemeChanged_(color);
 }
 
-void SettingsPage::Refresh(bool force) {
-  if (!hwnd_) return;
-  if (paused_ && !force) return;
-
-  const AdblockStats::Snapshot snapshot = AdblockService::Get().Stats();
-  const bool enabledNow = AdblockService::Get().enabled();
-
-  if (enabledNow != enabled_) {
-    enabled_ = enabledNow;
-    Layout();  // the "not blocking" notice changes the layout
-  }
-
-  blocked_ = snapshot.blocked;
-  allowed_ = snapshot.allowed;
-  errors_ = snapshot.errors;
-  recorded_ = snapshot.events.size();
-
-  const uint64_t revision =
-      snapshot.blocked * 1000003ULL + snapshot.allowed * 10007ULL +
-      snapshot.errors * 101ULL + snapshot.events.size() +
-      (snapshot.events.empty() ? 0 : snapshot.events.back().timestamp_ms);
-
-  if (force || revision != revision_) {
-    revision_ = revision;
-    rows_.clear();
-    rows_.reserve(snapshot.events.size());
-    for (const AdblockStats::Event& event : snapshot.events) {
-      Row row;
-      row.timestamp_ms = event.timestamp_ms;
-      row.decision = event.decision == AdblockEngine::Decision::kBlock
-                         ? kBlockCode
-                         : event.decision == AdblockEngine::Decision::kError
-                               ? kErrorCode
-                               : kAllowCode;
-      row.time = Timestamp(event.timestamp_ms);
-      row.kind = Utf8ToWide(event.resource_type);
-      row.url = Utf8ToWide(event.url);
-      row.source = Utf8ToWide(event.source_url);
-      row.lower = ToLower(row.url + L"\n" + row.source + L"\n" + row.kind);
-      rows_.push_back(std::move(row));
-    }
-    ApplyFilter();
-    if (stickToBottom_) ScrollToBottom();
-  }
-
-  InvalidateContent();
+void SettingsPage::RepaintEverything() {
+  InvalidateRect(hwnd_, nullptr, FALSE);
+  EnumChildWindows(
+      GetParent(hwnd_),
+      [](HWND child, LPARAM) -> BOOL {
+        InvalidateRect(child, nullptr, TRUE);
+        return TRUE;
+      },
+      0);
 }
 
-void SettingsPage::InvalidateContent() {
-  if (!hwnd_) return;
-  RECT content{kSidebarWidth, 0, width_, height_};
-  InvalidateRect(hwnd_, &content, FALSE);
-}
-
-void SettingsPage::Flash(const std::wstring& message) {
-  flash_ = message;
-  SetTimer(hwnd_, kFlashTimer, kFlashMs, nullptr);
-  InvalidateRect(hwnd_, &footer_, FALSE);
-}
-
-std::wstring SettingsPage::BuildText() const {
-  std::wstring text;
-  for (int index : visible_rows_) {
-    const Row& row = rows_[static_cast<size_t>(index)];
-    text += RowLine(row.time, row.decision, row.kind, row.url, row.source);
-    text += L"\r\n";
-  }
-  return text;
-}
-
-void SettingsPage::CopyToClipboard() {
-  if (visible_rows_.empty()) {
-    Flash(L"Nothing to copy.");
-    return;
-  }
-  const std::wstring text = BuildText();
-  if (!OpenClipboard(hwnd_)) {
-    Flash(L"Could not open the clipboard.");
-    return;
-  }
-  EmptyClipboard();
-  HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, (text.size() + 1) * sizeof(wchar_t));
-  bool ok = false;
-  if (memory) {
-    void* data = GlobalLock(memory);
-    if (data) {
-      std::memcpy(data, text.c_str(), (text.size() + 1) * sizeof(wchar_t));
-      GlobalUnlock(memory);
-      ok = SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
-    }
-    if (!ok) GlobalFree(memory);  // the clipboard owns it only on success
-  }
-  CloseClipboard();
-  Flash(ok ? L"Copied " + FormatCount(visible_rows_.size()) + L" event(s) to the clipboard."
-           : L"Could not copy to the clipboard.");
-}
-
-void SettingsPage::ExportToFile() {
-  if (visible_rows_.empty()) {
-    Flash(L"Nothing to export.");
-    return;
-  }
-  OPENFILENAMEW dialog{};
-  wchar_t path[MAX_PATH] = L"vibrium-console.log";
-  dialog.lStructSize = sizeof(dialog);
-  dialog.hwndOwner = hwnd_;
-  dialog.lpstrFilter =
-      L"Log files (*.log)\0*.log\0Text files (*.txt)\0*.txt\0All files (*.*)\0*.*\0";
-  dialog.lpstrFile = path;
-  dialog.nMaxFile = MAX_PATH;
-  dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
-  dialog.lpstrDefExt = L"log";
-  if (!GetSaveFileNameW(&dialog)) return;  // cancelled
-
-  const std::string utf8 = WideToUtf8(BuildText());
-  std::ofstream file(path, std::ios::binary | std::ios::trunc);
-  if (!file) {
-    Flash(L"Could not write the file.");
-    return;
-  }
-  file.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
-  Flash(L"Exported " + FormatCount(visible_rows_.size()) + L" event(s).");
-}
-
-// ---------------------------------------------------------------------------
-// Input
-// ---------------------------------------------------------------------------
-
-int SettingsPage::HitTest(int x, int y) const {
-  for (const Hit& hit : hits_) {
-    if (InRect(hit.rect, x, y)) return hit.id;
-  }
-  return kHitNone;
-}
-
-int SettingsPage::RowAt(int x, int y) const {
-  RECT area = logRect_;
-  area.right -= kScrollbarWidth + 8;
-  if (!InRect(area, x, y)) return -1;
-  const int local = y - (logRect_.top + 4) + scrollY_;
-  if (local < 0) return -1;
-  const int index = local / kRowHeight;
-  return index < static_cast<int>(visible_rows_.size()) ? index : -1;
-}
-
-bool SettingsPage::ThumbRect(RECT* rect) const {
-  const int viewHeight = ViewHeight();
-  const int content = static_cast<int>(visible_rows_.size()) * kRowHeight;
-  if (viewHeight <= 0 || content <= viewHeight) return false;
-  const int thumbHeight = std::max(32, viewHeight * viewHeight / content);
-  const int travel = viewHeight - thumbHeight;
-  const int maxScroll = content - viewHeight;
-  const int top = logRect_.top + 4 + (maxScroll > 0 ? travel * scrollY_ / maxScroll : 0);
-  *rect = RECT{logRect_.right - kScrollbarWidth - 4, top,
-               logRect_.right - 4, top + thumbHeight};
-  return true;
-}
-
-void SettingsPage::OnClick(int id) {
-  if (id >= kHitSection && id < kHitSection + kSectionCount) {
-    activeSection_ = id - kHitSection;
-    if (searchEdit_) ShowWindow(searchEdit_, SW_HIDE);
-    searchFocused_ = false;
-    Layout();
-    InvalidateRect(hwnd_, nullptr, FALSE);
-    return;
-  }
-  if (id >= kHitPalette && id < kHitPalette + 6) {
-    const COLORREF colors[6] = {RGB(0,120,215), RGB(0,153,102), RGB(16,124,16), RGB(232,90,35), RGB(190,70,160), RGB(100,100,110)};
-    Theme::SetAccent(colors[id - kHitPalette]);
-    TabBar::SetAccentColor(Theme::Accent());
-    if (onThemeChanged_) onThemeChanged_(Theme::Accent());
-    InvalidateRect(hwnd_, nullptr, FALSE);
-    EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0);
-    return;
-  }
-  if (id == kHitResetAccent) {
-    Theme::ResetAccent();
-    TabBar::SetAccentColor(Theme::Accent());
-    if (onThemeChanged_) onThemeChanged_(Theme::Accent());
-    InvalidateRect(hwnd_, nullptr, FALSE);
-    EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL { InvalidateRect(child, nullptr, TRUE); return TRUE; }, 0);
-    return;
-  }
-  if (id == kHitCustomAccent) {
-    const COLORREF previous = Theme::Accent();
-    auto preview = [this](COLORREF color) {
-      Theme::accent = color;
-      Theme::manual = true;
-      TabBar::SetAccentColor(color);
-      if (onThemeChanged_) onThemeChanged_(color);
-      InvalidateRect(hwnd_, nullptr, FALSE);
-      EnumChildWindows(GetParent(hwnd_), [](HWND child, LPARAM) -> BOOL {
-        InvalidateRect(child, nullptr, TRUE); return TRUE;
-      }, 0);
-    };
-    COLORREF chosen = previous;
-    if (ShowModernColorWheel(hwnd_, previous, preview, &chosen)) {
-      Theme::SetAccent(chosen);
-      preview(chosen);
-    } else {
-      Theme::SetAccent(previous);
-      preview(previous);
-    }
-    return;
-  }
-  if (id >= kHitChip && id < kHitChip + 4) {
-    filter_ = id - kHitChip;
-    ApplyFilter();
-    if (stickToBottom_) ScrollToBottom();
-    InvalidateContent();
-    return;
-  }
-  switch (id) {
-    case kHitSearch:
-      if (searchEdit_) {
-        ShowWindow(searchEdit_, SW_SHOW);
-        SetFocus(searchEdit_);
-      }
-      break;
-    case kHitPause:
-      paused_ = !paused_;
-      Layout();
-      if (!paused_) Refresh(true);
-      InvalidateContent();
-      break;
-    case kHitCopy:
-      CopyToClipboard();
-      break;
-    case kHitExport:
-      ExportToFile();
-      break;
-    case kHitUpdate:
-      if (MessageBoxW(hwnd_,
-                      L"Vibrium will close, download the latest build and reopen automatically.\n\n"
-                      L"Open tabs will be closed. Continue?",
-                      L"Update Vibrium Browser", MB_OKCANCEL | MB_ICONQUESTION) == IDOK &&
-          onUpdateRequested_) {
-        onUpdateRequested_();
-      }
-      break;
-    case kHitClear:
-      AdblockService::Get().ClearStats();
-      Refresh(true);
-      Flash(L"Console cleared.");
-      break;
-    default:
-      break;
-  }
+void SettingsPage::RequestUpdate() {
+  if (onUpdateRequested_) onUpdateRequested_();
 }
 
 // ---------------------------------------------------------------------------
@@ -991,14 +213,13 @@ void SettingsPage::Paint(HDC hdc, const RECT& client) {
   DeleteObject(background);
 
   PaintSidebar(hdc);
-  if (activeSection_ == 0) PaintConsole(hdc);
-  else if (activeSection_ == 1) PaintAppearance(hdc);
-  else if (activeSection_ == 2) PaintUpdates(hdc);
+  if (SettingsSection* section = Active()) section->Paint(hdc);
 }
 
 void SettingsPage::PaintSidebar(HDC hdc) {
+  const RECT sidebar{0, 0, kSidebarWidth, height_};
   HBRUSH panel = CreateSolidBrush(kPanel);
-  FillRect(hdc, &sidebar_, panel);
+  FillRect(hdc, &sidebar, panel);
   DeleteObject(panel);
 
   HPEN border = CreatePen(PS_SOLID, 1, kBorder);
@@ -1009,13 +230,13 @@ void SettingsPage::PaintSidebar(HDC hdc) {
   DeleteObject(border);
 
   FillRound(hdc, RECT{22, 26, 44, 48}, 8, Theme::Accent());
-  DrawLabel(hdc, L"Settings", RECT{56, 22, kSidebarWidth - 14, 52}, fontBrand_,
+  DrawLabel(hdc, L"Settings", RECT{56, 22, kSidebarWidth - 14, 52}, fonts_.brand,
             kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
 
-  for (int i = 0; i < kSectionCount; ++i) {
-    const RECT r = RectOf(kHitSection + i);
+  for (int i = 0; i < static_cast<int>(sections_.size()); ++i) {
+    const RECT r = SidebarItem(i);
     const bool active = i == activeSection_;
-    const bool hover = hoverId_ == kHitSection + i;
+    const bool hover = i == sidebarHover_;
     if (active) {
       FillRound(hdc, r, 12, Theme::Accent());
     } else if (hover) {
@@ -1023,246 +244,26 @@ void SettingsPage::PaintSidebar(HDC hdc) {
     }
     const COLORREF color = active ? RGB(255, 255, 255) : hover ? kText : kMuted;
     DrawTerminalIcon(hdc, r.left + 14, r.top + 12, color);
-    DrawLabel(hdc, kSections[i].name,
-              RECT{r.left + 44, r.top, r.right - 8, r.bottom}, fontUi_, color,
+    DrawLabel(hdc, sections_[static_cast<size_t>(i)]->Name(),
+              RECT{r.left + 44, r.top, r.right - 8, r.bottom}, fonts_.ui, color,
               DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   }
 }
 
-void SettingsPage::PaintAppearance(HDC hdc) {
-  DrawLabel(hdc, L"Appearance", title_, fontTitle_, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-  DrawLabel(hdc, L"Choose the accent used throughout Vibrium.", subtitle_, fontUi_, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-  const COLORREF colors[6] = {RGB(0,120,215), RGB(0,153,102), RGB(16,124,16), RGB(232,90,35), RGB(190,70,160), RGB(100,100,110)};
-  const wchar_t* names[6] = {L"Blue", L"Teal", L"Green", L"Orange", L"Pink", L"Graphite"};
-  for (int i=0;i<6;++i) {
-    const bool selected = Theme::Accent() == colors[i];
-    FillRound(hdc, palette_[i], 12, colors[i], selected ? kText : kBorderStrong, selected ? 3 : 1);
-    RECT label{palette_[i].left-8,palette_[i].bottom+8,palette_[i].right+8,palette_[i].bottom+30};
-    DrawLabel(hdc,names[i],label,fontUi_,kText,DT_SINGLELINE|DT_CENTER|DT_VCENTER);
-  }
-  FillRound(hdc, resetAccentRect_, 12, kPanel3, kBorderStrong);
-  DrawLabel(hdc, L"Reset to default", resetAccentRect_, fontUi_, kText, DT_SINGLELINE|DT_CENTER|DT_VCENTER);
-  FillRound(hdc, customAccentRect_, 12, Theme::Accent(), Theme::Accent());
-  DrawLabel(hdc, L"Custom colour...", customAccentRect_, fontUi_, RGB(255,255,255), DT_SINGLELINE|DT_CENTER|DT_VCENTER);
-  std::wstring mode = Theme::IsManual() ? L"Using your saved Vibrium accent" : L"Using Vibrium's default accent. Windows colour settings are ignored.";
-  DrawLabel(hdc, mode, RECT{resetAccentRect_.left, 282, resetAccentRect_.right+260, 310}, fontUi_, kMuted, DT_SINGLELINE|DT_VCENTER|DT_LEFT);
+void SettingsPage::FreeBackBuffer() {
+  if (backBuffer_) DeleteObject(backBuffer_);
+  backBuffer_ = nullptr;
+  backWidth_ = backHeight_ = 0;
 }
 
-void SettingsPage::PaintUpdates(HDC hdc) {
-  DrawLabel(hdc, L"Updates", title_, fontTitle_, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-  DrawLabel(hdc, L"Install the newest Vibrium build made by CI. Nothing is compiled on this computer.", subtitle_,
-            fontUi_, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-  FillRound(hdc, updateCard_, 14, kPanel, kBorder);
-  DrawLabel(hdc, L"INSTALLED BUILD", RECT{updateCard_.left + 22, updateCard_.top + 16, updateCard_.right - 22, updateCard_.top + 34},
-            fontSmall_, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-  DrawLabel(hdc, installedBuild_, RECT{updateCard_.left + 22, updateCard_.top + 34, updateCard_.right - 22, updateCard_.top + 62},
-            fontBrand_, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-  DrawLabel(hdc, L"Vibrium closes, downloads and installs the latest build, then reopens by itself.",
-            RECT{updateCard_.left + 22, updateCard_.top + 70, updateCard_.right - 22, updateCard_.top + 92}, fontLabel_,
-            kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-  const bool hover = hoverId_ == kHitUpdate;
-  const COLORREF fill = hover ? Theme::Mix(Theme::Accent(), RGB(255, 255, 255), 14) : Theme::Accent();
-  FillRound(hdc, updateButton_, 14, fill, fill);
-  DrawLabel(hdc, L"Update Vibrium Browser", updateButton_, fontUi_, RGB(255, 255, 255),
-            DT_SINGLELINE | DT_VCENTER | DT_CENTER);
-  if (!flash_.empty()) {
-    DrawLabel(hdc, flash_, footer_, fontLabel_, Theme::Accent(), DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-  }
-}
-
-void SettingsPage::PaintConsole(HDC hdc) {
-  DrawLabel(hdc, L"Console", title_, fontTitle_, kText,
-            DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-  DrawLabel(hdc, L"Live ad-blocking decisions for the pages you open.",
-            subtitle_, fontUi_, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-
-  // ---- stat cards
-  const wchar_t* labels[5] = {L"AD BLOCKING", L"BLOCKED", L"ALLOWED", L"ERRORS",
-                              L"RECENT EVENTS"};
-  const std::wstring values[5] = {enabled_ ? L"Enabled" : L"Disabled",
-                                  FormatCount(blocked_), FormatCount(allowed_),
-                                  FormatCount(errors_), FormatCount(recorded_)};
-  for (int i = 0; i < 5; ++i) {
-    const RECT& r = cards_[i];
-    FillRound(hdc, r, 14, kPanel, kBorder);
-    DrawLabel(hdc, labels[i], RECT{r.left + 16, r.top + 12, r.right - 10, r.top + 30},
-              fontSmall_, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-    RECT valueRect{r.left + 16, r.top + 32, r.right - 10, r.bottom - 8};
-    if (i == 0) {
-      const COLORREF dot = enabled_ ? kGood : kWarn;
-      FillRound(hdc, RECT{valueRect.left, valueRect.top + 11, valueRect.left + 10,
-                          valueRect.top + 21},
-                10, dot);
-      valueRect.left += 20;
-      DrawLabel(hdc, values[i], valueRect, fontBrand_, kText,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-    } else {
-      DrawLabel(hdc, values[i], valueRect, fontStat_, kText,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-    }
-  }
-
-  if (!enabled_) {
-    FillRound(hdc, notice_, 12, RGB(44, 36, 40), RGB(110, 90, 50));
-    const std::wstring warning =
-        L"No usable filter lists were found, so ads are not being blocked. "
-        L"Lists download on first run; check your connection and restart Vibrium.";
-    RECT inner{notice_.left + 14, notice_.top + 4, notice_.right - 14,
-               notice_.bottom - 4};
-    // DT_VCENTER ignores wrapped text, so measure and offset by hand.
-    RECT measured = inner;
-    HGDIOBJ previousFont = SelectObject(hdc, fontLabel_);
-    DrawTextW(hdc, warning.c_str(), static_cast<int>(warning.size()), &measured,
-              DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX);
-    SelectObject(hdc, previousFont);
-    const int textHeight = measured.bottom - measured.top;
-    inner.top += std::max(0, (static_cast<int>(inner.bottom - inner.top) - textHeight) / 2);
-    DrawLabel(hdc, warning, inner, fontLabel_, kWarn, DT_WORDBREAK | DT_LEFT);
-  }
-
-  // ---- search pill (the EDIT control sits on top of it)
-  FillRound(hdc, searchBox_, 14, kPanel2, searchFocused_ ? Theme::Accent() : kBorderStrong,
-            searchFocused_ ? 2 : 1);
-  if (!searchEdit_ || !IsWindowVisible(searchEdit_)) {
-    DrawLabel(hdc, L"Search URL, source page, or resource type...",
-              RECT{searchBox_.left + 16, searchBox_.top, searchBox_.right - 14,
-                   searchBox_.bottom},
-              fontUi_, kMuted,
-              DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-  }
-
-  // ---- filter chips
-  FillRound(hdc, chipsBox_, 14, kPanel2, kBorderStrong);
-  for (int i = 0; i < 4; ++i) {
-    const RECT r = RectOf(kHitChip + i);
-    const bool selected = filter_ == i;
-    const bool hover = hoverId_ == kHitChip + i;
-    if (selected) {
-      FillRound(hdc, r, 10, Theme::Accent());
-    } else if (hover) {
-      FillRound(hdc, r, 10, kSoft);
-    }
-    DrawLabel(hdc, kChipLabels[i], r, fontUi_,
-              selected ? RGB(255, 255, 255) : hover ? kText : kMuted,
-              DT_SINGLELINE | DT_VCENTER | DT_CENTER);
-  }
-
-  // ---- buttons
-  struct ButtonDef {
-    int id;
-    std::wstring label;
-    bool primary;
-    bool active;
-  };
-  const ButtonDef buttons[] = {{kHitPause, pauseLabel_, false, paused_},
-                               {kHitCopy, L"Copy", false, false},
-                               {kHitExport, L"Export", false, false},
-                               {kHitClear, L"Clear", true, false}};
-  for (const ButtonDef& button : buttons) {
-    const RECT r = RectOf(button.id);
-    const bool hover = hoverId_ == button.id;
-    COLORREF fill = kPanel3;
-    COLORREF border = kBorderStrong;
-    if (button.primary) {
-      fill = hover ? Theme::Mix(Theme::Accent(), RGB(255,255,255), 14) : Theme::Accent();
-      border = fill;
-    } else if (button.active) {
-      fill = kSoft;
-      border = Theme::Accent();
-    } else if (hover) {
-      fill = kSoftStrong;
-      border = Theme::Accent();
-    }
-    FillRound(hdc, r, 14, fill, border);
-    DrawLabel(hdc, button.label, r, fontUi_, RGB(255, 255, 255),
-              DT_SINGLELINE | DT_VCENTER | DT_CENTER);
-  }
-
-  PaintLog(hdc);
-
-  // ---- footer: flash message, hovered row, or summary
-  std::wstring footer;
-  if (!flash_.empty()) {
-    footer = flash_;
-  } else if (hoverRow_ >= 0 && hoverRow_ < static_cast<int>(visible_rows_.size())) {
-    const Row& row = rows_[static_cast<size_t>(visible_rows_[static_cast<size_t>(hoverRow_)])];
-    footer = row.url;
-    if (!row.source.empty()) footer += L"   (from " + row.source + L")";
-  } else {
-    footer = FormatCount(visible_rows_.size()) + L" matching event" +
-             (visible_rows_.size() == 1 ? L"" : L"s") + L" of " +
-             FormatCount(rows_.size()) + L" recorded";
-    if (paused_) footer += L"   -   paused, the list is not updating";
-  }
-  DrawLabel(hdc, footer, footer_, fontLabel_,
-            flash_.empty() ? kMuted : Theme::Accent(),
-            DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-}
-
-void SettingsPage::PaintLog(HDC hdc) {
-  FillRound(hdc, logRect_, 14, kLogBg, kBorder);
-
-  const int saved = SaveDC(hdc);
-  IntersectClipRect(hdc, logRect_.left + 1, logRect_.top + 4,
-                    logRect_.right - 1, logRect_.bottom - 4);
-
-  if (visible_rows_.empty()) {
-    DrawLabel(hdc,
-              rows_.empty()
-                  ? L"No ad-blocking decisions recorded yet. Browse a website to generate events."
-                  : L"No events match the current search.",
-              RECT{logRect_.left + 18, logRect_.top + 14, logRect_.right - 18,
-                   logRect_.top + 44},
-              fontUi_, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-  } else {
-    const int count = static_cast<int>(visible_rows_.size());
-    const int first = std::max(0, scrollY_ / kRowHeight);
-    const int last = std::min(count - 1, (scrollY_ + ViewHeight()) / kRowHeight);
-    const int base = logRect_.left;
-    const int urlLeft = base + 292;
-    const int urlRight = logRect_.right - kScrollbarWidth - 12;
-
-    for (int i = first; i <= last; ++i) {
-      const Row& row = rows_[static_cast<size_t>(visible_rows_[static_cast<size_t>(i)])];
-      const int y = logRect_.top + 4 + i * kRowHeight - scrollY_;
-      if (i == hoverRow_) {
-        RECT highlight{logRect_.left + 1, y, logRect_.right - 1, y + kRowHeight};
-        HBRUSH tint = CreateSolidBrush(kSoft);
-        FillRect(hdc, &highlight, tint);
-        DeleteObject(tint);
-      }
-      const UINT flags = DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS;
-      DrawLabel(hdc, row.time, RECT{base + 14, y, base + 112, y + kRowHeight},
-                fontMono_, kMuted, flags);
-      DrawLabel(hdc, DecisionLabel(row.decision),
-                RECT{base + 118, y, base + 198, y + kRowHeight}, fontMono_,
-                DecisionColor(row.decision), flags);
-      DrawLabel(hdc, row.kind, RECT{base + 204, y, base + 286, y + kRowHeight},
-                fontMono_, kMuted, flags);
-
-      if (urlRight > urlLeft) {
-        DrawLabel(hdc, row.url, RECT{urlLeft, y, urlRight, y + kRowHeight},
-                  fontMono_, kText, flags);
-        if (!row.source.empty()) {
-          const int used = TextWidth(hdc, fontMono_, row.url);
-          const int sourceLeft = urlLeft + used + 10;
-          if (sourceLeft + 60 < urlRight) {
-            DrawLabel(hdc, L"(from " + row.source + L")",
-                      RECT{sourceLeft, y, urlRight, y + kRowHeight}, fontMono_,
-                      kMuted, flags);
-          }
-        }
-      }
-    }
-  }
-
-  RestoreDC(hdc, saved);
-
-  RECT thumb{};
-  if (ThumbRect(&thumb)) {
-    const bool hot = draggingThumb_;
-    FillRound(hdc, thumb, kScrollbarWidth, hot ? Theme::Accent() : Theme::Accent());
-  }
+// One off-screen bitmap is kept and reused; it only grows when the window
+// does (the original created a full-window bitmap on every paint).
+void SettingsPage::EnsureBackBuffer(HDC hdc, int width, int height) {
+  if (backBuffer_ && backWidth_ >= width && backHeight_ >= height) return;
+  FreeBackBuffer();
+  backWidth_ = std::max(width, 1);
+  backHeight_ = std::max(height, 1);
+  backBuffer_ = CreateCompatibleBitmap(hdc, backWidth_, backHeight_);
 }
 
 // ---------------------------------------------------------------------------
@@ -1294,21 +295,27 @@ LRESULT SettingsPage::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
       RECT client{};
       GetClientRect(hwnd_, &client);
       if (client.right > 0 && client.bottom > 0) {
+        EnsureBackBuffer(hdc, client.right, client.bottom);
         HDC memory = CreateCompatibleDC(hdc);
-        HBITMAP bitmap = CreateCompatibleBitmap(hdc, client.right, client.bottom);
-        HGDIOBJ oldBitmap = SelectObject(memory, bitmap);
+        HGDIOBJ oldBitmap = SelectObject(memory, backBuffer_);
+        // Only the dirty part is drawn and copied.
+        IntersectClipRect(memory, ps.rcPaint.left, ps.rcPaint.top,
+                          ps.rcPaint.right, ps.rcPaint.bottom);
         Paint(memory, client);
         BitBlt(hdc, ps.rcPaint.left, ps.rcPaint.top,
                ps.rcPaint.right - ps.rcPaint.left,
                ps.rcPaint.bottom - ps.rcPaint.top, memory, ps.rcPaint.left,
                ps.rcPaint.top, SRCCOPY);
         SelectObject(memory, oldBitmap);
-        DeleteObject(bitmap);
         DeleteDC(memory);
       }
       EndPaint(hwnd_, &ps);
       return 0;
     }
+
+    case WM_DISPLAYCHANGE:
+      FreeBackBuffer();  // colour format may have changed
+      return 0;
 
     case WM_SIZE:
       Layout();
@@ -1317,76 +324,42 @@ LRESULT SettingsPage::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
 
     case WM_TIMER:
       if (wParam == kRefreshTimer) {
-        Refresh(false);
+        if (Active()) Active()->OnTick();
       } else if (wParam == kFlashTimer) {
         KillTimer(hwnd_, kFlashTimer);
-        flash_.clear();
-        InvalidateRect(hwnd_, &footer_, FALSE);
+        if (Active()) Active()->OnFlashExpired();
       }
       return 0;
 
     case WM_CTLCOLOREDIT: {
       HDC dc = reinterpret_cast<HDC>(wParam);
+      if (SettingsSection* section = Active()) {
+        return reinterpret_cast<LRESULT>(
+            section->CtlColorEdit(dc, reinterpret_cast<HWND>(lParam)));
+      }
       SetTextColor(dc, kText);
       SetBkColor(dc, kPanel2);
       return reinterpret_cast<LRESULT>(editBrush_);
     }
 
     case WM_COMMAND:
-      if (LOWORD(wParam) == kEditId) {
-        const WORD code = HIWORD(wParam);
-        if (code == EN_CHANGE) {
-          const int length = GetWindowTextLengthW(searchEdit_);
-          std::wstring text(static_cast<size_t>(length) + 1, L'\0');
-          if (length > 0) GetWindowTextW(searchEdit_, text.data(), length + 1);
-          text.resize(static_cast<size_t>(std::max(length, 0)));
-          query_ = ToLower(Trim(text));
-          ApplyFilter();
-          if (stickToBottom_) ScrollToBottom();
-          InvalidateContent();
-        } else if (code == EN_SETFOCUS || code == EN_KILLFOCUS) {
-          searchFocused_ = code == EN_SETFOCUS;
-          if (code == EN_KILLFOCUS && GetWindowTextLengthW(searchEdit_) == 0) {
-            ShowWindow(searchEdit_, SW_HIDE);  // the page paints the hint
-          }
-          InvalidateRect(hwnd_, &searchBox_, FALSE);
-        }
-      }
+      if (Active()) Active()->Command(wParam, lParam);
       return 0;
 
     case WM_MOUSEMOVE: {
-      const int x = static_cast<short>(LOWORD(lParam));
-      const int y = static_cast<short>(HIWORD(lParam));
-
-      if (draggingThumb_) {
-        RECT thumb{};
-        const int viewHeight = ViewHeight();
-        const int content = static_cast<int>(visible_rows_.size()) * kRowHeight;
-        if (ThumbRect(&thumb) && content > viewHeight) {
-          const int thumbHeight = thumb.bottom - thumb.top;
-          const int travel = viewHeight - thumbHeight;
-          if (travel > 0) {
-            scrollY_ = dragStartScroll_ +
-                       (y - dragStartY_) * (content - viewHeight) / travel;
-            OnScrolled();
-            InvalidateRect(hwnd_, &logRect_, FALSE);
-          }
-        }
+      const int x = MouseX(lParam);
+      const int y = MouseY(lParam);
+      if (captured_) {  // a page is dragging its scrollbar
+        if (Active()) Active()->MouseMove(x, y);
         return 0;
       }
-
-      const int id = HitTest(x, y);
-      const int row = RowAt(x, y);
-      if (id != hoverId_) {
-        hoverId_ = id;
-        InvalidateContent();
-        InvalidateRect(hwnd_, &sidebar_, FALSE);
+      const int sidebar = SidebarHit(x, y);
+      if (sidebar != sidebarHover_) {
+        sidebarHover_ = sidebar;
+        const RECT bar{0, 0, kSidebarWidth, height_};
+        InvalidateRect(hwnd_, &bar, FALSE);
       }
-      if (row != hoverRow_) {
-        hoverRow_ = row;
-        InvalidateRect(hwnd_, &logRect_, FALSE);
-        InvalidateRect(hwnd_, &footer_, FALSE);
-      }
+      if (Active()) Active()->MouseMove(x, y);
       if (!trackingMouse_) {
         TRACKMOUSEEVENT track{};
         track.cbSize = sizeof(track);
@@ -1399,90 +372,73 @@ LRESULT SettingsPage::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
 
     case WM_MOUSELEAVE:
       trackingMouse_ = false;
-      if (hoverId_ != kHitNone || hoverRow_ != -1) {
-        hoverId_ = kHitNone;
-        hoverRow_ = -1;
-        InvalidateRect(hwnd_, nullptr, FALSE);
+      if (sidebarHover_ != -1) {
+        sidebarHover_ = -1;
+        const RECT bar{0, 0, kSidebarWidth, height_};
+        InvalidateRect(hwnd_, &bar, FALSE);
       }
+      if (Active()) Active()->MouseLeave();
       return 0;
 
     case WM_SETCURSOR:
-      if (LOWORD(lParam) == HTCLIENT && hoverId_ != kHitNone) {
-        SetCursor(LoadCursorW(nullptr, hoverId_ == kHitSearch ? IDC_IBEAM
-                                                              : IDC_HAND));
-        return TRUE;
+      if (LOWORD(lParam) == HTCLIENT) {
+        const int kind = sidebarHover_ != -1 ? 1 : (Active() ? Active()->CursorKind() : 0);
+        if (kind != 0) {
+          SetCursor(LoadCursorW(nullptr, kind == 2 ? IDC_IBEAM : IDC_HAND));
+          return TRUE;
+        }
       }
       break;
 
     case WM_LBUTTONDOWN: {
       SetFocus(hwnd_);
-      const int x = static_cast<short>(LOWORD(lParam));
-      const int y = static_cast<short>(HIWORD(lParam));
-      RECT thumb{};
-      if (ThumbRect(&thumb) && InRect(thumb, x, y)) {
-        draggingThumb_ = true;
-        dragStartY_ = y;
-        dragStartScroll_ = scrollY_;
+      const int x = MouseX(lParam);
+      const int y = MouseY(lParam);
+      sidebarPressed_ = SidebarHit(x, y);
+      if (sidebarPressed_ != -1) return 0;
+      if (Active() && Active()->MouseDown(x, y)) {
+        captured_ = true;
         SetCapture(hwnd_);
-        InvalidateRect(hwnd_, &logRect_, FALSE);
-        return 0;
       }
-      pressedId_ = HitTest(x, y);
       return 0;
     }
 
     case WM_LBUTTONUP: {
-      if (draggingThumb_) {
-        draggingThumb_ = false;
-        ReleaseCapture();
-        InvalidateRect(hwnd_, &logRect_, FALSE);
+      const int x = MouseX(lParam);
+      const int y = MouseY(lParam);
+      if (sidebarPressed_ != -1) {
+        const int pressed = sidebarPressed_;
+        sidebarPressed_ = -1;
+        if (SidebarHit(x, y) == pressed) SelectSection(pressed);
         return 0;
       }
-      const int x = static_cast<short>(LOWORD(lParam));
-      const int y = static_cast<short>(HIWORD(lParam));
-      const int id = HitTest(x, y);
-      if (pressedId_ != kHitNone && pressedId_ == id) OnClick(id);
-      pressedId_ = kHitNone;
+      if (Active()) Active()->MouseUp(x, y);
+      if (captured_) {
+        captured_ = false;
+        if (GetCapture() == hwnd_) ReleaseCapture();
+      }
       return 0;
     }
 
     case WM_CAPTURECHANGED:
-      if (draggingThumb_) {
-        draggingThumb_ = false;
-        InvalidateRect(hwnd_, &logRect_, FALSE);
-      }
+      captured_ = false;
+      if (Active()) Active()->CaptureLost();
       return 0;
 
     case WM_MOUSEWHEEL: {
       const int notches = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
-      scrollY_ -= notches * 3 * kRowHeight;
-      OnScrolled();
-      InvalidateRect(hwnd_, &logRect_, FALSE);
+      if (Active()) Active()->MouseWheel(notches);
       return 0;
     }
 
-    case WM_KEYDOWN: {
-      const int page = std::max(kRowHeight, ViewHeight() - kRowHeight);
-      switch (wParam) {
-        case VK_UP:    scrollY_ -= kRowHeight; break;
-        case VK_DOWN:  scrollY_ += kRowHeight; break;
-        case VK_PRIOR: scrollY_ -= page; break;
-        case VK_NEXT:  scrollY_ += page; break;
-        case VK_HOME:  scrollY_ = 0; break;
-        case VK_END:   scrollY_ = MaxScroll(); break;
-        default:
-          return DefWindowProcW(hwnd_, message, wParam, lParam);
-      }
-      OnScrolled();
-      InvalidateRect(hwnd_, &logRect_, FALSE);
-      return 0;
-    }
+    case WM_KEYDOWN:
+      if (Active() && Active()->KeyDown(wParam)) return 0;
+      return DefWindowProcW(hwnd_, message, wParam, lParam);
 
     case WM_NCDESTROY: {
       HWND old = hwnd_;
       SetWindowLongPtrW(old, GWLP_USERDATA, 0);
       hwnd_ = nullptr;
-      searchEdit_ = nullptr;
       return DefWindowProcW(old, message, wParam, lParam);
     }
 

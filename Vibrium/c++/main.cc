@@ -156,6 +156,9 @@ public:
     // Command-line switch that tells child processes where the filter lists
     // and resources.json are, so a renderer can build its scriptlet engine.
     static constexpr char kScriptletDirSwitch[] = "vibrium-scriptlet-dir";
+    // Full path of the ad-block policy file (on/off switches, allowlist), so
+    // a renderer can follow changes made on the settings page.
+    static constexpr char kPolicyFileSwitch[] = "vibrium-policy-file";
 
     CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override {
         return this;
@@ -197,7 +200,9 @@ public:
         }
 
         command_line->AppendSwitchWithValue(
-            kScriptletDirSwitch, service.filter_dir());
+            kScriptletDirSwitch, service.engine_dir());
+        command_line->AppendSwitchWithValue(
+            kPolicyFileSwitch, service.policy_file());
     }
 
     void OnWebKitInitialized() override {
@@ -221,7 +226,7 @@ public:
         CefRefPtr<CefFrame> frame,
         CefRefPtr<CefV8Context> context) override {
         // First, before the page runs anything: see InjectScriptlets().
-        InjectScriptlets(frame, context);
+        InjectScriptlets(browser, frame, context);
 
         if (rendererRouter_) {
             rendererRouter_->OnContextCreated(browser, frame, context);
@@ -255,6 +260,7 @@ private:
     // guaranteed to be in place first. V8 evaluation is not subject to the
     // page's Content-Security-Policy.
     void InjectScriptlets(
+        CefRefPtr<CefBrowser> browser,
         CefRefPtr<CefFrame> frame,
         CefRefPtr<CefV8Context> context) {
         if (scriptletsUnavailable_ || !frame || !context) {
@@ -265,6 +271,33 @@ private:
 
         if (!vibrium::IsFilterableUrl(url)) {
             return;  // about:blank, file:, devtools, ...
+        }
+
+        // The user's switches (Settings > Ad blocker): ad blocking off,
+        // scriptlets off, or this page is on the "don't block" list. The
+        // policy file is polled, so a change reaches open tabs too.
+        if (!policyOpened_) {
+            policyOpened_ = true;
+            CefRefPtr<CefCommandLine> cmd =
+                CefCommandLine::GetGlobalCommandLine();
+            if (cmd && cmd->HasSwitch(kPolicyFileSwitch)) {
+                policy_.Open(vibrium::PathFromUtf8(
+                                 cmd->GetSwitchValue(kPolicyFileSwitch)
+                                     .ToString()),
+                             /*owner=*/false);
+            }
+        }
+        policy_.RefreshIfChanged();
+        // The allowlist is about the page in the address bar, not this frame.
+        std::string top = url;
+        if (browser) {
+            if (CefRefPtr<CefFrame> main_frame = browser->GetMainFrame()) {
+                const std::string main_url = main_frame->GetURL().ToString();
+                if (vibrium::IsFilterableUrl(main_url)) top = main_url;
+            }
+        }
+        if (!policy_.scriptlets_enabled() || policy_.ShouldBypass(top)) {
+            return;
         }
 
         if (!scriptlets_) {
@@ -302,6 +335,8 @@ private:
     CefRefPtr<CefMessageRouterRendererSide> rendererRouter_;
     std::unique_ptr<vibrium::ScriptletProvider> scriptlets_;
     bool scriptletsUnavailable_ = false;
+    vibrium::AdblockPolicy policy_;  // read-only copy, renderer process
+    bool policyOpened_ = false;
 
     IMPLEMENT_REFCOUNTING(VibriumApp);
 };
