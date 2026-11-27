@@ -115,6 +115,7 @@ class AdblockPolicy {
   std::set<std::string> disabled_lists_;
   std::filesystem::file_time_type loaded_time_{};
   bool loaded_time_valid_ = false;
+  uint64_t loaded_signature_ = 0;
 };
 
 }  // namespace vibrium
