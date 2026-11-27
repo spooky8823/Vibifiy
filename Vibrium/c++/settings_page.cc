@@ -40,7 +40,7 @@ bool IsSettingsUrl(const std::wstring& url) {
 SettingsPage::~SettingsPage() {
   if (hwnd_ && IsWindow(hwnd_)) DestroyWindow(hwnd_);
   sections_.clear();  // pages first: they were attached to this host
-  for (HFONT font : {fonts_.ui, fonts_.small, fonts_.label, fonts_.title,
+  for (HFONT font : {fonts_.regular, fonts_.small, fonts_.label, fonts_.title,
                      fonts_.stat, fonts_.brand, fonts_.mono}) {
     if (font) DeleteObject(font);
   }
@@ -86,7 +86,7 @@ bool SettingsPage::Create(HWND parent, HINSTANCE instance) {
 }
 
 void SettingsPage::CreateResources() {
-  fonts_.ui = MakeFont(15, FW_NORMAL, L"Segoe UI");
+  fonts_.regular = MakeFont(15, FW_NORMAL, L"Segoe UI");
   fonts_.small = MakeFont(12, FW_SEMIBOLD, L"Segoe UI");
   fonts_.label = MakeFont(13, FW_NORMAL, L"Segoe UI");
   fonts_.title = MakeFont(28, FW_SEMIBOLD, L"Segoe UI");
@@ -245,7 +245,7 @@ void SettingsPage::PaintSidebar(HDC hdc) {
     const COLORREF color = active ? RGB(255, 255, 255) : hover ? kText : kMuted;
     DrawTerminalIcon(hdc, r.left + 14, r.top + 12, color);
     DrawLabel(hdc, sections_[static_cast<size_t>(i)]->Name(),
-              RECT{r.left + 44, r.top, r.right - 8, r.bottom}, fonts_.ui, color,
+              RECT{r.left + 44, r.top, r.right - 8, r.bottom}, fonts_.regular, color,
               DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   }
 }
