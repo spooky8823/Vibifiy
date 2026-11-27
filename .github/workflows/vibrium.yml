@@ -7,7 +7,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  copilot-requests: write
 
 concurrency:
   group: vibrium-build-${{ github.ref }}
@@ -704,3 +705,99 @@ jobs:
             Vibrium/build/CMakeFiles/CMakeError.log
           if-no-files-found: warn
           retention-days: 7
+  # Release notes are Vibrium-specific, so keep generation in this workflow.
+  # The status gate also applies to manual runs of this workflow.
+  release-status:
+    name: Read Vibrium release status
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.status.outputs.enabled }}
+      version: ${{ steps.status.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Read Vibrium/Status.txt
+        id: status
+        shell: bash
+        run: |
+          file="Vibrium/Status.txt"
+          if [[ ! -f "$file" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Status.txt is missing; release notes are disabled."
+            exit 0
+          fi
+          status="$(sed 's/\r$//' "$file" | sed 's/[[:space:]]*$//')"
+          if [[ "$status" == "Development" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Development mode; release notes skipped."
+          elif [[ "$status" =~ ^Version[[:space:]]+([1-9][0-9]*)$ ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+            echo "Release notes enabled for Version ${BASH_REMATCH[1]}."
+          else
+            echo "Invalid Status.txt value: '$status'"
+            echo "Use Development or Version N (positive integer)."
+            exit 1
+          fi
+
+  release-notes:
+    name: Generate release notes with Copilot
+    needs: [build, release-status]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release-status.outputs.enabled == 'true' && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      copilot-requests: write
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Find previous Vibrium release tag
+        id: base
+        shell: bash
+        run: |
+          previous_tag="$(git tag --list 'vibrium-v*' --sort=-version:refname | head -n 1)"
+          if [[ -n "$previous_tag" ]]; then
+            echo "ref=$previous_tag" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Analyze changes and write release notes
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          VERSION: ${{ needs.release-status.outputs.version }}
+          BASE_REF: ${{ steps.base.outputs.ref }}
+        shell: bash
+        run: |
+          if [[ -z "$COPILOT_GITHUB_TOKEN" ]]; then
+            echo "Repository secret COPILOT_GITHUB_TOKEN is required."
+            exit 1
+          fi
+          if [[ -n "$BASE_REF" ]]; then
+            scope="Analyze commits and code diff from $BASE_REF to HEAD, limited to Vibrium/."
+          else
+            scope="This is the first release; analyze Vibrium/ and its available history."
+          fi
+          copilot -p "Write user-facing release notes for Vibrium Version $VERSION. $scope Inspect the actual code changes, not just commit messages. Include only supported user-visible features, improvements, and fixes. Do not invent details. Omit internal refactoring unless it affects users. Write Markdown to Vibrium/release-notes.md with headings Added, Improved, and Fixed, omitting empty sections. If there are no user-visible changes, say so briefly. Do not modify any other file." \
+            --allow-tool='shell(git:*)' --allow-tool=read --allow-tool=write --no-ask-user
+          test -s Vibrium/release-notes.md
+
+      - name: Commit generated release notes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Vibrium/release-notes.md
+          if git diff --cached --quiet; then
+            echo "Release notes are unchanged."
+            exit 0
+          fi
+          git commit -m "docs(vibrium): release notes for Version ${{ needs.release-status.outputs.version }} [skip ci]"
+          git push
