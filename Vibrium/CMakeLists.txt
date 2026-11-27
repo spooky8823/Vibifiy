@@ -80,6 +80,14 @@ add_executable(vibrium WIN32
     c++/settings/settings_console.h
     c++/settings/settings_section.cc
     c++/settings/settings_section.h
+    c++/settings/settings_about.cc
+    c++/settings/settings_about.h
+    c++/settings/settings_downloads.cc
+    c++/settings/settings_downloads.h
+    c++/settings/settings_privacy.cc
+    c++/settings/settings_privacy.h
+    c++/settings/settings_rows.cc
+    c++/settings/settings_rows.h
     c++/settings/settings_updates.cc
     c++/settings/settings_updates.h
     c++/native_page.cc

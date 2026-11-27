@@ -118,6 +118,8 @@ class AdblockService {
     kWriteFailed,
     kUnavailable,  // no writable filter directory
   };
+  // Resets every ad-blocker setting (not the custom rules) to its default.
+  void ResetUserSettings();
   std::string LoadCustomRules() const;
   CustomRulesStatus SaveCustomRules(const std::string& text);
 

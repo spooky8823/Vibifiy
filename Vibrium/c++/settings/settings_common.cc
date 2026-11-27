@@ -3,6 +3,8 @@
 #include <cwchar>
 #include <ctime>
 
+#include "theme.h"
+
 namespace vibrium::settings {
 
 std::wstring Utf8ToWide(const std::string& value) {
@@ -116,6 +118,37 @@ void DrawTerminalIcon(HDC hdc, int x, int y, COLORREF color) {
   LineTo(hdc, x + 16, y + 15);
   SelectObject(hdc, oldPen);
   DeleteObject(pen);
+}
+
+void DrawToggle(HDC hdc, const RECT& track, bool on, bool hover) {
+  const int h = track.bottom - track.top;
+  COLORREF fill = on ? Theme::Accent() : kPanel3;
+  if (on && hover) fill = Theme::Mix(Theme::Accent(), RGB(255, 255, 255), 14);
+  FillRound(hdc, track, h, fill, on ? fill : (hover ? Theme::Accent() : kBorderStrong));
+  const int d = h - 8;
+  const int left = on ? track.right - 4 - d : track.left + 4;
+  FillRound(hdc, RECT{left, track.top + 4, left + d, track.top + 4 + d}, d,
+            on ? RGB(255, 255, 255) : kMuted);
+}
+
+void DrawPill(HDC hdc, const RECT& r, const std::wstring& label, HFONT font,
+              bool primary, bool hover, bool enabled) {
+  COLORREF fill = kPanel3;
+  COLORREF border = kBorderStrong;
+  COLORREF text = RGB(255, 255, 255);
+  if (!enabled) {
+    fill = kPanel2;
+    border = kBorder;
+    text = kMuted;
+  } else if (primary) {
+    fill = hover ? Theme::Mix(Theme::Accent(), RGB(255, 255, 255), 14) : Theme::Accent();
+    border = fill;
+  } else if (hover) {
+    fill = kSoftStrong;
+    border = Theme::Accent();
+  }
+  FillRound(hdc, r, 14, fill, border);
+  DrawLabel(hdc, label, r, font, text, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
 }
 
 }  // namespace vibrium::settings

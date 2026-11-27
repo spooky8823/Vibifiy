@@ -166,6 +166,8 @@ foreach(_test IN ITEMS vibrium_native_tests vibrium_ffi_smoke_test)
     add_executable(${_test} EXCLUDE_FROM_ALL
       tests/native/adblock_wrapper_tests.cc
       c++/adblock/adblock_engine.cc
+      c++/adblock/adblock_history.cc
+      c++/adblock/adblock_policy.cc
       c++/adblock/scriptlet_engine.cc
       c++/adblock/request_policy.cc)
   else()

@@ -142,7 +142,7 @@ void AdblockPolicy::Open(const fs::path& file, bool owner) {
 
 // Caller holds mutex_.
 void AdblockPolicy::LoadLocked() {
-  bool enabled = true, cosmetic = true, scriptlets = true;
+  bool enabled = true, cosmetic = true, scriptlets = true, privacy = false;
   std::set<std::string> allowed;
   std::set<std::string> disabled;
 
@@ -169,6 +169,8 @@ void AdblockPolicy::LoadLocked() {
         cosmetic = value != "0";
       } else if (key == "scriptlets") {
         scriptlets = value != "0";
+      } else if (key == "privacy_headers") {
+        privacy = value == "1";
       } else if (key == "allow") {
         std::string host;
         if (allowed.size() < kMaxAllowedSites &&
@@ -184,6 +186,7 @@ void AdblockPolicy::LoadLocked() {
   enabled_.store(enabled);
   cosmetic_.store(cosmetic);
   scriptlets_.store(scriptlets);
+  privacy_headers_.store(privacy);
   allowed_ = std::move(allowed);
   disabled_lists_ = std::move(disabled);
   allow_count_.store(allowed_.size());
@@ -199,6 +202,7 @@ bool AdblockPolicy::SaveLocked() {
   text << "enabled=" << (enabled_.load() ? 1 : 0) << "\n";
   text << "cosmetic=" << (cosmetic_.load() ? 1 : 0) << "\n";
   text << "scriptlets=" << (scriptlets_.load() ? 1 : 0) << "\n";
+  text << "privacy_headers=" << (privacy_headers_.load() ? 1 : 0) << "\n";
   for (const std::string& name : disabled_lists_) {
     text << "disable_list=" << name << "\n";
   }
@@ -313,6 +317,28 @@ bool AdblockPolicy::SetScriptletsEnabled(bool value) {
   SaveLocked();
   ++revision_;
   return true;
+}
+
+bool AdblockPolicy::SetPrivacyHeaders(bool value) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (privacy_headers_.load() == value) return false;
+  privacy_headers_.store(value);
+  SaveLocked();
+  ++revision_;
+  return true;
+}
+
+void AdblockPolicy::ResetToDefaults() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  enabled_.store(true);
+  cosmetic_.store(true);
+  scriptlets_.store(true);
+  privacy_headers_.store(false);
+  allowed_.clear();
+  disabled_lists_.clear();
+  allow_count_.store(0);
+  SaveLocked();
+  ++revision_;
 }
 
 bool AdblockPolicy::SetListEnabled(const std::string& name, bool enabled) {

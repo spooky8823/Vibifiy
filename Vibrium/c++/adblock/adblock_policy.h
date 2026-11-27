@@ -59,6 +59,8 @@ class AdblockPolicy {
   bool blocking_enabled() const { return enabled_.load(); }
   bool cosmetic_enabled() const { return cosmetic_.load(); }
   bool scriptlets_enabled() const { return scriptlets_.load(); }
+  // Send "DNT: 1" and "Sec-GPC: 1" with every request (off by default).
+  bool privacy_headers_enabled() const { return privacy_headers_.load(); }
 
   // True when `page_url` (the top-level page) is on the allowlist, i.e. it is
   // the entry's host or a subdomain of it.
@@ -79,6 +81,10 @@ class AdblockPolicy {
   bool SetBlockingEnabled(bool value);
   bool SetCosmeticEnabled(bool value);
   bool SetScriptletsEnabled(bool value);
+  bool SetPrivacyHeaders(bool value);
+  // Everything back to the defaults: blocking, cosmetic filtering and
+  // scriptlets on, every list on, empty allowlist, privacy headers off.
+  void ResetToDefaults();
   bool SetListEnabled(const std::string& name, bool enabled);
   // `normalized` (optional) receives the stored entry. `already_present` is
   // set when the entry exists already.
@@ -99,6 +105,7 @@ class AdblockPolicy {
   std::atomic<bool> enabled_{true};
   std::atomic<bool> cosmetic_{true};
   std::atomic<bool> scriptlets_{true};
+  std::atomic<bool> privacy_headers_{false};
   std::atomic<size_t> allow_count_{0};
   std::atomic<uint64_t> revision_{0};
   std::atomic<int64_t> last_check_ms_{0};

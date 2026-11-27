@@ -155,44 +155,6 @@ bool StrictUtf8ToWide(const std::string& value, std::wstring* out) {
   return true;
 }
 
-RECT Inflated(RECT r, int dx, int dy) {
-  r.left -= dx; r.right += dx; r.top -= dy; r.bottom += dy;
-  return r;
-}
-
-// On/off switch drawn with the accent colour.
-void DrawToggle(HDC hdc, const RECT& track, bool on, bool hover) {
-  const int h = track.bottom - track.top;
-  COLORREF fill = on ? Theme::Accent() : kPanel3;
-  if (on && hover) fill = Theme::Mix(Theme::Accent(), RGB(255, 255, 255), 14);
-  FillRound(hdc, track, h, fill, on ? fill : (hover ? Theme::Accent() : kBorderStrong));
-  const int d = h - 8;
-  const int left = on ? track.right - 4 - d : track.left + 4;
-  FillRound(hdc, RECT{left, track.top + 4, left + d, track.top + 4 + d}, d,
-            on ? RGB(255, 255, 255) : kMuted);
-}
-
-// Same look as the console's toolbar buttons.
-void DrawPill(HDC hdc, const RECT& r, const std::wstring& label, HFONT font,
-              bool primary, bool hover, bool enabled = true) {
-  COLORREF fill = kPanel3;
-  COLORREF border = kBorderStrong;
-  COLORREF text = RGB(255, 255, 255);
-  if (!enabled) {
-    fill = kPanel2;
-    border = kBorder;
-    text = kMuted;
-  } else if (primary) {
-    fill = hover ? Theme::Mix(Theme::Accent(), RGB(255, 255, 255), 14) : Theme::Accent();
-    border = fill;
-  } else if (hover) {
-    fill = kSoftStrong;
-    border = Theme::Accent();
-  }
-  FillRound(hdc, r, 14, fill, border);
-  DrawLabel(hdc, label, r, font, text, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
-}
-
 // Single-line edit that reports Enter to its parent as a WM_COMMAND with
 // kEnterPressed, instead of beeping.
 LRESULT CALLBACK EnterEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -266,7 +228,7 @@ void AdblockSection::OnAttach() {
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAddEditId)),
       host_->instance(), nullptr);
   if (addEdit_) {
-    SendMessageW(addEdit_, WM_SETFONT, reinterpret_cast<WPARAM>(fonts().font_body_15px), TRUE);
+    SendMessageW(addEdit_, WM_SETFONT, reinterpret_cast<WPARAM>(fonts().ui), TRUE);
     SendMessageW(addEdit_, EM_LIMITTEXT, 253, 0);
     SubclassEnter(addEdit_);
   }
@@ -416,7 +378,7 @@ void AdblockSection::Layout(const RECT& area) {
   int textWidth[kTabCount];
   int textTotal = 0;
   for (int i = 0; i < kTabCount; ++i) {
-    textWidth[i] = TextWidth(dc, fonts().font_body_15px, kTabLabels[i]);
+    textWidth[i] = TextWidth(dc, fonts().ui, kTabLabels[i]);
     textTotal += textWidth[i];
   }
   ReleaseDC(host_->window(), dc);
@@ -484,8 +446,8 @@ void AdblockSection::LayoutOverview(const PageFrame& frame, int top) {
 void AdblockSection::LayoutLists(const PageFrame& frame, int top) {
   HDC dc = GetDC(host_->window());
   const int buttonWidth =
-      std::max(TextWidth(dc, fonts().font_body_15px, L"Update now"),
-               TextWidth(dc, fonts().font_body_15px, L"Checking...")) + 40;
+      std::max(TextWidth(dc, fonts().ui, L"Update now"),
+               TextWidth(dc, fonts().ui, L"Checking...")) + 40;
   ReleaseDC(host_->window(), dc);
 
   listSummary_ = RECT{frame.cx, top, frame.right - buttonWidth - 12, top + 38};
@@ -506,7 +468,7 @@ void AdblockSection::LayoutRules(const PageFrame& frame, int top) {
   rulesPanel_ = RECT{frame.cx, top + 44, frame.right, bottom};
 
   HDC dc = GetDC(host_->window());
-  auto widthOf = [&](const wchar_t* text) { return TextWidth(dc, fonts().font_body_15px, text) + 36; };
+  auto widthOf = [&](const wchar_t* text) { return TextWidth(dc, fonts().ui, text) + 36; };
   const int saveWidth = widthOf(L"Save & apply");
   const int importWidth = widthOf(L"Import file...");
   const int revertWidth = widthOf(L"Revert");
@@ -551,7 +513,7 @@ void AdblockSection::LayoutAllowlist(const PageFrame& frame, int top) {
 
 void AdblockSection::LayoutSessions(const PageFrame& frame, int top) {
   HDC dc = GetDC(host_->window());
-  const int clearWidth = TextWidth(dc, fonts().font_body_15px, L"Clear history") + 26;
+  const int clearWidth = TextWidth(dc, fonts().ui, L"Clear history") + 26;
   ReleaseDC(host_->window(), dc);
   hits_.Add(RECT{frame.right - clearWidth, chipsBox_.top, frame.right, chipsBox_.bottom},
             kHitClearHistory);
@@ -603,7 +565,7 @@ void AdblockSection::Paint(HDC hdc) {
             DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   DrawLabel(hdc,
             L"Block ads and trackers, manage filter lists and the sites you want left alone.",
-            subtitle_, f.font_body_15px, kMuted,
+            subtitle_, f.ui, kMuted,
             DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
   PaintChips(hdc);
 
@@ -629,13 +591,13 @@ void AdblockSection::PaintChips(HDC hdc) {
     } else if (hover) {
       FillRound(hdc, r, 10, kSoft);
     }
-    DrawLabel(hdc, kTabLabels[i], r, f.font_body_15px,
+    DrawLabel(hdc, kTabLabels[i], r, f.ui,
               selected ? RGB(255, 255, 255) : hover ? kText : kMuted,
               DT_SINGLELINE | DT_VCENTER | DT_CENTER);
   }
   if (tab_ == kSessions) {
     const RECT r = hits_.RectOf(kHitClearHistory);
-    DrawPill(hdc, r, L"Clear history", f.font_body_15px, false, hoverId_ == kHitClearHistory);
+    DrawPill(hdc, r, L"Clear history", f.ui, false, hoverId_ == kHitClearHistory);
   }
 }
 
@@ -686,7 +648,7 @@ void AdblockSection::PaintOverview(HDC hdc) {
     const RECT& r = statCards_[i];
     FillRound(hdc, r, 14, kPanel, kBorder);
     DrawLabel(hdc, labels[i], RECT{r.left + 16, r.top + 12, r.right - 10, r.top + 30},
-              f.font_small_12px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+              f.small, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
     DrawLabel(hdc, values[i], RECT{r.left + 16, r.top + 32, r.right - 10, r.bottom - 8},
               i == 3 ? f.brand : f.stat, kText,
               DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
@@ -721,7 +683,7 @@ void AdblockSection::PaintOverview(HDC hdc) {
                  rowTop + 45};
     DrawLabel(hdc, features[i].title,
               RECT{featuresCard_.left + 22, rowTop + 10, t.left - 16, rowTop + 34},
-              f.font_body_15px, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+              f.ui, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
     DrawLabel(hdc, features[i].description,
               RECT{featuresCard_.left + 22, rowTop + 34, t.left - 16, rowTop + 56},
               f.label, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
@@ -739,10 +701,10 @@ void AdblockSection::PaintLists(HDC hdc) {
   DrawLabel(hdc,
             FormatCount(lists_.size()) + L" lists  -  " + FormatCount(enabled) +
                 L" on  -  last updated " + (updatedText_.empty() ? L"never" : ToLower(updatedText_)),
-            listSummary_, f.font_body_15px, kMuted,
+            listSummary_, f.ui, kMuted,
             DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
   const bool canUpdate = AdblockService::Get().can_update_lists() && !updating_;
-  DrawPill(hdc, updateButton_, updating_ ? L"Checking..." : L"Update now", f.font_body_15px,
+  DrawPill(hdc, updateButton_, updating_ ? L"Checking..." : L"Update now", f.ui,
            true, hoverId_ == kHitUpdateNow && canUpdate, canUpdate);
 
   FillRound(hdc, listView_.rect, 14, kLogBg, kBorder);
@@ -753,7 +715,7 @@ void AdblockSection::PaintLists(HDC hdc) {
     DrawLabel(hdc, L"No filter lists found.",
               RECT{listView_.rect.left + 18, listView_.rect.top + 14,
                    listView_.rect.right - 18, listView_.rect.top + 44},
-              f.font_body_15px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+              f.ui, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   }
   for (int i = listView_.FirstVisible(); i <= listView_.LastVisible(); ++i) {
     const auto& list = lists_[static_cast<size_t>(i)];
@@ -776,7 +738,7 @@ void AdblockSection::PaintLists(HDC hdc) {
     }
     const int textLeft = listView_.rect.left + 18;
     DrawLabel(hdc, Utf8ToWide(list.title),
-              RECT{textLeft, y + 8, toggle.left - 16, y + 31}, f.font_body_15px,
+              RECT{textLeft, y + 8, toggle.left - 16, y + 31}, f.ui,
               list.enabled ? kText : kMuted,
               DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
     DrawLabel(hdc, detail, RECT{textLeft, y + 31, toggle.left - 16, y + 52}, f.label,
@@ -809,7 +771,7 @@ void AdblockSection::PaintRules(HDC hdc) {
                                {kHitRulesImport, L"Import file...", false},
                                {kHitRulesRevert, L"Revert", false}};
   for (const ButtonDef& b : buttons) {
-    DrawPill(hdc, hits_.RectOf(b.id), b.label, f.font_body_15px, b.primary, hoverId_ == b.id);
+    DrawPill(hdc, hits_.RectOf(b.id), b.label, f.ui, b.primary, hoverId_ == b.id);
   }
 
   const int rules = CountRules(EditText(rulesEdit_));
@@ -837,9 +799,9 @@ void AdblockSection::PaintAllowlist(HDC hdc) {
   if (!addEdit_ || !IsWindowVisible(addEdit_)) {
     DrawLabel(hdc, L"Add a site, for example example.com",
               RECT{addBox_.left + 16, addBox_.top, addBox_.right - 14, addBox_.bottom},
-              f.font_body_15px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+              f.ui, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
   }
-  DrawPill(hdc, hits_.RectOf(kHitAllowAdd), L"Add", f.font_body_15px, true, hoverId_ == kHitAllowAdd);
+  DrawPill(hdc, hits_.RectOf(kHitAllowAdd), L"Add", f.ui, true, hoverId_ == kHitAllowAdd);
 
   // ---- list
   FillRound(hdc, allowView_.rect, 14, kLogBg, kBorder);
@@ -850,7 +812,7 @@ void AdblockSection::PaintAllowlist(HDC hdc) {
     DrawLabel(hdc, L"No sites yet. Add one above to stop blocking ads there.",
               RECT{allowView_.rect.left + 18, allowView_.rect.top + 14,
                    allowView_.rect.right - 18, allowView_.rect.top + 44},
-              f.font_body_15px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+              f.ui, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   }
   for (int i = allowView_.FirstVisible(); i <= allowView_.LastVisible(); ++i) {
     const int y = allowView_.RowTop(i);
@@ -865,7 +827,7 @@ void AdblockSection::PaintAllowlist(HDC hdc) {
     DrawPill(hdc, remove, L"Remove", f.label, false, overRemove);
     DrawLabel(hdc, Utf8ToWide(sites_[static_cast<size_t>(i)]),
               RECT{allowView_.rect.left + 18, y, remove.left - 12, y + kSiteRowHeight},
-              f.font_body_15px, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+              f.ui, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
   }
   RestoreDC(hdc, saved);
   RECT thumb{};
@@ -901,7 +863,7 @@ void AdblockSection::PaintSessions(HDC hdc) {
     std::wstring title = DateLabel(s.start_ms);
     if (s.live) title = L"This session  -  " + title;
     DrawLabel(hdc, title, RECT{inner.left + 12, inner.top + 4, inner.right - 8, inner.top + 25},
-              f.font_body_15px, primary, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+              f.ui, primary, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
     DrawLabel(hdc,
               FormatCount(s.blocked) + L" blocked  -  " + FormatCount(s.allowed) +
                   L" allowed  -  " + DurationLabel(s.start_ms, s.end_ms),
@@ -917,7 +879,7 @@ void AdblockSection::PaintSessions(HDC hdc) {
   for (const auto& h : hosts_) total += h.count;
   DrawLabel(hdc, L"BLOCKED BY DOMAIN",
             RECT{hostHeader_.left + 4, hostHeader_.top, hostHeader_.right, hostHeader_.bottom},
-            f.font_small_12px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+            f.small, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   DrawLabel(hdc,
             FormatCount(total) + L" requests  -  " + FormatCount(hosts_.size()) + L" domains",
             RECT{hostHeader_.left, hostHeader_.top, hostHeader_.right - 4, hostHeader_.bottom},
@@ -931,7 +893,7 @@ void AdblockSection::PaintSessions(HDC hdc) {
     DrawLabel(hdc, L"Nothing was blocked in this session.",
               RECT{hostView_.rect.left + 18, hostView_.rect.top + 14,
                    hostView_.rect.right - 18, hostView_.rect.top + 44},
-              f.font_body_15px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+              f.ui, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   }
   const int countWidth = 90;
   for (int i = hostView_.FirstVisible(); i <= hostView_.LastVisible(); ++i) {

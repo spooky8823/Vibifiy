@@ -185,6 +185,11 @@ AdblockResourceRequestHandler::OnBeforeResourceLoad(
   if (!request) {
     return RV_CONTINUE;
   }
+  // Settings > Privacy: ask sites not to track (independent of ad blocking).
+  if (policy_ && policy_->privacy_headers_enabled()) {
+    request->SetHeaderByName("DNT", "1", true);
+    request->SetHeaderByName("Sec-GPC", "1", true);
+  }
   const AdblockEngine::Decision decision =
       Evaluate(browser, request, request->GetURL().ToString(),
                ToResourceKind(request->GetResourceType()));

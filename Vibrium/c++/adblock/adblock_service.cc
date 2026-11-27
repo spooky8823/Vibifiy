@@ -473,6 +473,11 @@ bool AdblockService::UpdateListsNow(
 // Custom rules
 // ---------------------------------------------------------------------------
 
+void AdblockService::ResetUserSettings() {
+  policy_->ResetToDefaults();
+  ReloadEngineAsync();
+}
+
 std::string AdblockService::LoadCustomRules() const {
   if (filter_dir_.empty()) return {};
   std::ifstream in(

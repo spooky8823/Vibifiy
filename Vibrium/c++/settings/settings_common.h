@@ -73,6 +73,16 @@ HFONT MakeFont(int pixelHeight, int weight, const wchar_t* face);
 // ">_" terminal glyph, 18x18, top-left at (x, y).
 void DrawTerminalIcon(HDC hdc, int x, int y, COLORREF color);
 
+inline RECT Inflated(RECT r, int dx, int dy) {
+  r.left -= dx; r.right += dx; r.top -= dy; r.bottom += dy;
+  return r;
+}
+// On/off switch drawn with the accent colour.
+void DrawToggle(HDC hdc, const RECT& track, bool on, bool hover);
+// Rounded button in the style of the console toolbar.
+void DrawPill(HDC hdc, const RECT& rect, const std::wstring& label, HFONT font,
+              bool primary, bool hover, bool enabled = true);
+
 // ---- hit areas -------------------------------------------------------------
 // Clickable rectangles registered while laying a page out. The first match
 // wins, like the original page's list.

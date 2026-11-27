@@ -285,20 +285,20 @@ void AppearanceSection::OnClick(int id) {
 void AppearanceSection::Paint(HDC hdc) {
   const SettingsFonts& f = fonts();
   DrawLabel(hdc, L"Appearance", title_, f.title, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-  DrawLabel(hdc, L"Choose the accent used throughout Vibrium.", subtitle_, f.font_body_15px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+  DrawLabel(hdc, L"Choose the accent used throughout Vibrium.", subtitle_, f.ui, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   const wchar_t* names[6] = {L"Blue", L"Teal", L"Green", L"Orange", L"Pink", L"Graphite"};
   for (int i=0;i<6;++i) {
     const bool selected = Theme::Accent() == kPaletteColors[i];
     FillRound(hdc, palette_[i], 12, kPaletteColors[i], selected ? kText : kBorderStrong, selected ? 3 : 1);
     RECT label{palette_[i].left-8,palette_[i].bottom+8,palette_[i].right+8,palette_[i].bottom+30};
-    DrawLabel(hdc,names[i],label,f.font_body_15px,kText,DT_SINGLELINE|DT_CENTER|DT_VCENTER);
+    DrawLabel(hdc,names[i],label,f.ui,kText,DT_SINGLELINE|DT_CENTER|DT_VCENTER);
   }
   FillRound(hdc, resetAccentRect_, 12, kPanel3, kBorderStrong);
-  DrawLabel(hdc, L"Reset to default", resetAccentRect_, f.font_body_15px, kText, DT_SINGLELINE|DT_CENTER|DT_VCENTER);
+  DrawLabel(hdc, L"Reset to default", resetAccentRect_, f.ui, kText, DT_SINGLELINE|DT_CENTER|DT_VCENTER);
   FillRound(hdc, customAccentRect_, 12, Theme::Accent(), Theme::Accent());
-  DrawLabel(hdc, L"Custom colour...", customAccentRect_, f.font_body_15px, RGB(255,255,255), DT_SINGLELINE|DT_CENTER|DT_VCENTER);
+  DrawLabel(hdc, L"Custom colour...", customAccentRect_, f.ui, RGB(255,255,255), DT_SINGLELINE|DT_CENTER|DT_VCENTER);
   std::wstring mode = Theme::IsManual() ? L"Using your saved Vibrium accent" : L"Using Vibrium's default accent. Windows colour settings are ignored.";
-  DrawLabel(hdc, mode, RECT{resetAccentRect_.left, 282, resetAccentRect_.right+260, 310}, f.font_body_15px, kMuted, DT_SINGLELINE|DT_VCENTER|DT_LEFT);
+  DrawLabel(hdc, mode, RECT{resetAccentRect_.left, 282, resetAccentRect_.right+260, 310}, f.ui, kMuted, DT_SINGLELINE|DT_VCENTER|DT_LEFT);
 }
 
 }  // namespace vibrium

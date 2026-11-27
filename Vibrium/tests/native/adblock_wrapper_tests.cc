@@ -16,6 +16,8 @@
 #include <vector>
 
 #include "adblock_engine.h"
+#include "adblock_history.h"
+#include "adblock_policy.h"
 #include "request_policy.h"
 #include "scriptlet_engine.h"
 
@@ -404,6 +406,118 @@ void TestEngineOutlivesHolder() {
 
 }  // namespace
 
+
+// ---- user controls: policy file, allowlist, history, custom rules -----------
+
+namespace fs = std::filesystem;
+
+void TestUserPolicy() {
+  using vibrium::AdblockPolicy;
+  std::string host;
+  Expect(vibrium::NormalizeSiteEntry("https://www.Example.com/a?b#c", &host) &&
+             host == "www.example.com",
+         "allowlist entry: scheme, path and case are stripped");
+  Expect(vibrium::NormalizeSiteEntry("*.example.com:8080", &host) &&
+             host == "example.com",
+         "allowlist entry: wildcard and port are stripped");
+  Expect(!vibrium::NormalizeSiteEntry("notahost", &host) &&
+             !vibrium::NormalizeSiteEntry("a..com", &host) &&
+             !vibrium::NormalizeSiteEntry("exa mple.com", &host),
+         "allowlist entry: junk is rejected");
+
+  const fs::path dir = fs::temp_directory_path() / "vibrium_policy_native_test";
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  const fs::path file = dir / "vibrium-policy.ini";
+
+  AdblockPolicy owner;
+  owner.Open(file, true);
+  Expect(owner.blocking_enabled() && owner.cosmetic_enabled() &&
+             owner.scriptlets_enabled() && !owner.privacy_headers_enabled(),
+         "policy defaults: blocking on, privacy headers off");
+  owner.AddAllowedSite("example.com", nullptr);
+  Expect(owner.IsSiteAllowed("https://example.com/") &&
+             owner.IsSiteAllowed("https://a.b.example.com/x") &&
+             !owner.IsSiteAllowed("https://notexample.com/") &&
+             !owner.IsSiteAllowed("https://example.com.evil.net/"),
+         "allowlist matches the site and its subdomains only");
+  owner.SetListEnabled("easylist", false);
+  owner.SetPrivacyHeaders(true);
+  owner.SetBlockingEnabled(false);
+  Expect(owner.ShouldBypass("https://anything.test/"),
+         "blocking off bypasses every site");
+
+  AdblockPolicy again;
+  again.Open(file, true);
+  Expect(!again.blocking_enabled() && !again.IsListEnabled("easylist") &&
+             again.privacy_headers_enabled() &&
+             again.IsSiteAllowed("https://example.com/"),
+         "policy survives a restart");
+
+  AdblockPolicy reader;
+  reader.Open(file, false);
+  owner.SetBlockingEnabled(true);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  reader.RefreshIfChanged();
+  Expect(reader.blocking_enabled(),
+         "a read-only copy (a renderer) follows later changes");
+
+  owner.ResetToDefaults();
+  Expect(owner.blocking_enabled() && owner.IsListEnabled("easylist") &&
+             owner.AllowedSites().empty() && !owner.privacy_headers_enabled(),
+         "reset restores every default");
+  fs::remove_all(dir);
+}
+
+void TestSessionHistory() {
+  using vibrium::AdblockHistory;
+  using Decision = AdblockEngine::Decision;
+  const fs::path dir = fs::temp_directory_path() / "vibrium_history_native_test";
+  fs::remove_all(dir);
+  const fs::path file = dir / "history.tsv";
+  {
+    AdblockHistory history;
+    history.Start(file);
+    for (int i = 0; i < 5; ++i) {
+      history.Record(Decision::kBlock, "https://ads.example.com/p?i=" + std::to_string(i));
+    }
+    history.Record(Decision::kBlock, "https://tracker.net/t.js");
+    history.Record(Decision::kAllow, "https://good.test/");
+    const auto summary = history.Summarize();
+    Expect(summary.sessions.size() == 1 && summary.sessions[0].live &&
+               summary.sessions[0].blocked == 6 && summary.sessions[0].allowed == 1,
+           "live session counts blocked and allowed");
+    const auto hosts = history.HostsFor(summary.sessions[0].id);
+    Expect(hosts.size() == 2 && hosts[0].host == "ads.example.com" &&
+               hosts[0].count == 5,
+           "blocked requests are grouped by domain, most frequent first");
+    history.Stop();
+  }
+  {
+    AdblockHistory history;
+    history.Start(file);
+    const auto summary = history.Summarize();
+    Expect(summary.sessions.size() == 2 && !summary.sessions[1].live &&
+               summary.sessions[1].blocked == 6 && summary.lifetime_blocked == 6,
+           "the previous session and the lifetime total survive a restart");
+    history.Clear();
+    Expect(history.Summarize().sessions.size() == 1 &&
+               history.Summarize().lifetime_blocked == 0,
+           "clearing forgets finished sessions");
+    history.Stop();
+  }
+  fs::remove_all(dir);
+}
+
+void TestCustomRuleValidation() {
+  Expect(AdblockEngine::FromRules("||ads.custom-test.example^\n! comment\n") != nullptr,
+         "custom rules: valid filters are accepted");
+  Expect(AdblockEngine::FromRules("this is just a sentence and not a rule at all\n"
+                                  "another line of plain words without any syntax\n"
+                                  "a third line of ordinary prose here\n") == nullptr,
+         "custom rules: prose is rejected, so it is never saved");
+}
+
 int main() {
   TestDecisionsAndFailOpen();
   TestCosmetic();
@@ -417,6 +531,9 @@ int main() {
   TestScriptletWrapper();
   TestConcurrentChecksWhileSwappingEngines();
   TestEngineOutlivesHolder();
+  TestUserPolicy();
+  TestSessionHistory();
+  TestCustomRuleValidation();
 
   if (failures != 0) {
     std::cerr << failures << " test(s) failed.\n";
