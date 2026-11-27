@@ -514,7 +514,7 @@ void ConsoleSection::Paint(HDC hdc) {
   DrawLabel(hdc, L"Console", title_, f.title, kText,
             DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   DrawLabel(hdc, L"Live ad-blocking decisions for the pages you open.",
-            subtitle_, f.ui, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+            subtitle_, f.font_body_15px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
 
   // ---- stat cards
   const wchar_t* labels[5] = {L"AD BLOCKING", L"BLOCKED", L"ALLOWED", L"ERRORS",
@@ -526,7 +526,7 @@ void ConsoleSection::Paint(HDC hdc) {
     const RECT& r = cards_[i];
     FillRound(hdc, r, 14, kPanel, kBorder);
     DrawLabel(hdc, labels[i], RECT{r.left + 16, r.top + 12, r.right - 10, r.top + 30},
-              f.small, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+              f.font_small_12px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
     RECT valueRect{r.left + 16, r.top + 32, r.right - 10, r.bottom - 8};
     if (i == 0) {
       const COLORREF dot = enabled_ ? kGood : kWarn;
@@ -567,7 +567,7 @@ void ConsoleSection::Paint(HDC hdc) {
     DrawLabel(hdc, L"Search URL, source page, or resource type...",
               RECT{searchBox_.left + 16, searchBox_.top, searchBox_.right - 14,
                    searchBox_.bottom},
-              f.ui, kMuted,
+              f.font_body_15px, kMuted,
               DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
   }
 
@@ -582,7 +582,7 @@ void ConsoleSection::Paint(HDC hdc) {
     } else if (hover) {
       FillRound(hdc, r, 10, kSoft);
     }
-    DrawLabel(hdc, kChipLabels[i], r, f.ui,
+    DrawLabel(hdc, kChipLabels[i], r, f.font_body_15px,
               selected ? RGB(255, 255, 255) : hover ? kText : kMuted,
               DT_SINGLELINE | DT_VCENTER | DT_CENTER);
   }
@@ -614,7 +614,7 @@ void ConsoleSection::Paint(HDC hdc) {
       border = Theme::Accent();
     }
     FillRound(hdc, r, 14, fill, border);
-    DrawLabel(hdc, button.label, r, f.ui, RGB(255, 255, 255),
+    DrawLabel(hdc, button.label, r, f.font_body_15px, RGB(255, 255, 255),
               DT_SINGLELINE | DT_VCENTER | DT_CENTER);
   }
 
@@ -654,7 +654,7 @@ void ConsoleSection::PaintLog(HDC hdc) {
                   : L"No events match the current search.",
               RECT{log_.rect.left + 18, log_.rect.top + 14, log_.rect.right - 18,
                    log_.rect.top + 44},
-              f.ui, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+              f.font_body_15px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   } else {
     const int count = static_cast<int>(visible_rows_.size());
     const int first = std::max(0, log_.scrollY / kRowHeight);
