@@ -77,7 +77,7 @@ void ConsoleSection::OnAttach() {
       host_->instance(), nullptr);
   if (searchEdit_) {
     SendMessageW(searchEdit_, WM_SETFONT,
-                 reinterpret_cast<WPARAM>(fonts().ui), TRUE);
+                 reinterpret_cast<WPARAM>(fonts().regular), TRUE);
   }
 }
 
@@ -144,7 +144,7 @@ void ConsoleSection::Layout(const RECT& area) {
 
   HDC dc = GetDC(host_->window());
   auto buttonWidth = [&](const std::wstring& text) {
-    return TextWidth(dc, fonts().ui, text) + 26;
+    return TextWidth(dc, fonts().regular, text) + 26;
   };
   pauseLabel_ = paused_ ? L"Resume" : L"Pause";
   const int pauseWidth = std::max(buttonWidth(L"Pause"), buttonWidth(L"Resume"));
@@ -154,7 +154,7 @@ void ConsoleSection::Layout(const RECT& area) {
   int chipWidth[4];
   int chipsTotal = 6;
   for (int i = 0; i < 4; ++i) {
-    chipWidth[i] = TextWidth(dc, fonts().ui, kChipLabels[i]) + 22;
+    chipWidth[i] = TextWidth(dc, fonts().regular, kChipLabels[i]) + 22;
     chipsTotal += chipWidth[i];
   }
   ReleaseDC(host_->window(), dc);
