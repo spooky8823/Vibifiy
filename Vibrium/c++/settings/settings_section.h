@@ -24,7 +24,7 @@ namespace vibrium {
 
 struct SettingsFonts {
   HFONT ui = nullptr;     // 15px
-  HFONT small = nullptr;  // 12px semibold
+  HFONT font_small_12px = nullptr;  // 12px semibold
   HFONT label = nullptr;  // 13px
   HFONT title = nullptr;  // 28px semibold
   HFONT stat = nullptr;   // 24px semibold

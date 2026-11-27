@@ -51,7 +51,7 @@ void UpdatesSection::Paint(HDC hdc) {
             f.ui, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
   FillRound(hdc, updateCard_, 14, kPanel, kBorder);
   DrawLabel(hdc, L"INSTALLED BUILD", RECT{updateCard_.left + 22, updateCard_.top + 16, updateCard_.right - 22, updateCard_.top + 34},
-            f.small, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+            f.font_small_12px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   DrawLabel(hdc, installedBuild_, RECT{updateCard_.left + 22, updateCard_.top + 34, updateCard_.right - 22, updateCard_.top + 62},
             f.brand, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
   DrawLabel(hdc, L"Vibrium closes, downloads and installs the latest build, then reopens by itself.",

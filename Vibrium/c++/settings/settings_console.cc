@@ -526,7 +526,7 @@ void ConsoleSection::Paint(HDC hdc) {
     const RECT& r = cards_[i];
     FillRound(hdc, r, 14, kPanel, kBorder);
     DrawLabel(hdc, labels[i], RECT{r.left + 16, r.top + 12, r.right - 10, r.top + 30},
-              f.small, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+              f.font_small_12px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
     RECT valueRect{r.left + 16, r.top + 32, r.right - 10, r.bottom - 8};
     if (i == 0) {
       const COLORREF dot = enabled_ ? kGood : kWarn;

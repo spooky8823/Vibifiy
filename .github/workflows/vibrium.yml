@@ -110,7 +110,7 @@ jobs:
           sudo sysctl -w vm.mmap_rnd_bits=28
           LIB=rust/target/release/libvibrium_adblock.a
           FLAGS="-std=c++17 -Wall -Wextra -g -O1 -Ic++/adblock -Irust/vibrium-adblock/include"
-          SRC="c++/adblock/adblock_engine.cc c++/adblock/request_policy.cc c++/adblock/scriptlet_engine.cc"
+          SRC="c++/adblock/adblock_engine.cc c++/adblock/adblock_history.cc c++/adblock/adblock_policy.cc c++/adblock/request_policy.cc c++/adblock/scriptlet_engine.cc"
           for san in address,undefined thread; do
             echo "::group::sanitizer $san"
             g++ $FLAGS -fsanitize=$san $SRC tests/native/adblock_wrapper_tests.cc \

@@ -648,7 +648,7 @@ void AdblockSection::PaintOverview(HDC hdc) {
     const RECT& r = statCards_[i];
     FillRound(hdc, r, 14, kPanel, kBorder);
     DrawLabel(hdc, labels[i], RECT{r.left + 16, r.top + 12, r.right - 10, r.top + 30},
-              f.small, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+              f.font_small_12px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
     DrawLabel(hdc, values[i], RECT{r.left + 16, r.top + 32, r.right - 10, r.bottom - 8},
               i == 3 ? f.brand : f.stat, kText,
               DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
@@ -879,7 +879,7 @@ void AdblockSection::PaintSessions(HDC hdc) {
   for (const auto& h : hosts_) total += h.count;
   DrawLabel(hdc, L"BLOCKED BY DOMAIN",
             RECT{hostHeader_.left + 4, hostHeader_.top, hostHeader_.right, hostHeader_.bottom},
-            f.small, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+            f.font_small_12px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   DrawLabel(hdc,
             FormatCount(total) + L" requests  -  " + FormatCount(hosts_.size()) + L" domains",
             RECT{hostHeader_.left, hostHeader_.top, hostHeader_.right - 4, hostHeader_.bottom},
