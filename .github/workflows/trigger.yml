@@ -25,12 +25,38 @@ jobs:
       vibipass: ${{ steps.filter.outputs.vibipass }}
       vibrium: ${{ steps.filter.outputs.vibrium }}
       vibiclaw: ${{ steps.filter.outputs.vibiclaw }}
+      release_notes: ${{ steps.status.outputs.release_notes }}
+      version: ${{ steps.status.outputs.version }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Read Vibrium status
+        id: status
+        shell: bash
+        run: |
+          status_file="Vibrium/Status.txt"
+          if [[ ! -f "$status_file" ]]; then
+            echo "release_notes=false" >> "$GITHUB_OUTPUT"
+            echo "Status.txt is missing. Release notes are disabled."
+            exit 0
+          fi
+          status="$(tr -d '\\r' < "$status_file" | sed 's/[[:space:]]*$//')"
+          if [[ "$status" == "Development" ]]; then
+            echo "release_notes=false" >> "$GITHUB_OUTPUT"
+            echo "Vibrium is in Development mode. Release notes are skipped."
+          elif [[ "$status" =~ ^Version[[:space:]]+([1-9][0-9]*)$ ]]; then
+            echo "release_notes=true" >> "$GITHUB_OUTPUT"
+            echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+            echo "Vibrium release notes enabled for Version ${BASH_REMATCH[1]}."
+          else
+            echo "Invalid Vibrium/Status.txt value: '$status'"
+            echo "Use exactly 'Development' or 'Version N' where N is a positive integer."
+            exit 1
+          fi
 
       - name: Detect changed apps
         id: filter
@@ -45,6 +71,18 @@ jobs:
 
             vibiclaw:
               - 'VibiClaw/**'
+
+  generate-vibrium-release-notes:
+    name: Generate Vibrium release notes with Copilot
+    needs: [detect-changes, build-vibrium]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-changes.outputs.release_notes == 'true' && needs.detect-changes.outputs.vibrium == 'true' && needs.build-vibrium.result == 'success' }}
+    uses: ./.github/workflows/release-notes.yml
+    with:
+      version: ${{ needs.detect-changes.outputs.version }}
+    secrets: inherit
+    permissions:
+      contents: write
+      copilot-requests: write
 
   build-vibipass:
     name: Build VibiPass
