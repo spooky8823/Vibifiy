@@ -48,7 +48,7 @@ void UpdatesSection::Paint(HDC hdc) {
   const SettingsFonts& f = fonts();
   DrawLabel(hdc, L"Updates", title_, f.title, kText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
   DrawLabel(hdc, L"Install the newest Vibrium build made by CI. Nothing is compiled on this computer.", subtitle_,
-            f.ui, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+            f.font_body_15px, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
   FillRound(hdc, updateCard_, 14, kPanel, kBorder);
   DrawLabel(hdc, L"INSTALLED BUILD", RECT{updateCard_.left + 22, updateCard_.top + 16, updateCard_.right - 22, updateCard_.top + 34},
             f.small, kMuted, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
@@ -60,7 +60,7 @@ void UpdatesSection::Paint(HDC hdc) {
   const bool hover = hoverId_ == kHitUpdate;
   const COLORREF fill = hover ? Theme::Mix(Theme::Accent(), RGB(255, 255, 255), 14) : Theme::Accent();
   FillRound(hdc, updateButton_, 14, fill, fill);
-  DrawLabel(hdc, L"Update Vibrium Browser", updateButton_, f.ui, RGB(255, 255, 255),
+  DrawLabel(hdc, L"Update Vibrium Browser", updateButton_, f.font_body_15px, RGB(255, 255, 255),
             DT_SINGLELINE | DT_VCENTER | DT_CENTER);
   if (!flash_.empty()) {
     DrawLabel(hdc, flash_, footer_, f.label, Theme::Accent(), DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
