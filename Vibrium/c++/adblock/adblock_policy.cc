@@ -162,7 +162,7 @@ void AdblockPolicy::LoadLocked() {
     // Filesystems used in CI and on some user devices have coarse timestamp
     // resolution. The policy may be atomically replaced twice with the same
     // mtime, so track content as well as the timestamp.
-    loaded_signature_ = std::hash<std::string>{}(contents);
+    loaded_contents_ = contents;
     std::istringstream lines(contents);
     std::string line;
     while (std::getline(lines, line)) {
@@ -257,18 +257,17 @@ void AdblockPolicy::RefreshIfChanged() {
 
   // Compare the bytes too: last_write_time can remain unchanged when a file
   // is replaced within the filesystem's timestamp-resolution window.
-  uint64_t signature = 0;
+  std::string contents;
   if (exists) {
     std::ifstream in(file_, std::ios::binary);
-    const std::string contents((std::istreambuf_iterator<char>(in)),
-                               std::istreambuf_iterator<char>());
-    signature = std::hash<std::string>{}(contents);
+    contents.assign(std::istreambuf_iterator<char>(in),
+                   std::istreambuf_iterator<char>());
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
   if (exists == loaded_time_valid_ &&
       (!exists || (stamp == loaded_time_ &&
-                   signature == loaded_signature_))) {
+                   contents == loaded_contents_))) {
     return;
   }
   LoadLocked();
