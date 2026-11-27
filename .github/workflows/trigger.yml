@@ -72,18 +72,6 @@ jobs:
             vibiclaw:
               - 'VibiClaw/**'
 
-  generate-vibrium-release-notes:
-    name: Generate Vibrium release notes with Copilot
-    needs: [detect-changes, build-vibrium]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-changes.outputs.release_notes == 'true' && needs.detect-changes.outputs.vibrium == 'true' && needs.build-vibrium.result == 'success' }}
-    uses: ./.github/workflows/release-notes.yml
-    with:
-      version: ${{ needs.detect-changes.outputs.version }}
-    secrets: inherit
-    permissions:
-      contents: write
-      copilot-requests: write
-
   build-vibipass:
     name: Build VibiPass
     needs: detect-changes
