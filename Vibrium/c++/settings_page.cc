@@ -40,7 +40,7 @@ bool IsSettingsUrl(const std::wstring& url) {
 SettingsPage::~SettingsPage() {
   if (hwnd_ && IsWindow(hwnd_)) DestroyWindow(hwnd_);
   sections_.clear();  // pages first: they were attached to this host
-  for (HFONT font : {fonts_.font_body_15px, fonts_.small, fonts_.label, fonts_.title,
+  for (HFONT font : {fonts_.font_body_15px, fonts_.font_small_12px, fonts_.label, fonts_.title,
                      fonts_.stat, fonts_.brand, fonts_.mono}) {
     if (font) DeleteObject(font);
   }
@@ -87,7 +87,7 @@ bool SettingsPage::Create(HWND parent, HINSTANCE instance) {
 
 void SettingsPage::CreateResources() {
   fonts_.font_body_15px = MakeFont(15, FW_NORMAL, L"Segoe UI");
-  fonts_.small = MakeFont(12, FW_SEMIBOLD, L"Segoe UI");
+  fonts_.font_small_12px = MakeFont(12, FW_SEMIBOLD, L"Segoe UI");
   fonts_.label = MakeFont(13, FW_NORMAL, L"Segoe UI");
   fonts_.title = MakeFont(28, FW_SEMIBOLD, L"Segoe UI");
   fonts_.stat = MakeFont(24, FW_SEMIBOLD, L"Segoe UI");
