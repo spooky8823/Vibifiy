@@ -140,8 +140,6 @@ target_sources(vibrium PRIVATE
   c++/adblock/adblock_engine.h
   c++/adblock/adblock_handler.cc
   c++/adblock/adblock_handler.h
-  c++/adblock/adblock_history.cc
-  c++/adblock/adblock_history.h
   c++/adblock/adblock_policy.cc
   c++/adblock/adblock_policy.h
   c++/adblock/adblock_service.cc
