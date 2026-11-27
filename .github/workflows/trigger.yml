@@ -44,7 +44,7 @@ jobs:
             echo "Status.txt is missing. Release notes are disabled."
             exit 0
           fi
-          status="$(tr -d '\\r' < "$status_file" | sed 's/[[:space:]]*$//')"
+          status="$(sed 's/\r$//' "$status_file" | sed 's/[[:space:]]*$//')"
           if [[ "$status" == "Development" ]]; then
             echo "release_notes=false" >> "$GITHUB_OUTPUT"
             echo "Vibrium is in Development mode. Release notes are skipped."
