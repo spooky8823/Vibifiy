@@ -771,15 +771,11 @@ jobs:
 
       - name: Analyze changes and write release notes
         env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.release-status.outputs.version }}
           BASE_REF: ${{ steps.base.outputs.ref }}
         shell: bash
         run: |
-          if [[ -z "$COPILOT_GITHUB_TOKEN" ]]; then
-            echo "Repository secret COPILOT_GITHUB_TOKEN is required."
-            exit 1
-          fi
           if [[ -n "$BASE_REF" ]]; then
             scope="Analyze commits and code diff from $BASE_REF to HEAD, limited to Vibrium/."
           else
