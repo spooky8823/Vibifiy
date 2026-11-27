@@ -266,7 +266,7 @@ void AdblockSection::OnAttach() {
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAddEditId)),
       host_->instance(), nullptr);
   if (addEdit_) {
-    SendMessageW(addEdit_, WM_SETFONT, reinterpret_cast<WPARAM>(fonts().ui), TRUE);
+    SendMessageW(addEdit_, WM_SETFONT, reinterpret_cast<WPARAM>(fonts().regular), TRUE);
     SendMessageW(addEdit_, EM_LIMITTEXT, 253, 0);
     SubclassEnter(addEdit_);
   }
@@ -416,7 +416,7 @@ void AdblockSection::Layout(const RECT& area) {
   int textWidth[kTabCount];
   int textTotal = 0;
   for (int i = 0; i < kTabCount; ++i) {
-    textWidth[i] = TextWidth(dc, fonts().ui, kTabLabels[i]);
+    textWidth[i] = TextWidth(dc, fonts().regular, kTabLabels[i]);
     textTotal += textWidth[i];
   }
   ReleaseDC(host_->window(), dc);
@@ -484,8 +484,8 @@ void AdblockSection::LayoutOverview(const PageFrame& frame, int top) {
 void AdblockSection::LayoutLists(const PageFrame& frame, int top) {
   HDC dc = GetDC(host_->window());
   const int buttonWidth =
-      std::max(TextWidth(dc, fonts().ui, L"Update now"),
-               TextWidth(dc, fonts().ui, L"Checking...")) + 40;
+      std::max(TextWidth(dc, fonts().regular, L"Update now"),
+               TextWidth(dc, fonts().regular, L"Checking...")) + 40;
   ReleaseDC(host_->window(), dc);
 
   listSummary_ = RECT{frame.cx, top, frame.right - buttonWidth - 12, top + 38};
@@ -506,7 +506,7 @@ void AdblockSection::LayoutRules(const PageFrame& frame, int top) {
   rulesPanel_ = RECT{frame.cx, top + 44, frame.right, bottom};
 
   HDC dc = GetDC(host_->window());
-  auto widthOf = [&](const wchar_t* text) { return TextWidth(dc, fonts().ui, text) + 36; };
+  auto widthOf = [&](const wchar_t* text) { return TextWidth(dc, fonts().regular, text) + 36; };
   const int saveWidth = widthOf(L"Save & apply");
   const int importWidth = widthOf(L"Import file...");
   const int revertWidth = widthOf(L"Revert");
@@ -551,7 +551,7 @@ void AdblockSection::LayoutAllowlist(const PageFrame& frame, int top) {
 
 void AdblockSection::LayoutSessions(const PageFrame& frame, int top) {
   HDC dc = GetDC(host_->window());
-  const int clearWidth = TextWidth(dc, fonts().ui, L"Clear history") + 26;
+  const int clearWidth = TextWidth(dc, fonts().regular, L"Clear history") + 26;
   ReleaseDC(host_->window(), dc);
   hits_.Add(RECT{frame.right - clearWidth, chipsBox_.top, frame.right, chipsBox_.bottom},
             kHitClearHistory);
