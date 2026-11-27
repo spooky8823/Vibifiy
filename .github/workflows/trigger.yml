@@ -15,6 +15,7 @@ on:
 permissions:
   contents: write
   pull-requests: read
+  copilot-requests: write
 
 jobs:
   detect-changes:
@@ -87,6 +88,7 @@ jobs:
     uses: ./.github/workflows/vibrium.yml
     permissions:
       contents: write
+      copilot-requests: write
 
   build-vibiclaw:
     name: Build VibiClaw (Windows)
