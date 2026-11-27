@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <functional>
+#include <iterator>
 #include <sstream>
 #include <system_error>
 
@@ -155,8 +157,15 @@ void AdblockPolicy::LoadLocked() {
       loaded_time_valid_ = true;
     }
     std::ifstream in(file_, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(in)),
+                               std::istreambuf_iterator<char>());
+    // Filesystems used in CI and on some user devices have coarse timestamp
+    // resolution. The policy may be atomically replaced twice with the same
+    // mtime, so track content as well as the timestamp.
+    loaded_contents_ = contents;
+    std::istringstream lines(contents);
     std::string line;
-    while (std::getline(in, line)) {
+    while (std::getline(lines, line)) {
       line = TrimAscii(line);
       if (line.empty() || line[0] == '#') continue;
       const size_t eq = line.find('=');
@@ -246,8 +255,19 @@ void AdblockPolicy::RefreshIfChanged() {
   const auto stamp = fs::last_write_time(file_, ec);
   const bool exists = !ec;
 
+  // Compare the bytes too: last_write_time can remain unchanged when a file
+  // is replaced within the filesystem's timestamp-resolution window.
+  std::string contents;
+  if (exists) {
+    std::ifstream in(file_, std::ios::binary);
+    contents.assign(std::istreambuf_iterator<char>(in),
+                   std::istreambuf_iterator<char>());
+  }
+
   std::lock_guard<std::mutex> lock(mutex_);
-  if (exists == loaded_time_valid_ && (!exists || stamp == loaded_time_)) {
+  if (exists == loaded_time_valid_ &&
+      (!exists || (stamp == loaded_time_ &&
+                   contents == loaded_contents_))) {
     return;
   }
   LoadLocked();

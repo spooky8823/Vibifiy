@@ -456,7 +456,11 @@ void TestUserPolicy() {
 
   AdblockPolicy reader;
   reader.Open(file, false);
+  const auto reader_stamp = fs::last_write_time(file);
   owner.SetBlockingEnabled(true);
+  // Simulate a filesystem whose timestamp resolution is too coarse to show
+  // this replacement. Refresh must still notice the changed file contents.
+  fs::last_write_time(file, reader_stamp);
   std::this_thread::sleep_for(std::chrono::milliseconds(1100));
   reader.RefreshIfChanged();
   Expect(reader.blocking_enabled(),
